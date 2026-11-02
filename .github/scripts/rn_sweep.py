@@ -27,9 +27,10 @@ stays under --root, outside the repository; each app's build folders are deleted
 
 Usage (Mac):
   rn_sweep.py container [--root R]           create the Linux container (the volume's layout below)
-  rn_sweep.py run [--root R] [--keep] [--keep-failed H] [--resume] [app ...]   every step, one app after the other (the next
-                                             one installs while the current one builds); --resume leaves out
-                                             the apps that finished, except installs the network stopped
+  rn_sweep.py run [--root R] [--keep] [--keep-failed H] [--resume] [--installers N] [app ...]
+                                             every step; the Linux steps one app after the other, N apps
+                                             installing ahead; --resume leaves out the apps that finished,
+                                             except installs the network stopped
   rn_sweep.py prepare [--keep] [app ...]     the Mac steps only (install, survey), the copy deleted after
   rn_sweep.py install|survey [app ...]       one Mac step, the copy kept
   rn_sweep.py report [--root R]              tables: steps, apps, failure classes, survey, requirements
@@ -45,6 +46,7 @@ apps (the apps at their Mac paths) and dd (build folders). Results: <root>/resul
 import argparse
 import base64
 import concurrent.futures
+import contextlib
 import gzip
 import hashlib
 import json
@@ -54,6 +56,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -71,6 +74,7 @@ NOMAC = WORK / "bin/current/nomac"
 DEVELOPER_DIR = WORK / "devdir/Xcode_27.app/Contents/Developer"
 MIN_FREE = 15 << 30
 MIN_FREE_MAC = 10 << 30
+MANIFEST_LOCK, POD_LOCK = threading.Lock(), threading.Lock()
 LOCKFILES = [("bun.lock", "bun"), ("bun.lockb", "bun"), ("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"),
              ("package-lock.json", "npm")]
 SKIPPED = {".git", "build", "DerivedData", ".expo"}
@@ -113,9 +117,15 @@ def load_result(root, app_id):
 
 
 def save_result(root, result):
-    path = results_path(root, result["id"])
+    write_atomically(results_path(root, result["id"]), json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+
+def write_atomically(path, text):
+    """Writes text to path through a rename, so that the other threads never read half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    temporary = path.with_name(f".{path.name}.{threading.get_ident()}")
+    temporary.write_text(text)
+    temporary.replace(path)
 
 
 def run(argv, cwd, env, log_path, timeout=None):
@@ -330,24 +340,31 @@ def install(root, entry, env):
         stages.append(("prebuild", ["npx", "expo", "prebuild", "--platform", "ios", "--no-install"], app, env))
     stages.append(("pods", ["pod", "install"], app / "ios", env))
     notes = example_environment(app, top)
+    timings = {}
     for stage, argv, cwd, stage_env in stages:
         offset = log_path.stat().st_size if log_path.exists() else 0
-        status = run_online(argv, cwd, stage_env, log_path) if cwd.is_dir() else 1
+        stage_started = time.time()
+        with POD_LOCK if stage == "pods" else contextlib.nullcontext():
+            status = run_online(argv, cwd, stage_env, log_path) if cwd.is_dir() else 1
         if status != 0 and stage == "packages" and argv[0] == "npm" and "ERESOLVE" in log_path.read_text(errors="replace")[-20000:]:
             notes.append("npm --legacy-peer-deps (the packages' peer dependencies conflict: ERESOLVE)")
             status = run_online(argv + ["--legacy-peer-deps"], cwd, stage_env, log_path)
+        timings[stage] = round(time.time() - stage_started)
         if status != 0:
             save_versions(result, app, top, manager, declared, lockfile)
             network = bool(NETWORK_ERRORS.search(log_path.read_bytes()[offset:].decode(errors="replace")))
-            step(result, "install", False, started, stage=stage, error=tail_error(log_path, offset=offset), notes=notes, network=network)
+            step(result, "install", False, started, stage=stage, error=tail_error(log_path, offset=offset), notes=notes,
+                 network=network, stages=timings)
             return save_result(root, result)
     save_versions(result, app, top, manager, declared, lockfile)
     try:
         added = linux_packages(top, log_path)
     except (OSError, ValueError) as error:
-        step(result, "install", False, started, stage="linux-packages", error=str(error)[:400])
+        step(result, "install", False, started, stage="linux-packages", error=str(error)[:400],
+             network="could not download" in str(error), stages=timings)
         return save_result(root, result)
-    step(result, "install", True, started, linuxPackages=len(added), prebuild=any(s[0] == "prebuild" for s in stages), notes=notes)
+    step(result, "install", True, started, linuxPackages=len(added), prebuild=any(s[0] == "prebuild" for s in stages), notes=notes,
+         stages=timings)
     (out / "linux-packages.txt").write_text("".join(f"{path}\n" for path in added))
     save_result(root, result)
 
@@ -356,10 +373,11 @@ def save_versions(result, app, top, manager, declared, lockfile):
     """Records the versions the install resolved, in the result and in the manifest's entry."""
     versions = {"react-native": installed_version(app, top, "react-native"), "expo": installed_version(app, top, "expo")}
     result["versions"] = dict(versions, packageManager=declared, lockfile=lockfile)
-    data = manifest()
-    entry = next(e for e in data["apps"] if e["id"] == result["id"])
-    entry.update({key: value for key, value in versions.items() if value})
-    MANIFEST.write_text(json.dumps(data, indent=2) + "\n")
+    with MANIFEST_LOCK:
+        data = manifest()
+        entry = next(e for e in data["apps"] if e["id"] == result["id"])
+        entry.update({key: value for key, value in versions.items() if value})
+        write_atomically(MANIFEST, json.dumps(data, indent=2) + "\n")
 
 
 def package_manifests(top):
@@ -927,17 +945,18 @@ def purge_kept(root, hours):
 
 
 def run_all(root, apps, args, env):
-    """Every step of each app, one after the other; the next app installs on the Mac while the
-    current one builds on Linux."""
+    """Every step of each app, the Linux steps one app after the other; up to `--installers` apps
+    install on the Mac ahead of the one building on Linux (installs wait on the network, builds on
+    the CPU), one `pod install` at a time (CocoaPods' cache is shared)."""
     if args.resume:
         apps = [entry for entry in apps if not load_result(root, entry["id"]).get("finished")
                 or load_result(root, entry["id"])["steps"].get("install", {}).get("network")]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as mac:
-        installing = mac.submit(mac_steps, root, apps[0], args, env) if apps else None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.installers) as mac:
+        installs = []
         for index, entry in enumerate(apps):
-            installing.result()
-            if index + 1 < len(apps):
-                installing = mac.submit(mac_steps, root, apps[index + 1], args, env)
+            while len(installs) < min(index + 1 + args.installers, len(apps)):
+                installs.append(mac.submit(mac_steps, root, apps[len(installs)], args, env))
+            installs[index].result()
             linux_steps(root, entry, args)
 
 
@@ -1028,6 +1047,7 @@ def main():
                         help="script_phase_survey.py (default: beside this script)")
     parser.add_argument("--keep", action="store_true", help="run: keep the Mac's copy of each app")
     parser.add_argument("--resume", action="store_true", help="run: leave out the apps whose run finished")
+    parser.add_argument("--installers", type=int, default=3, help="run: apps installing on the Mac at once, ahead of the Linux build")
     parser.add_argument("--keep-failed", type=float, default=6, metavar="HOURS",
                         help="run: keep the Mac's checkout of an app that fails after its install for HOURS (0: none)")
     args = parser.parse_intermixed_args()
