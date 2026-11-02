@@ -8,10 +8,9 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 
 ## Current step
 
-First batch done on main `b225fc0c`: 10 of Expo's examples and 5 open-source apps (Results), every
-failure classified and routed (Classes). Next: bluesky (its fetch failed on the network) and
-expo-with-maps again (a crash that may be a race), then every Expo example and the other 29 apps of
-the manifest, B-043.
+Batch 1 (10 of Expo's examples, 5 apps) done on main `b225fc0c` and routed (Results, Classes).
+Running: all 106 apps of the manifest on main `c2ad7afd` (`results-batch1-b225fc0c/` keeps batch
+1's records). Next: its table, B-043.
 
 ## The apps
 
@@ -43,7 +42,9 @@ output as it runs, between other tasks' output). Classes starting `app:` fail wi
 JavaScript import of a package the app does not install). The next app installs on the Mac while
 the current one builds; each app's Mac copy is deleted once copied into the container, the
 container's copy and build folders after its run, the logs gzipped; results stay in
-`~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). Builds wait for 10 GB free on
+`~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). The Mac checkout of an app
+that fails after its install is kept for 6 hours (`--keep-failed`), for other agents to look at,
+then deleted (sooner when the Mac runs short of space); its result names it. Builds wait for 10 GB free on
 the Mac and 15 GB in Docker (agent-common.md, after the VM filled up on 2026-11-02).
 
 The container has no network, so what a build would download is provided: the Linux Node, and
@@ -103,6 +104,11 @@ Each class goes to the workstream that owns it; none is fixed here.
 | llbuild crash on an unreadable directory entry | 1 | build driver |
 | `app:` failures (fail with Xcode too; B-043) | 3 | the apps |
 
+Reruns on the same nomac: expo-with-maps built, archived and exported (the llbuild crash did not
+come back: it depends on timing); bluesky (React Native 0.88.0, Expo 58.0.19, pnpm) builds Yoga from
+source and fails as zeus does (`-Wunused-command-line-argument` under `-Werror`), and refuses
+expo-dev-launcher's image sets with `appearances` (B-200).
+
 ## Reproduce
 
 ```sh
@@ -113,6 +119,8 @@ docker run -d --name nomac-sweep -v nomac-sweep:/work -v nomac-build:/ref:ro nom
 #   link /work/bin/current; cp -a /ref/xcode/Xcode_27.app /work/devdir/;
 #   nomac toolchain install /ref/toolchains/swift-6.4.0-RELEASE-ubuntu24.04-aarch64/usr --llvm-tools /ref/llvm-tools \
 #     --developer-dir /work/devdir/Xcode_27.app/Contents/Developer; the Linux Node 24.22.1 in /work/node-linux
+#   (--llvm-tools: a build whose lld.patches.sha256 and cctools.patches.sha256 are LinuxToolchain.builtPatches;
+#   nomac-build's /ref/llvm-tools may be ahead of main)
 python3 .github/scripts/rn_sweep.py container           # the run container, without network
 python3 .github/scripts/rn_sweep.py run [app ...]       # Mac: every step, app by app
 python3 .github/scripts/rn_sweep.py report              # the tables below
