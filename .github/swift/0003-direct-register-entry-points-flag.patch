@@ -1,0 +1,35 @@
+The module flag "Swift DirectReg Version" (1), as Xcode 27.0's frontend writes it after "Swift
+Version" (ADR 0106, docs/formats/build.md "Swift runtime entry points by register"): for iOS, tvOS
+and Mac Catalyst 17, watchOS 10 and visionOS, their simulators too, at every optimization level, and
+never for macOS. Xcode's LLVM then calls the entry points that take their object in a given register
+(swift_retain_x19 and the others) for the module's swift_retain and swift_release.
+
+--- a/lib/IRGen/IRGen.cpp
++++ b/lib/IRGen/IRGen.cpp
+@@ -206,6 +206,17 @@
+   return std::make_tuple(TargetOpts, ClangOpts.CPU, ClangOpts.Features, ClangOpts.Triple);
+ }
+ 
++/// Whether Xcode 27.0 marks the module for the Swift runtime entry points that
++/// take their object in a given register (swift_retain_x19 and the others):
++/// iOS, tvOS and Mac Catalyst 17, watchOS 10, visionOS, and their simulators.
++static bool usesDirectRegisterEntryPoints(const llvm::Triple &triple) {
++  if (triple.isiOS())
++    return triple.getiOSVersion() >= llvm::VersionTuple(17);
++  if (triple.isWatchOS())
++    return triple.getWatchOSVersion() >= llvm::VersionTuple(10);
++  return triple.isXROS();
++}
++
+ void setModuleFlags(IRGenModule &IGM) {
+ 
+   auto *Module = IGM.getModule();
+@@ -214,6 +225,8 @@
+   // error during LTO if the user tries to combine files across ABIs.
+   Module->addModuleFlag(llvm::Module::Error, "Swift Version",
+                         IRGenModule::swiftVersion);
++  if (usesDirectRegisterEntryPoints(IGM.Triple))
++    Module->addModuleFlag(llvm::Module::Error, "Swift DirectReg Version", 1);
+ 
+   if (IGM.getOptions().VirtualFunctionElimination ||
+       IGM.getOptions().WitnessMethodElimination) {

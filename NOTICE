@@ -53,7 +53,7 @@ Each patch changes the upstream project named and is licensed under that project
 
 - `.github/lld` (28 patches): lld of swiftlang/llvm-project, https://github.com/swiftlang/llvm-project at swift-6.4.0-RELEASE. License: Apache-2.0 WITH LLVM-exception (Apache License 2.0 with LLVM Exceptions).
 - `.github/clang` (30 patches): clang of swiftlang/llvm-project, https://github.com/swiftlang/llvm-project at swift-6.4.0-RELEASE. License: Apache-2.0 WITH LLVM-exception (Apache License 2.0 with LLVM Exceptions).
-- `.github/swift` (1 patch): the Swift compiler (swiftlang/swift), https://github.com/swiftlang/swift at swift-6.4.0-RELEASE. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
+- `.github/swift` (3 patches): the Swift compiler (swiftlang/swift), https://github.com/swiftlang/swift at swift-6.4.0-RELEASE. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - `.github/cctools` (6 patches): Apple's cctools and ld64 as cctools-port ports them to Linux, https://github.com/tpoechtrager/cctools-port at 904de2a71d4da6a9b30d2efaf912a10ddc7d9ddb. License: APSL-2.0 (Apple Public Source License 2.0).
 - `.github/upstream/swift-build` (10 patches): Swift Build, https://github.com/swiftlang/swift-build. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - `.github/upstream/swift-driver` (1 patch): Swift Driver, https://github.com/swiftlang/swift-driver. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).

@@ -40,7 +40,12 @@ asks which options the frontend takes, with the SHA-256 of `.github/swift`'s pat
 `nomac toolchain install` installs both in place of the toolchain's files when the LLVM tools
 directory has them, and refuses a frontend built with other patches.
 
-The patch takes `-stack-check` and `-no-stack-check` as Xcode's frontend does, and gives the
+The other patches bring the frontend's calls of the runtimes to Xcode's, by the same rules of
+observation: Objective-C messages through selector stubs (0002, docs/formats/build.md "Swift
+selector stubs"), and the module flag by which Xcode's LLVM calls the Swift runtime's entry points by
+register (0003, "Swift runtime entry points by register").
+
+The first patch takes `-stack-check` and `-no-stack-check` as Xcode's frontend does, and gives the
 functions it makes the attribute as Xcode's does (docs/formats/build.md "Swift stack checks"). Swift
 functions start from Clang's default function attributes, and the patched Clang names the probe in
 those for Apple devices (`.github/clang` 0017): Xcode's Swift functions never have it without

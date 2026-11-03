@@ -489,6 +489,32 @@ Xcode's frontend does (the experiment's 16 IR cases: the same probe on every fun
 on every declaration), and nomac's Engine build of retro-rampage calls the probe as Xcode's in all 31
 objects (7 calls); without it, swift.org's frontend gets only `-disable-clang-spi`.
 
+## Swift selector stubs
+
+Xcode 27.0's swift-frontend sends Objective-C messages through selector stubs on arm64, arm64e and
+arm64_32 targets, the arm64 simulators included, from any deployment target (iOS 12 too), and not on
+x86_64; `-enable-objc-msgsend-selector-stubs` and `-disable-objc-msgsend-selector-stubs` turn them on
+and off, the last of the two winning, and the driver passes neither
+(`.github/scripts/swift_runtime_call_experiments.py`). A message to an object or a class, its
+methods, properties and initializers, `performSelector:` and `respondsToSelector:` included, then
+calls `objc_msgSend$<selector>`, declared `void ()` with no attributes, with an undefined selector
+argument, and the module references no selector for it; a message to `super` still calls
+`objc_msgSendSuper2`, and the `respondsToSelector:` check of an optional protocol method or of a
+method looked up on `AnyObject` still calls `objc_msgSend` with selector references. The linker writes
+the stubs into `__TEXT,__objc_stubs`. swift.org's frontend has neither option and always calls
+`objc_msgSend`; `.github/swift` 0002 sends them as Xcode's does (ADR 0106).
+
+## Swift runtime entry points by register
+
+Xcode 27.0's swift-frontend writes the module flag `"Swift DirectReg Version"` (1), right after
+`"Swift Version"`, for iOS, tvOS and Mac Catalyst 17 and later, watchOS 10 and later and visionOS,
+their simulators included and x86_64 too, at every optimization level, and never for macOS (14 to 26)
+(`swift_runtime_call_experiments.py`). Its IR still calls `swift_retain` and `swift_release`; with the
+flag, Xcode's LLVM compiles those calls to the entry points that take their object in a given
+register (`swift_retain_x19`, `swift_release_x8` and the others), which Xcode's clang does too when it
+compiles the frontend's IR. `.github/swift` 0003 writes the flag; swift.org's LLVM, and the patched
+one so far, call `swift_retain` and `swift_release` whatever it says.
+
 ## Stub executables
 
 A sticker pack (`com.apple.product-type.app-extension.messages-sticker-pack`) has no code: its

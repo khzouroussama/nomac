@@ -78,7 +78,7 @@ public enum LinuxToolchain {
 
     /// The SHA-256 of `.github/swift`'s patches, which `build-swift-frontend.sh` writes next to the
     /// frontend it builds: a frontend built with other patches is refused, as ``builtPatches`` are.
-    static let swiftFrontendPatches = ("swift-frontend.patches.sha256", "4066a10386ec1e2e2eb330e9e59deedea1bb2ac470c2e2a7427f2c004b00c58e")
+    static let swiftFrontendPatches = ("swift-frontend.patches.sha256", "abbe5674830fb382ee365c57c62d18a9d45722c24af7d224fc9041887a5efdeb")
 
     /// The SHA-256 of `.github/lld`'s and `.github/cctools`' patches, concatenated in name order, as
     /// `build-llvm-tools.sh` and `build-cctools.sh` write them next to the tools they build: tools

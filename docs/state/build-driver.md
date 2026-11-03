@@ -13,6 +13,13 @@ interface; rn-bare Debug's `__preview.dylib`.
 
 ## Just finished
 
+- Swift runtime calls (in progress): icecubes and mastodon on Linux with the patched frontend
+  have no stack-check differences left (31 and 33 items before); their top Swift class is
+  Objective-C messages through selector stubs (25 and 20 items). `.github/swift` 0002 sends them
+  as Xcode's frontend does and 0003 writes the "Swift DirectReg Version" flag
+  (`swift_runtime_call_experiments.py`, 28 cases); the frontend with them is being rebuilt
+  against clang-1's tree at main's patches (0029 included). The `_xN` entry points themselves
+  need the clang workstream's LLVM.
 - llbuild from the owner's fork (`b0afd154`, B-137 done): `.github/upstream/swift-llbuild/0001`
   applied, the root dependency replacing Swift Build's and SwiftPM's (ADR 0002).
 - Swift stack checks, step 1 (B-100): `swift_stack_experiments.py` records when Xcode's driver
