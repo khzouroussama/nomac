@@ -22,8 +22,12 @@ the React Native and Expo versions each install resolved in the entry.
 ## How it runs
 
 `.github/scripts/rn_sweep.py` (its docstring has every step). On the Mac, online: the app's
-packages with its lockfile's package manager (npm, yarn, pnpm, bun; through corepack), `expo
-prebuild --platform ios --no-install` for an Expo app without an `ios` folder, `pod install`
+packages with its lockfile's package manager (npm, yarn, pnpm, bun; through corepack), for an Expo
+example (no lockfile) `npx expo install --fix`, as Expo recommends, so that its packages are the
+SDK's versions (an open range had pulled expo-web-browser 58.0.7 into the Expo 57 expo-with-clerk,
+whose `SceneGeometry.anchorPopover` is Expo 58's: Xcode fails the same way, the macros agent found;
+the examples that passed before 2026-11-03 were installed without it), `expo prebuild --platform
+ios --no-install` for an Expo app without an `ios` folder, `pod install`
 (CocoaPods 1.16.2 under rbenv's Ruby 3.0.0, Node 24.22.1: expo_experiments.py's pins), then the
 Linux builds (glibc, arm64 and x64) of every npm platform package the Mac's install left out,
 from the registry with their integrity checked (`linux_packages`: one rule for every package
