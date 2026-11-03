@@ -161,17 +161,19 @@ enum ImageSet {
             }
             if type == "pdf" {
                 // A PDF in the 1x entry, the others empty, is compiled as one without a scale
-                // (`pdf_experiments.py` entries); each luminosity appearance has its own PDF.
+                // (`pdf_experiments.py` entries); each luminosity appearance and each idiom has its
+                // own PDF, compiled as it alone (`entries-2`: universal-ipad, iphone-ipad).
                 let files = (asset.contents["images"] as? [[String: Any]] ?? []).filter {
-                    $0["filename"] != nil && (try? entryAppearance($0, asset: asset)) == appearance
+                    $0["filename"] != nil && (try? entryAppearance($0, asset: asset)) == appearance && $0["idiom"] as? String ?? "universal" == idiomName
                 }.count
-                guard idiom == Idiom.universal, entry["scale"] == nil || entry["scale"] as? String == "1x" && files == 1,
+                guard entry["scale"] == nil || entry["scale"] as? String == "1x" && files == 1,
                       !sources.contains(where: { $0.idiom == idiom && $0.appearance == appearance.rawValue }) else {
-                    throw NomacError("PDF image set entries other than one universal entry without a scale are not supported yet (BACKLOG B-215)", path: asset.path)
+                    throw NomacError("PDF image sets with a file per scale are not supported yet (BACKLOG B-215)", path: asset.path)
                 }
                 sources += try pdfImages(asset, filename: filename, renderingIntent: renderingIntent, preservesVector: preservesVector,
                                          scales: platform?.rasterScales ?? [1, 2, 3]).map { source in
                     var source = source
+                    source.idiom = idiom
                     source.appearance = appearance.rawValue
                     return source
                 }
@@ -335,6 +337,7 @@ enum ImageSet {
         let csi = CSI(name: source.filename, layout: .vector, flags: 4, colorModel: colorModel, pixelFormat: pixelFormat,
                       properties: commonProperties, payload: vectorPayload(data, compressed: pixelFormat != "PDF "))
         var attributes: [RenditionAttribute: UInt16] = source.preservesVector ? [.scale: source.vectorScale, .part: 42] : [:]
+        if source.idiom != Idiom.universal { attributes[.idiom] = source.idiom }
         if source.appearance != 0 { attributes[.appearance] = source.appearance }
         return CARRendition(name: source.name, kind: source.kind, attributes: attributes, csi: csi.bytes)
     }

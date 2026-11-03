@@ -672,6 +672,10 @@ corpus apps). Observed with self-written PDFs (`.github/scripts/pdf_experiments.
   part 181 or with `preserves-vector-representation` part 42), holding the first page **as
   Quartz writes it again**, not the file, in a `DWAR` payload never compressed (flag 0: all
   535 experiment renditions, 153 corpus ones up to 1.5 MB, pocket-casts' 44).
+- Idioms (`entries-2`): an entry per idiom (universal, iphone, ipad) has its own PDF, compiled
+  as it alone, its vector rendition and rasters keyed with the idiom. A file per scale (1x, 2x,
+  3x entries) is rasterized at its own scale, a missing scale from the 1x file, the vector
+  rendition from the highest scale's file; not reproduced yet.
 - Appearances (`appearances`): an entry with a luminosity appearance (dark, light) has its own
   PDF, written as any other, its vector rendition and rasters keyed with the appearance; its
   rasters are packed in atlases of their own, keyed with it and numbered apart, an atlas link

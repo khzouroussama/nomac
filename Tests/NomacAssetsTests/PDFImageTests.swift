@@ -637,6 +637,26 @@ import Testing
 
     /// A PDF per luminosity appearance, each compiled with it; an atlas link's key lists the
     /// appearance after the scale (`appearances`).
+    /// A PDF per idiom is compiled as it alone, its renditions keyed with its idiom; a file per
+    /// scale stops nomac (`entries-2`).
+    @Test func idiomEntries() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("nomac-pdf-idioms-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(Self.pdf("1 0 0 rg 2 2 16 6 re f")).write(to: folder.appendingPathComponent("a.pdf"))
+        try Data(Self.pdf("0 0 1 rg 2 2 16 6 re f")).write(to: folder.appendingPathComponent("b.pdf"))
+        let idioms = ["universal": Idiom.universal, "ipad": Idiom.pad]
+        let asset = AssetCatalog.Asset(name: "A", type: "imageset", path: folder.path,
+                                       contents: ["images": [["filename": "a.pdf", "idiom": "universal"], ["filename": "b.pdf", "idiom": "ipad"]]])
+        let sources = try ImageSet.sources(asset, idioms: idioms)
+        #expect(sources.map(\.idiom) == [Idiom.universal, Idiom.universal, Idiom.universal, Idiom.pad, Idiom.pad, Idiom.pad])
+        #expect(sources.filter { $0.vectorData != nil }.map(\.idiom) == [Idiom.universal, Idiom.pad])
+        let scales = AssetCatalog.Asset(name: "A", type: "imageset", path: folder.path,
+                                        contents: ["images": [["filename": "a.pdf", "idiom": "universal", "scale": "1x"],
+                                                              ["filename": "b.pdf", "idiom": "universal", "scale": "2x"]]])
+        #expect(throws: (any Error).self) { try ImageSet.sources(scales, idioms: idioms) }
+    }
+
     @Test func appearances() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("nomac-pdf-appearances-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

@@ -840,6 +840,19 @@ EXPERIMENT_CASES = {
                                                    {"idiom": "universal", "scale": "3x"}]),
         "scale-1x-only": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "universal", "scale": "1x"}]),
     },
+    "entries-2": {
+        # PDF image sets with a file per idiom or per scale.
+        "universal-ipad": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "universal"}, {"idiom": "ipad", "data": pdf(b"0 0 1 rg 2 2 16 6 re f")}]),
+        "iphone-ipad": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "iphone"}, {"idiom": "ipad", "data": pdf(b"0 0 1 rg 2 2 16 6 re f")}]),
+        "ipad-only": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "ipad"}]),
+        "iphone-only": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "iphone"}]),
+        "scales-1-2": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "universal", "scale": "1x"}, {"idiom": "universal", "scale": "2x", "data": pdf(b"0 0 1 rg 2 2 16 6 re f")},
+                                                    {"idiom": "universal", "scale": "3x"}]),
+        "scales-1-2-3": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "universal", "scale": "1x"}, {"idiom": "universal", "scale": "2x", "data": pdf(b"0 0 1 rg 2 2 16 6 re f")},
+                                                      {"idiom": "universal", "scale": "3x", "data": pdf(b"0 1 0 rg 2 2 16 6 re f")}]),
+        "scale-2x-only": (pdf(RED + b"2 2 16 6 re f"), [{"idiom": "universal", "scale": "2x"}, {"idiom": "universal", "scale": "1x"},
+                                                       {"idiom": "universal", "scale": "3x"}]),
+    },
     "shadings": {
         "axial-fn2": objects_pdf(b"/Sh1 sh", [b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [2 0 18 0] /Function 6 0 R /Extend [true true] >>",
                                              b"<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>"], b"/Shading << /Sh1 5 0 R >>"),
