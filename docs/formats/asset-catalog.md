@@ -927,14 +927,17 @@ The content (`paths`, `colors`, `clips`, `details`, `extgstate`, `state-changes`
 - Colors: DeviceRGB and DeviceGray become ICCBased spaces with Apple's sRGB (3,144 bytes) and
   gray (4,508 bytes) profiles, written `/CsN cs … sc` at each change; an ICCBased space keeps its
   own profile, byte for byte (one space for all copies of a profile), its `cs` written only when
-  the space changes; DeviceCMYK stays `c m y k k`. A page with no color set has no color space.
+  the space changes; DeviceCMYK stays `c m y k k`. Quartz's rasters convert CMYK through its CMYK
+  profile; nomac's do so for grays only (C, M and Y 0), with the sRGB measured on actool's rasters
+  at each quarter of 1/255 of K (`cmyk-k`: 0 is white, 1 is 26 26 26, 1/255 is 255 254 253, the
+  same at 1x and 3x); other CMYK colors, and K between those steps, stop nomac. A page with no color set has no color space.
 
 nomac writes its own sRGB and gray profiles (`PDFProfiles`) where Quartz embeds Apple's; `nomac
 verify` accepts that difference (ADR 0204), and its sRGB one in place of Generic RGB. JPEG
 2000, JBIG2 and fax images, color-keyed and CMYK images, text in fonts other than Type 3 and
 embedded TrueType and CFF ones, tiling patterns, shadings other than axial and radial ones,
-luminosity soft masks other than gray and RGB ones, blend modes, CMYK rasters and PDFs beside
-other files in an image set stop nomac (BACKLOG B-215).
+luminosity soft masks other than gray and RGB ones, blend modes and a PDF per scale stop nomac
+(BACKLOG B-215).
 
 ### JPEG images (`vector-images`)
 

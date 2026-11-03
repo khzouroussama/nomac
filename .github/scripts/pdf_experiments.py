@@ -70,6 +70,10 @@ one image set in one catalog per experiment:
   OS/2 and some letters.
 - fonts-6: spaces between glyphs, tiny to large, as Tc, TJ numbers or both, and when Tc is
   reset.
+- cmyk-k: DeviceCMYK grays, K in quarters of 1/255; the sRGB of actool's rasters read through
+  CoreUI into k-table.json.
+- images-3: TIFF predictor 2 on gray and RGB images, soft masks with a white or black /Matte.
+- entries-2: a PDF per idiom (universal and iPad, iPhone and iPad, one alone) and per scale.
 - smasks-2, smasks-3: luminosity soft masks: gray, RGB and ICC group spaces, a group without a
   space, backdrops, transfer functions (Identity, exponential, PostScript, sampled), under a
   matrix, reset, on a stroke and a group.
@@ -1241,6 +1245,10 @@ EXPERIMENT_CASES = {
         "sa-fill-stroke": objects_pdf(b'/G1 gs 0 0 1 RG 1 0 0 rg 2 w 2 2 16 6 re B', [], b"/ExtGState << /G1 << /SA true >> >>"),
         "sa-ri": objects_pdf(b'/G1 gs /Perceptual ri 0 0 1 RG 2 w 1 5 m 19 5 l S', [], b"/ExtGState << /G1 << /SA true >> >>"),
     },
+    "cmyk-k": {
+        # DeviceCMYK grays: K in 1,021 stripes a point wide, in quarters of 1/255 (0, 1/1020, …, 1).
+        "k-quarters": pdf(b"".join(b"0 0 0 %.7f k %d 0 1 4 re f " % (k / 1020, k) for k in range(1021)), width=1021, height=4),
+    },
     "smasks-3": {
         # Transfer functions Quartz may keep (PostScript, sampled) and luminosity groups in ICC spaces.
         "alpha-tr-postscript": objects_pdf(b"/G1 gs " + RED + b"0 0 20 10 re f", [form(b"0 g 4 2 12 6 re f", extra=GROUP), stream(b"{ 1 exch sub }")[:2]
@@ -1549,6 +1557,53 @@ def rendered_alike(x, y):
     return differing == 0, differing
 
 
+def raster_pixels(car, name, scale):
+    """An image's raster at `scale` as actool stores it, read through CoreUI (Apple's reader of
+    compiled catalogs): its width, height and RGBA bytes in sRGB, rows from the top."""
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    ctypes.cdll.LoadLibrary("/System/Library/Frameworks/Foundation.framework/Foundation")
+    ctypes.cdll.LoadLibrary("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI")
+    cg = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
+    objc.objc_getClass.restype, objc.objc_getClass.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+    objc.sel_registerName.restype, objc.sel_registerName.argtypes = ctypes.c_void_p, [ctypes.c_char_p]
+
+    def send(restype, target, selector, *args, argtypes=()):
+        function = ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(("objc_msgSend", objc))
+        return function(target, objc.sel_registerName(selector), *args)
+
+    def string(text):
+        return send(ctypes.c_void_p, objc.objc_getClass(b"NSString"), b"stringWithUTF8String:", text.encode(), argtypes=(ctypes.c_char_p,))
+    url = send(ctypes.c_void_p, objc.objc_getClass(b"NSURL"), b"fileURLWithPath:", string(str(car)), argtypes=(ctypes.c_void_p,))
+    catalog = send(ctypes.c_void_p, send(ctypes.c_void_p, objc.objc_getClass(b"CUICatalog"), b"alloc"), b"initWithURL:error:", url, None,
+                   argtypes=(ctypes.c_void_p, ctypes.c_void_p))
+    image = send(ctypes.c_void_p, catalog, b"imageWithName:scaleFactor:", string(name), ctypes.c_double(scale), argtypes=(ctypes.c_void_p, ctypes.c_double))
+    if not image:
+        return None
+    picture = send(ctypes.c_void_p, image, b"image")
+    for function in (cg.CGImageGetWidth, cg.CGImageGetHeight):
+        function.restype, function.argtypes = ctypes.c_size_t, [ctypes.c_void_p]
+    width, height = cg.CGImageGetWidth(picture), cg.CGImageGetHeight(picture)
+    cg.CGColorSpaceCreateWithName.restype, cg.CGColorSpaceCreateWithName.argtypes = ctypes.c_void_p, [ctypes.c_void_p]
+    space = cg.CGColorSpaceCreateWithName(ctypes.c_void_p.in_dll(cg, "kCGColorSpaceSRGB"))
+    buffer = ctypes.create_string_buffer(width * height * 4)
+    cg.CGBitmapContextCreate.restype = ctypes.c_void_p
+    cg.CGBitmapContextCreate.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint32]
+    context = cg.CGBitmapContextCreate(buffer, width, height, 8, width * 4, space, 1)
+    cg.CGContextDrawImage.argtypes = [ctypes.c_void_p, _Rect, ctypes.c_void_p]
+    cg.CGContextDrawImage(context, _Rect(0, 0, width, height), picture)
+    return width, height, buffer.raw
+
+
+def k_table(root):
+    """cmyk-k: the sRGB actool draws each K stripe with, by K × 1020, at 1x and 3x (k-table.json)."""
+    car = root / "actool" / "Assets.car"
+    tables = {}
+    for scale in (1, 3):
+        width, height, raw = raster_pixels(car, "k-quarters", scale)
+        tables[scale] = [list(raw[((height // 2) * width + k * scale + scale // 2) * 4:][:3]) for k in range(1021)]
+    ae.write_json(root / "k-table.json", {"1x": tables[1], "same at 3x": tables[1] == tables[3]})
+
+
 def pdf_payload(block):
     props = struct.unpack_from("<I", block, 168)[0]
     payload = block[184 + props:]
@@ -1640,6 +1695,8 @@ def main():
         shutil.rmtree(root, ignore_errors=True)
         root.mkdir(parents=True)
         summary[name] = run(root, nomac, EXPERIMENT_CASES[name])
+        if name == "cmyk-k":
+            k_table(root)
         print(name, json.dumps(summary[name]))
     ae.write_json(out / "summary.json", summary)
 

@@ -761,5 +761,13 @@ import Testing
         let pixel = { (x: Int, y: Int) in Array(canvas.pixels[(y * 40 + x) * 4..<(y * 40 + x) * 4 + 4]) }
         #expect(pixel(5, 15) == [1, 0, 0, 1])
         #expect(pixel(30, 5) == [0, 0, 0, 0])
+        // DeviceCMYK grays as actool's rasters show them (`cmyk-k`); no other CMYK color.
+        #expect(CMYKGrays.rgb(0)?.map { ($0 * 255).rounded() } == [255, 255, 255])
+        #expect(CMYKGrays.rgb(1)?.map { ($0 * 255).rounded() } == [26, 26, 26])
+        #expect(CMYKGrays.rgb(1.0 / 255)?.map { ($0 * 255).rounded() } == [255, 254, 253])
+        #expect(CMYKGrays.rgb(0.3333) == nil)
+        let black = try! Self.page("0 0 0 1 k 0 0 10 5 re f")
+        let canvas2 = PDFRaster.draw(black, width: 40, height: 20, colors: try! PDFRaster.Colors(black), extended: false)
+        #expect(Array(canvas2.pixels[(15 * 40 + 5) * 4..<(15 * 40 + 5) * 4 + 3]).map { ($0 * 255).rounded() } == [26, 26, 26])
     }
 }

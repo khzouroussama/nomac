@@ -12,9 +12,13 @@ extension ImageSet {
         let path = asset.path + "/" + filename
         guard let data = FileManager.default.contents(atPath: path) else { throw NomacError("could not read the image", path: path) }
         let page = try PDFPage(file: PDFFile(data: [UInt8](data), path: path))
-        func isCMYK(_ color: PDFPage.Color) -> Bool { color.space == nil && color.pattern == nil }
-        if page.drawings.contains(where: { $0.fill && isCMYK($0.color) || $0.stroke && isCMYK($0.strokeColor) }) {
-            throw NomacError("PDF images with CMYK colors are not supported yet (BACKLOG B-215)", path: path)
+        // DeviceCMYK only for the grays measured on actool's rasters (`cmyk-k`).
+        func isUnmatchedCMYK(_ color: PDFPage.Color) -> Bool {
+            guard color.space == nil, color.pattern == nil else { return false }
+            return color.components.count != 4 || color.components[0...2].contains { $0 != 0 } || CMYKGrays.rgb(color.components[3]) == nil
+        }
+        if page.drawings.contains(where: { $0.fill && isUnmatchedCMYK($0.color) || $0.stroke && isUnmatchedCMYK($0.strokeColor) }) {
+            throw NomacError("PDF images with CMYK colors other than the grays measured on actool's rasters are not supported (BACKLOG B-215)", path: path)
         }
         let vector = QuartzPDF.rewrite(page)
         let colors = try PDFRaster.Colors(page)
@@ -69,7 +73,8 @@ enum PDFRaster {
                 if color.pattern != nil { return ([0, 0, 0], [0, 0, 0]) }
                 let components = color.components.map { min(max($0, 0), 1) }
                 guard case .icc(let data, let count)? = color.space else {
-                    let rgb = components.count == 1 ? [components[0], components[0], components[0]] : components
+                    let rgb = components.count == 4 ? CMYKGrays.rgb(components[3]) ?? [0, 0, 0]
+                        : components.count == 1 ? [components[0], components[0], components[0]] : components
                     return (rgb, rgb)
                 }
                 let profile = try profiles[data] ?? ICCProfile(data)
