@@ -5,7 +5,8 @@ Runs anywhere nomac runs. Each experiment's document is written again from nib_e
 and compiled with `nomac ibtool` and the build's options (a storyboard into a compilation
 directory, then linked); the nib or the .storyboardc, the linked copy, the partial Info.plist and
 what ibtool printed must be identical; where ibtool failed, nomac must fail too. Nibs identical but for the order of
-an NSSet's elements count as equivalent (ADR 0252), as `nomac verify` judges them. Experiments nomac refuses with an
+an NSSet's elements (ADR 0252), or of outlet collections of several sources (ADR 0260), count as equivalent, as
+`nomac verify` judges them. Experiments nomac refuses with an
 error naming a BACKLOG item are listed apart; any other failure fails the comparison.
 
 With `corpus`, the observations of nib_experiments.py's `corpus` experiment instead: each corpus
@@ -91,6 +92,96 @@ def sorting_sets(data):
     return bytes(data) if sort(0, len(data)) else None
 
 
+def canonical_connections(data):
+    """The NIBArchive as a text walking its objects from the root, each object numbered where the walk
+    first reaches it, the root's outlet collection connections sorted by label and source
+    (NibConnectionComparison.swift, ADR 0260), or None when it is not one."""
+    sizes = {0: 1, 1: 2, 2: 4, 3: 8, 4: 0, 5: 0, 6: 4, 7: 8, 9: 0, 10: 4}
+    try:
+        if data[:10] != b"NIBArchive":
+            return None
+        _, _, object_count, objects_at, key_count, keys_at, value_count, values_at, class_count, classes_at = struct.unpack_from("<10I", data, 10)
+
+        def varint(p):
+            value = shift = 0
+            while True:
+                byte = data[p]
+                p += 1
+                value |= (byte & 0x7F) << shift
+                shift += 7
+                if byte & 0x80:
+                    return value, p
+
+        keys, p = [], keys_at
+        for _ in range(key_count):
+            n, p = varint(p)
+            keys.append(bytes(data[p:p + n]).decode())
+            p += n
+        values, p = [], values_at
+        for _ in range(value_count):
+            key, p = varint(p)
+            kind = data[p]
+            p += 1
+            if kind == 8:
+                n, p = varint(p)
+            else:
+                n = sizes[kind]
+            payload = bytes(data[p:p + n])
+            p += n
+            values.append((keys[key], kind, struct.unpack("<I", payload)[0] if kind == 10 else payload))
+        classes, p = [], classes_at
+        for _ in range(class_count):
+            n, p = varint(p)
+            fallbacks, p = varint(p)
+            p += 4 * fallbacks
+            classes.append(bytes(data[p:p + n]).rstrip(b"\0").decode())
+            p += n
+        objects, p = [], objects_at
+        for _ in range(object_count):
+            index, p = varint(p)
+            first, p = varint(p)
+            count, p = varint(p)
+            objects.append((classes[index], values[first:first + count]))
+    except (struct.error, IndexError, KeyError, UnicodeDecodeError):
+        return None
+    root_values = {key: value for key, kind, value in objects[0][1] if kind == 10}
+    connections = root_values.get("UINibConnectionsKey")
+    numbering, lines = {}, []
+
+    def text_of(index):
+        return next((value for key, kind, value in objects[index][1] if key == "NS.bytes"), b"")
+
+    def walk(start):
+        stack = [start]
+        while stack:
+            index = stack.pop()
+            if index in numbering:
+                continue
+            numbering[index] = len(numbering)
+            name, items = objects[index]
+            references = [value for key, kind, value in items if kind == 10]
+            if index == connections:
+                run = [r for r in references if objects[r][0] == "UIRuntimeOutletCollectionConnection"]
+                for reference in run:
+                    for key, kind, value in objects[reference][1]:
+                        if key == "UISource" and kind == 10:
+                            walk(value)
+                order = {}
+                for reference in run:
+                    fields = {key: value for key, kind, value in objects[reference][1] if kind == 10}
+                    order[reference] = (text_of(fields.get("UILabel", 0)), numbering.get(fields.get("UISource"), -1))
+                run.sort(key=order.get)
+                references = run + [r for r in references if objects[r][0] != "UIRuntimeOutletCollectionConnection"]
+                items = [(key, kind, value) for key, kind, value in items if kind != 10] + [("", 10, r) for r in references]
+            lines.append((index, name, items))
+            stack.extend(reversed([value for key, kind, value in items if kind == 10]))
+
+    walk(0)
+    return "\n".join(f"{numbering[index]} {name} " + ", ".join(f"{key}=#{numbering[value]}" if kind == 10 else f"{key}={kind}:{value.hex()}"
+                                                         for key, kind, value in items)
+                     for index, name, items in sorted(lines, key=lambda line: numbering[line[0]]))
+
+
 def same(mine, theirs):
     """Whether the files are identical, equivalent (nibs differing only in their sets' order) or neither (None)."""
     if mine == theirs:
@@ -98,8 +189,15 @@ def same(mine, theirs):
     if mine.keys() != theirs.keys():
         return None
     for name in mine:
-        if mine[name] != theirs[name] and (sorting_sets(mine[name]) is None or sorting_sets(mine[name]) != sorting_sets(theirs[name])):
+        if mine[name] == theirs[name]:
+            continue
+        mine_sorted, theirs_sorted = sorting_sets(mine[name]), sorting_sets(theirs[name])
+        if mine_sorted is None or theirs_sorted is None:
             return None
+        if mine_sorted != theirs_sorted:
+            mine_text = canonical_connections(mine_sorted)
+            if mine_text is None or mine_text != canonical_connections(theirs_sorted):
+                return None
     return "equivalent"
 
 

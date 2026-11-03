@@ -274,12 +274,16 @@ in `~/nomac-out/wt-scratch/nibs2` (`btn.py <experiment>...`: a nib's buttons, ne
 inline; `nstruct.py`, `objlist.py`: an experiment's objects and its all-objects list;
 `expdiff.sh`, `corpusdiff.sh`: Xcode's nib against nomac's).
 
-Current step: refusals ranked by documents blocked across the corpus, the holdout and the React
-Native/Expo sweep (`~/nomac-out/scripts/nib_refusals.py`), runtime attributes of the remaining
-holders (bar button items, flow layouts, storyboard controllers), then the ADR for run-to-run orders
-of mixed outlet collections.
+Current step: control actions of every event and the remaining gesture recognizer kinds (round
+105), then down the refusal counts across the corpus, the holdout and the React Native/Expo sweep
+(`~/nomac-out/scripts/nib_refusals.py`).
 
 Just finished:
+- Text views of one font, color and alignment sharing their attributes (round 106), and a
+  scene's recognizer numbered after its controller when the view nib's connections reach the
+  controller first (round 107); wikipedia's EditSaveViewController equivalent under ADR 0260.
+- ADR 0260: outlet collections of several sources, whose order ibtool changes from run to run,
+  compiled by name and compared by a canonical form (`nomac verify`, `nib_compare.py`).
 - What the holdout stops at next (rounds 103 and 104, 29 experiments identical): cells' and
   content views' layoutMarginsFollowReadableWidth and accessibility, presentation segues'
   presentation and transition styles, text views' adjustsFontForContentSizeCategory and calendar

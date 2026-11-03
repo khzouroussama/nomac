@@ -228,6 +228,9 @@ private struct TaskRun {
                     equivalent.append("equivalent \(reference.derivedData + path): the same values, entity names shared as other string objects (B-235)")
                 } else if tool == "ibtool", let left = NibSetComparison.sortingSets(xcode), left == NibSetComparison.sortingSets(nomac) {
                     equivalent.append("equivalent \(reference.derivedData + path): identical but for the order of sets' elements (ADR 0252)")
+                } else if tool == "ibtool", let left = NibSetComparison.sortingSets(xcode), let right = NibSetComparison.sortingSets(nomac),
+                          let canonical = NibConnectionComparison.canonical(left), canonical == NibConnectionComparison.canonical(right) {
+                    equivalent.append("equivalent \(reference.derivedData + path): identical but for the order of outlet collections of several sources (ADR 0260)")
                 } else {
                     differences.append("different \(reference.derivedData + path)")
                 }

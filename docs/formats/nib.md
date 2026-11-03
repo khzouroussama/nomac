@@ -875,7 +875,8 @@ view's does), and a white gray background is the system `systemBackgroundColor` 
 views" (`text-view-white`). `<nil key="text"/>` is no text (`text-view-nil-text`), and
 `allowsEditingTextAttributes="YES"` writes `UIAllowsEditingTextAttributes` true after the scroll view's
 keys (`text-view-editing-attributes`; with a text it is refused). Other alignments with a text, detector types and trait values are refused
-until observed.
+until observed. Text views of one font, text color and alignment share their attributed texts'
+attributes dictionary and paragraph style, whatever their texts (round 106, `text-view-two-*`).
 
 ## Toolbars
 
@@ -1015,8 +1016,12 @@ Responder, compiled as in a xib into the controller's nib: a top-level object af
 placeholder and before the controller, which keeps it alive (`UITopLevelObjectsToKeepAliveFromStoryboard`)
 and loads its view nib with it as `UpstreamPlaceholder-1` (`UIExternalObjectsTableForViewLoading`),
 then the controller as `UpstreamPlaceholder-2` when the view nib refers to it
-(`sb-gesture-and-controller`). The view nib lists the recognizer's placeholder after First Responder
-and before the controller's, and the attaching outlet collection goes to it, from a subview or the
+(`sb-gesture-and-controller`): the two are numbered as the view nib's connections, sorted, first
+reach them, so the controller is `UpstreamPlaceholder-1` when one of its outlet collections sorts
+before the `gestureRecognizers` collection attaching the recognizer (round 107,
+`sb-gesture-controller-collection` against `-collection-zzz` and `-outlet`; wikipedia's
+EditSaveViewController), the controller's nib mapping them likewise. The view nib lists the two
+placeholders after First Responder in that order, and the attaching outlet collection goes to it, from a subview or the
 root view (`sb-gesture-root`). The recognizer's actions to the controller are event connections of
 the controller's nib after the `sceneViewController` outlet (`sb-gesture`, `sb-gesture-no-action`); a
 segue from it is a template the recognizer fires with `perform:` (`sb-gesture-segue`), which nomac
@@ -1046,8 +1051,10 @@ ids (`oc-names`, `oc-names-seven`, `oc-names-root-seven`, five runs alike; the c
 ReadingThemesControlsViewController and WMFEditorToolbarHighlightView). Of several sources, File's
 Owner's and a view's, ibtool's order changes from run to run: `oc-mix-a`, `oc-mix-h` and
 `oc-mix-k` (round 95) came out in three or four orders in four runs each, with File's Owner's own
-collections out of document order at times; nomac refuses them (B-291). Actions follow the outlets ("Text fields, switches and
-actions"). An `<outlet>`, `<outletCollection>` or `<action>` without an `id` is
+collections out of document order at times. nomac writes them by name, byte by byte, those of one
+name as the outlets' rule orders them, one of ibtool's orders (`oc-mix-a`, `oc-mix-h` are byte for
+byte one of their runs); a nib differing from Xcode's only there is equivalent (ADR 0260). Actions
+follow the outlets ("Text fields, switches and actions"). An `<outlet>`, `<outletCollection>` or `<action>` without an `id` is
 dropped, in xibs and storyboards alike (`cid-outlet-no-id*`, `conn-no-id-*`, `sb-conn-no-id`).
 
 ## UIColor

@@ -15,8 +15,8 @@ extension DocumentCompiler {
     /// controls' actions by event, those without one first, selector and source (`ev-*`, `act-*`).
     /// Outlet collections of several names of one source keep the order of their names' first
     /// connections in the document (`oc-names*`); of several sources, ibtool's order varies from
-    /// run to run (`oc-mix-*`), and they are refused, as are two actions of one control without an
-    /// event (ibtool keeps one: `act-field-mixed-no-event`). ibtool drops a connection without an
+    /// run to run (`oc-mix-*`, ADR 0260). Two actions of one control without an event are refused
+    /// (ibtool keeps one: `act-field-mixed-no-event`). ibtool drops a connection without an
     /// id (`cid-outlet-no-id*`, `conn-no-id-*`).
     mutating func outletConnections(allObjects: [NibArchivable], extra: [NibOutletConnection] = []) throws -> [NibArchivable] {
         let order = Dictionary(allObjects.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
@@ -58,9 +58,6 @@ extension DocumentCompiler {
             }
         }
         pendingOutlets = []
-        guard Set(collections.map(\.label.value)).count <= 1 || collections.allSatisfy({ $0.source === collections[0].source }) else {
-            throw NomacError("nomac does not compile outlet collections of several names from several sources yet (BACKLOG B-291)", path: path)
-        }
         func index(_ object: NibArchivable) -> Int { order[ObjectIdentifier(object)] ?? Int.max }
         func precedes(_ left: NibArchivable, _ right: NibArchivable) -> Bool {
             let (leftProxy, rightProxy) = (left is NibProxy, right is NibProxy)
@@ -68,7 +65,15 @@ extension DocumentCompiler {
             let (leftClass, rightClass) = (Array(Self.originalClass(left).utf8), Array(Self.originalClass(right).utf8))
             return leftClass == rightClass ? index(left) < index(right) : leftClass.lexicographicallyPrecedes(rightClass)
         }
-        let sortedCollections = collections.sorted { precedes($0.source, $1.source) }
+        // Collections of several names from several sources come out in an order ibtool changes
+        // from run to run (`oc-mix-*`); nomac writes them by name, then as those of one name, which
+        // `nomac verify` takes as equivalent (ADR 0260).
+        let severalNames = Set(collections.map(\.label.value)).count > 1
+        let oneSource = collections.allSatisfy { $0.source === collections.first?.source }
+        let sortedCollections = severalNames && oneSource ? collections : collections.sorted {
+            let (left, right) = (Array($0.label.value.utf8), Array($1.label.value.utf8))
+            return left == right || !severalNames ? precedes($0.source, $1.source) : left.lexicographicallyPrecedes(right)
+        }
         let sorted = outlets.sorted {
             let (left, right) = (Array($0.label.value.utf8), Array($1.label.value.utf8))
             return left == right ? precedes($0.source, $1.source) : left.lexicographicallyPrecedes(right)

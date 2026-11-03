@@ -67,13 +67,18 @@ import Testing
         #expect(VariationTests.digest(nib) == digest, "\(name)")
     }
 
-    /// Collections of several names from File's Owner and a view, whose order ibtool varies from
-    /// run to run (`oc-mix-a`, B-291).
-    @Test func refusesCollectionsOfSeveralNamesFromSeveralSources() {
-        let xib = OutletTests.withOutlets(owner: Self.collections(["zeta", "alpha"]), view: Self.collections(["items"], first: 9))
-        #expect(throws: NomacError("nomac does not compile outlet collections of several names from several sources yet (BACKLOG B-291)",
-                                   path: "/tmp/View.xib")) {
-            try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
-        }
+    /// Collections of several names from File's Owner and a view, whose order ibtool changes from
+    /// run to run (ADR 0260): nomac writes them by name, then as those of one name, the order of
+    /// one of ibtool's runs each time (`oc-mix-a`: alpha, items, zeta; `oc-mix-h`).
+    @Test(arguments: [
+        ("oc-mix-a", OutletTests.withOutlets(owner: collections(["zeta", "alpha"]), view: collections(["items"], first: 9)),
+         1363, "ae90ef74dada53d5008220a3ad5bf8fc14a719e85e36add3a36e1cb6142d92df"),
+        ("oc-mix-h", OutletTests.withOutlets(owner: collections(["pa", "pb", "pc", "pd"]), view: collections(["zz", "aa"], first: 9)),
+         1517, "66e4ad544b57f8eb7e7f957f07c2d1ead190f79251a387fa4a942cd78695393c"),
+    ])
+    func ordersCollectionsOfSeveralSourcesByName(name: String, xib: String, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size, "\(name)")
+        #expect(VariationTests.digest(nib) == digest, "\(name)")
     }
 }

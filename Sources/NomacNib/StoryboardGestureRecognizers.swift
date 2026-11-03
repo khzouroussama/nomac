@@ -16,9 +16,12 @@ struct SceneRecognizer {
     }
 
     /// The view nib's upstream placeholders to their objects: the recognizer, then the controller
-    /// when the view nib refers to it (`sb-gesture-and-controller`).
-    func externalObjects(controller: NibArchivable?) -> [(NibArchivable, NibArchivable)] {
-        [(NibString("UpstreamPlaceholder-1"), recognizer)] + (controller.map { [(NibString("UpstreamPlaceholder-2"), $0)] } ?? [])
+    /// when the view nib refers to it (`sb-gesture-and-controller`), or the controller first
+    /// when the view nib's connections reach it first (`sb-gesture-controller-collection`).
+    func externalObjects(controller: NibArchivable?, controllerFirst: Bool) -> [(NibArchivable, NibArchivable)] {
+        guard let controller else { return [(NibString("UpstreamPlaceholder-1"), recognizer)] }
+        return controllerFirst ? [(NibString("UpstreamPlaceholder-1"), controller), (NibString("UpstreamPlaceholder-2"), recognizer)]
+            : [(NibString("UpstreamPlaceholder-1"), recognizer), (NibString("UpstreamPlaceholder-2"), controller)]
     }
 }
 

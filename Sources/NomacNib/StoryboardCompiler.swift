@@ -622,7 +622,8 @@ extension DocumentCompiler {
             throw unsupportedScene("a controller keeping its selection with objects kept alive, a presentation context or presentation styles")
         }
         if let recognizer {
-            viewController.externalObjects.entries = recognizer.externalObjects(controller: view.usesUpstream ? viewController : nil)
+            viewController.externalObjects.entries = recognizer.externalObjects(controller: view.usesUpstream ? viewController : nil,
+                                                                                controllerFirst: recognizerAfterController)
         } else if view.usesUpstream || !controlTemplates.isEmpty {
             viewController.externalObjects.entries = externalObjects(view.usesUpstream ? viewController : nil, cellTemplates, controlTemplates: controlTemplates)
         }
@@ -1201,13 +1202,36 @@ extension DocumentCompiler {
         }
         // Buttons' segues' placeholders follow the controller's, when the view refers to it, in
         // document order (`sb-button-two*`, `sb-button-outlet`).
+        // With a gesture recognizer, the upstream placeholders are numbered as the sorted
+        // connections first reach them: the controller first when one of its collections sorts
+        // before the recognizer's `gestureRecognizers` (`sb-gesture-controller-collection`, against
+        // `-collection-zzz`, `-outlet` and `sb-gesture-and-controller`).
+        var controllerFirst = false
+        if let recognizer, usesUpstream {
+            func reaches(_ connection: NibArchivable, _ object: NibArchivable) -> Bool {
+                let ends: [NibArchivable?] = [(connection as? NibOutletConnection)?.source, (connection as? NibOutletConnection)?.destination,
+                                              (connection as? NibOutletCollectionConnection)?.source, (connection as? NibEventConnection)?.source,
+                                              (connection as? NibEventConnection)?.destination]
+                return ends.contains { $0 === object } || ((connection as? NibOutletCollectionConnection)?.destinations.contains { $0 === object } ?? false)
+            }
+            if let first = connections.first(where: { reaches($0, upstream) || reaches($0, recognizer) }), !reaches(first, recognizer) {
+                guard !view.kind.isTableView, !view.kind.isCollection else {
+                    throw unsupportedScene("a gesture recognizer numbered after its table or collection view controller")
+                }
+                controllerFirst = true
+                upstream.identifier = NibString("UpstreamPlaceholder-1")
+                recognizer.identifier = NibString("UpstreamPlaceholder-2")
+            }
+        }
+        recognizerAfterController = controllerFirst
         let controlPlaceholders = controlSeguePlaceholders.map(\.placeholder)
         for (offset, placeholder) in controlPlaceholders.enumerated() {
             placeholder.identifier = NibString("UpstreamPlaceholder-\(offset + (usesUpstream ? 2 : 1))")
         }
         controlSeguePlaceholders = []
         let upstreams: [NibArchivable] = (usesUpstream ? [upstream] + seguePlaceholders : []) + controlPlaceholders
-        let topLevel: [NibArchivable] = [owner, responder] + (recognizer.map { [$0] } ?? []) + upstreams + [view] + dataSource
+        let recognizers: [NibArchivable] = recognizer.map { [$0] } ?? []
+        let topLevel: [NibArchivable] = [owner, responder] + (controllerFirst ? upstreams + recognizers : recognizers + upstreams) + [view] + dataSource
         let allObjects = Self.allObjects(topLevel)
         return (try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: allObjects, connections: connections,
                                                accessibilityConfigurations: takeAccessibilityConfigurations(),

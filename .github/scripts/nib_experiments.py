@@ -6130,6 +6130,53 @@ OPTIONS["tl-stack-15"] = {"deployment": "15.0"}
 EXPERIMENTS.update(HOLDOUT_KINDS)
 
 
+
+# Round 106: two text views: which of their attributed texts' objects a nib shares.
+def second_text_view(document_view):
+    return document_view.replace('id="txv-aa-aa1"', 'id="txv-aa-aa2"').replace('<rect key="frame" x="16" y="40"', '<rect key="frame" x="16" y="200"')
+
+
+TWO_TEXT_VIEWS = {
+    "text-view-two-same": constrained(text_view() + second_text_view(text_view()), "", resources=TVR),
+    "text-view-two-other-text": constrained(text_view() + second_text_view(text_view(children=TV_BACKGROUND + '<string key="text">Other</string>\n' + TV_FONT + TV_TRAITS)), "",
+                                            resources=TVR),
+    "text-view-two-other-font": constrained(text_view() + second_text_view(text_view(children=TV_BACKGROUND + TV_TEXT + font_description({"type": "system", "pointSize": "17"})
+                                                                                      + "\n" + TV_TRAITS)), "", resources=TVR),
+    "text-view-two-other-alignment": constrained(text_view() + second_text_view(text_view(TV_ATTRIBUTES.replace('textAlignment="natural"', 'textAlignment="center"'))), "",
+                                                 resources=TVR),
+    "text-view-two-style": constrained(text_view(children=TV_BACKGROUND + TV_TEXT + TV_STYLE_FONT + TV_TRAITS)
+                                       + second_text_view(text_view(children=TV_BACKGROUND + TV_TEXT + TV_STYLE_FONT + TV_TRAITS)), "", resources=TVR),
+}
+EXPERIMENTS.update(TWO_TEXT_VIEWS)
+
+
+
+# Round 107: a scene's recognizer beside a controller whose own outlets reach its view, as the
+# corpus's wikipedia EditSaveViewController has them: which upstream placeholder comes first.
+def controller_connections(lines):
+    return ('                    <connections>\n' + "".join(f"                        {line}\n" for line in lines) + '                    </connections>\n')
+
+
+def gesture_scene(lines, owner=False):
+    subviews = [sb_subview("sub-vi-ew1", 10, ["tap-aa-aa1"]), sb_subview("sub-vi-ew2", 70, empty=False)]
+    if owner:
+        subviews[1] = subviews[1].replace('id="sub-vi-ew2">', 'customClass="Box" customModule="T" customModuleProvider="target" id="sub-vi-ew2">').replace(
+            "                            </view>\n", '                                <connections>\n                                    <outlet property="owner" destination="BYZ-38-t0r" id="own-aa-aa1"/>\n'
+            "                                </connections>\n                            </view>\n")
+    document = sb_gestures(subviews, [sb_recognizer("tap-aa-aa1")])
+    return document.replace("                </viewController>", controller_connections(lines) + "                </viewController>", 1) if lines else document
+
+
+GESTURE_SOURCES = {
+    "sb-gesture-controller-outlet": gesture_scene(['<outlet property="box" destination="sub-vi-ew2" id="box-aa-aa1"/>']),
+    "sb-gesture-controller-collection": gesture_scene(['<outletCollection property="boxes" destination="sub-vi-ew2" collectionClass="NSMutableArray" id="bxs-aa-aa1"/>']),
+    "sb-gesture-controller-outlet-and-owner": gesture_scene(['<outlet property="box" destination="sub-vi-ew2" id="box-aa-aa1"/>'], owner=True),
+    "sb-gesture-controller-outlet-to-view": gesture_scene(['<outlet property="root" destination="8bC-Xf-vdC" id="rot-aa-aa1"/>']),
+}
+GESTURE_SOURCES["sb-gesture-controller-collection-zzz"] = gesture_scene(['<outletCollection property="zzz" destination="sub-vi-ew2" collectionClass="NSMutableArray" id="bxs-aa-aa1"/>'])
+STORYBOARDS.update(GESTURE_SOURCES)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

@@ -159,9 +159,16 @@ extension DocumentCompiler {
             }
             let long = counts[0] > 512
             text = long && !localizable ? NibString.mutable(value) : self.text(value, id: attributes["id"], property: "text")
-            let entries: [(String, NibArchivable)] = (textColor.map { [("NSColor", $0 as NibArchivable)] } ?? [])
-                + [("NSFont", font), ("NSParagraphStyle", NibParagraphStyle(alignment: paragraphAlignment))]
-            attributedText = NibTextViewAttributedString(string: long ? NibString.mutable(value) : string(value), attributes: dictionary(entries))
+            // Text views of one font, color and alignment share their attributes and paragraph style
+            // (`text-view-two-*`).
+            let key = "\(ObjectIdentifier(font))-\(textColor.map { "\(ObjectIdentifier($0))" } ?? "")-\(paragraphAlignment)"
+            let attributes = try textViewAttributes[key] ?? {
+                let entries: [(String, NibArchivable)] = (textColor.map { [("NSColor", $0 as NibArchivable)] } ?? [])
+                    + [("NSFont", font), ("NSParagraphStyle", NibParagraphStyle(alignment: paragraphAlignment))]
+                return dictionary(entries)
+            }()
+            textViewAttributes[key] = attributes
+            attributedText = NibTextViewAttributedString(string: long ? NibString.mutable(value) : string(value), attributes: attributes)
         }
         var dataDetectorTypes = 0
         for detectors in element.children(named: "dataDetectorType") {

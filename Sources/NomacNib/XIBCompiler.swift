@@ -112,6 +112,8 @@ struct DocumentCompiler {
     /// names, image and font names, priorities (`same-custom-class`, `same-system-color-twice`,
     /// `strings-shared`); placeholders' identifiers are not.
     var strings: [String: NibString] = [:]
+    /// Text views' attributed texts' attributes, by font, color and alignment.
+    var textViewAttributes: [String: NibDictionary] = [:]
     /// Equal colors are one object, and so are equal fonts (`same-color-twice`, `label-two`).
     var colors: [String: NibColor] = [:]
     var fonts: [String: NibFont] = [:]
@@ -185,6 +187,8 @@ struct DocumentCompiler {
     var embeddedSizes: [String: (width: Double, height: Double)] = [:]
     var cellSegueOutlets: [NibOutletConnection] = []
     var upstreamIdentifier: NibString?
+    /// Whether the last scene view nib numbered its controller before its gesture recognizer.
+    var recognizerAfterController = false
     /// The controllers of a storyboard's other scenes, whose actions from this scene ibtool drops
     /// without a word (`sb-action-other-scene`, the corpus's tofu storyboard).
     var otherScenesControllers: Set<String> = []

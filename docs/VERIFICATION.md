@@ -163,7 +163,8 @@ catalogs" below calls equivalent, an `.omo` identical once each SQL column-name 
 (ADR 0230), each entity's family list sorted (ADR 0232) and each lookup table reduced to its keys,
 every key reaching its slot (ADR 0231),
 a `.momd`'s `VersionInfo.plist` of the same values (B-235), or a nib identical once the elements
-of each `NSSet` and `NSMutableSet` are sorted (ADR 0252); *different* when a file differs otherwise, is
+of each `NSSet` and `NSMutableSet` are sorted (ADR 0252) and its outlet collections of several
+sources are taken in one order (ADR 0260); *different* when a file differs otherwise, is
 missing from nomac's outputs or is only in them; *refused* when nomac's tool exits with an error
 (it names the input or option it does not reproduce yet, with its BACKLOG item);
 *reference failed* when Xcode's task failed (`The following build commands failed:`), or the
