@@ -5217,6 +5217,19 @@ SAME_DISTANCE.update({
     "same-distance-diagonal": same_distance((-40, -30, 20, 20), (40, 30, 20, 20)),
 })
 EXPERIMENTS.update(SAME_DISTANCE)
+# Round 58: a xib's and a storyboard's `<deployment version>` (IB's deployment target, iOS major x
+# 256 + minor x 16), from 7.0 to 27.0, at the default target and at one below and above it.
+DOCUMENT_VERSIONS = {"7.0": 1792, "8.0": 2048, "8.4": 2112, "9.0": 2304, "15.0": 3840, "17.0": 4352, "18.0": 4608, "18.6": 4704, "18.7": 4720, "19.0": 4864, "21.0": 5376, "22.0": 5632, "22.15.15": 5887, "23.0": 5888, "24.0": 6144, "25.0": 6400, "26.0": 6656, "27.0": 6912}
+for _label, _version in DOCUMENT_VERSIONS.items():
+    EXPERIMENTS[f"document-version-{_label}"] = BASE.replace('        <plugIn', f'        <deployment version="{_version}" identifier="iOS"/>\n        <plugIn', 1)
+    STORYBOARDS[f"sb-document-version-{_label}"] = STORYBOARD.replace('        <plugIn', f'        <deployment version="{_version}" identifier="iOS"/>\n        <plugIn', 1)
+for _label in ("17.0", "9.0"):
+    EXPERIMENTS[f"document-version-{_label}-target-15.0"] = EXPERIMENTS[f"document-version-{_label}"]
+    OPTIONS[f"document-version-{_label}-target-15.0"] = {"deployment": "15.0"}
+    STORYBOARDS[f"sb-document-version-{_label}-target-15.0"] = STORYBOARDS[f"sb-document-version-{_label}"]
+    OPTIONS[f"sb-document-version-{_label}-target-15.0"] = {"deployment": "15.0"}
+
+
 STORYBOARDS["sb-guide-bottom-position"] = guide_scene(
     guide_sub("gsb-aa-aa1", (20, 600, 100, 100)) + guide_sub("gs2-aa-aa1", (100, 845, 5, 5)) + guide_sub("gs3-aa-aa1", (200, 830, 5, 5)),
     GUIDE_LEADING + constraint(1, BOTTOM_GUIDE, "top", "gsb-aa-aa1", "bottom", ' constant="152"')
