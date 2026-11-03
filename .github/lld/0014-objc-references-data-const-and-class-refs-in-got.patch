@@ -1,0 +1,176 @@
+Objective-C class, protocol and superclass references in __DATA_CONST from iOS and tvOS 17.4, macOS 14.4, watchOS 10.4
+and visionOS 1.1 (and for arm64 watchOS), and from iOS and tvOS 18, macOS 15, watchOS 11 and visionOS 2 class
+references loaded through the GOT instead of __objc_classrefs: a load of a class reference (arm64 adrp and ldr, x86_64
+movq) becomes a GOT load of the class, bound for a class of a dylib and relaxed to computing its address for a class
+of the image, and the class references only loaded that way are not written, as Xcode 27.0's ld links them (docs/formats/
+build.md "Objective-C references in the linked image"; swiftfin's image had them in __DATA).
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -41,6 +41,7 @@
+ #include "llvm/Object/Archive.h"
+ #include "llvm/Option/ArgList.h"
+ #include "llvm/Support/CommandLine.h"
++#include "llvm/Support/Endian.h"
+ #include "llvm/Support/FileSystem.h"
+ #include "llvm/Support/Parallel.h"
+ #include "llvm/Support/Path.h"
+@@ -662,7 +663,13 @@
+   }
+ }
+ 
+-static void initializeSectionRenameMap() {
++static void initializeSectionRenameMap(bool objcRefsInDataConst) {
++  if (config->dataConst && objcRefsInDataConst)
++    for (StringRef s :
++         {section_names::objcClassRefs, section_names::objcProtoRefs,
++          section_names::objcSuperRefs})
++      config->sectionRenameMap[{segment_names::data, s}] = {
++          segment_names::dataConst, s};
+   if (config->dataConst) {
+     SmallVector<StringRef> v{section_names::got,
+                              section_names::authGot,
+@@ -1074,8 +1081,115 @@
+     if (config->platformInfo.target.MinDeployment >= it->second)
+       return true;
+   return false;
++}
++
++// Xcode 27.0's ld puts class, protocol and superclass references in __DATA_CONST
++// from iOS and tvOS 17.4, macOS 14.4, watchOS 10.4 and visionOS 1.1, and for
++// arm64 watchOS.
++static bool objcRefsInDataConst() {
++  static const MinVersions<6> minVersion = {{
++      {PLATFORM_MACOS, VersionTuple(14, 4)},
++      {PLATFORM_IOS, VersionTuple(17, 4)},
++      {PLATFORM_MACCATALYST, VersionTuple(17, 4)},
++      {PLATFORM_TVOS, VersionTuple(17, 4)},
++      {PLATFORM_WATCHOS, VersionTuple(10, 4)},
++      {PLATFORM_XROS, VersionTuple(1, 1)},
++  }};
++  if (removeSimulator(config->platformInfo.target.Platform) ==
++          PLATFORM_WATCHOS &&
++      config->arch() == AK_arm64)
++    return true;
++  return greaterEqMinVersion(minVersion, true);
++}
++
++// From iOS and tvOS 18, macOS 15, watchOS 11 and visionOS 2, and for arm64
++// watchOS, Xcode 27.0's ld loads classes through the GOT: a load of a class
++// reference becomes a GOT load of the class (bound, or relaxed to computing the
++// address of a class of the image), and class references only loaded that way
++// are not written.
++static bool classRefsInGot() {
++  static const MinVersions<6> minVersion = {{
++      {PLATFORM_MACOS, VersionTuple(15, 0)},
++      {PLATFORM_IOS, VersionTuple(18, 0)},
++      {PLATFORM_MACCATALYST, VersionTuple(18, 0)},
++      {PLATFORM_TVOS, VersionTuple(18, 0)},
++      {PLATFORM_WATCHOS, VersionTuple(11, 0)},
++      {PLATFORM_XROS, VersionTuple(2, 0)},
++  }};
++  if (removeSimulator(config->platformInfo.target.Platform) ==
++          PLATFORM_WATCHOS &&
++      config->arch() == AK_arm64)
++    return true;
++  return greaterEqMinVersion(minVersion, true);
++}
++
++// The GOT load a load of a class reference becomes, if the instruction is one.
++static std::optional<uint8_t> classRefGotLoadType(const lld::macho::Reloc &r,
++                                                  const uint8_t *loc) {
++  if (target->cpuType == CPU_TYPE_ARM64 ||
++      target->cpuType == CPU_TYPE_ARM64_32) {
++    if (r.type == ARM64_RELOC_PAGE21)
++      return ARM64_RELOC_GOT_LOAD_PAGE21;
++    uint32_t ldr = target->wordSize == 8 ? 0xf9400000 : 0xb9400000;
++    if (r.type == ARM64_RELOC_PAGEOFF12 &&
++        (llvm::support::endian::read32le(loc) & 0xffc00000) == ldr)
++      return ARM64_RELOC_GOT_LOAD_PAGEOFF12;
++    return std::nullopt;
++  }
++  if (target->cpuType == CPU_TYPE_X86_64 && r.type == X86_64_RELOC_SIGNED &&
++      r.offset >= 3 && loc[-2] == 0x8b && (loc[-3] & 0xf8) == 0x48)
++    return X86_64_RELOC_GOT_LOAD;
++  return std::nullopt;
+ }
+ 
++static void foldClassRefsIntoGot() {
++  if (!classRefsInGot())
++    return;
++  DenseSet<InputSection *> referencedOtherwise;
++  for (ConcatInputSection *isec : inputSections) {
++    if (isec->getName() == section_names::objcClassRefs)
++      continue;
++    for (lld::macho::Reloc &r : isec->relocs) {
++      InputSection *refSec;
++      uint64_t offset;
++      if (auto *sym = dyn_cast_if_present<Symbol *>(r.referent)) {
++        auto *d = dyn_cast<Defined>(sym);
++        if (!d || !d->isec())
++          continue;
++        refSec = d->isec();
++        offset = d->value + r.addend;
++      } else {
++        refSec = cast<InputSection *>(r.referent);
++        offset = r.addend;
++      }
++      if (refSec->getName() != section_names::objcClassRefs)
++        continue;
++      Symbol *klass = nullptr;
++      for (const lld::macho::Reloc &slot : refSec->relocs)
++        if (slot.offset == offset &&
++            target->hasAttr(slot.type, RelocAttrBits::UNSIGNED) &&
++            slot.addend == 0)
++          klass = dyn_cast_if_present<Symbol *>(slot.referent);
++      std::optional<uint8_t> type =
++          classRefGotLoadType(r, isec->data.data() + r.offset);
++      if (!klass || !type) {
++        referencedOtherwise.insert(refSec);
++        continue;
++      }
++      r.referent = klass;
++      r.addend = 0;
++      r.type = *type;
++    }
++  }
++  for (ConcatInputSection *isec : inputSections)
++    if (isec->getName() == section_names::objcClassRefs &&
++        !referencedOtherwise.contains(isec)) {
++      isec->live = false;
++      for (Defined *d : isec->symbols)
++        d->used = false;
++    }
++}
++
+ static bool dataConstDefault(const InputArgList &args) {
+   static const MinVersions<6> minVersion = {{
+       {PLATFORM_MACOS, VersionTuple(10, 15)},
+@@ -1991,7 +2105,7 @@
+       args.hasFlag(OPT_data_const, OPT_no_data_const, dataConstDefault(args));
+   // Populate config->sectionRenameMap with builtin default renames.
+   // Options -rename_section and -rename_segment are able to override.
+-  initializeSectionRenameMap();
++  initializeSectionRenameMap(objcRefsInDataConst());
+   // Reject every special character except '.' and '$'
+   // TODO(gkm): verify that this is the proper set of invalid chars
+   StringRef invalidNameChars("!\"#%&'()*+,-/:;<=>?@[\\]^`{|}~");
+@@ -2232,6 +2346,8 @@
+ 
+     if (config->callGraphProfileSort)
+       priorityBuilder.extractCallGraphProfile();
++
++    foldClassRefsIntoGot();
+ 
+     if (config->deadStrip)
+       markLive();
+--- a/lld/MachO/InputSection.h
++++ b/lld/MachO/InputSection.h
+@@ -353,6 +353,8 @@
+ constexpr const char objcClassList[] = "__objc_classlist";
+ constexpr const char objcMethList[] = "__objc_methlist";
+ constexpr const char objcClassRefs[] = "__objc_classrefs";
++constexpr const char objcProtoRefs[] = "__objc_protorefs";
++constexpr const char objcSuperRefs[] = "__objc_superrefs";
+ constexpr const char objcConst[] = "__objc_const";
+ constexpr const char objCImageInfo[] = "__objc_imageinfo";
+ constexpr const char objcStubs[] = "__objc_stubs";

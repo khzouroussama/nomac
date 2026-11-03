@@ -1,0 +1,73 @@
+The GOT in Xcode 27.0's ld order (B-193, docs/formats/build.md "Objective-C references, archive members and hints in
+the linked image"): by the slots' ordinals read as unsigned, the image's own symbols first, then each dylib's in
+load order, the weak definitions (bound or rebased), the flat lookups; by name within each. lld kept the order of
+first reference. The slots' fixups are recorded once the order is known.
+--- a/lld/MachO/SyntheticSections.h
++++ b/lld/MachO/SyntheticSections.h
+@@ -123,6 +123,7 @@
+   }
+   void writeTo(uint8_t *buf) const override;
+   void addEntry(Symbol *sym);
++  void finalizeEntries(bool inXcodeOrder);
+   uint64_t getVA(uint32_t gotIndex) const {
+     return addr + gotIndex * target->wordSize;
+   }
+--- a/lld/MachO/SyntheticSections.cpp
++++ b/lld/MachO/SyntheticSections.cpp
+@@ -338,8 +338,6 @@
+   if (entries.insert(sym)) {
+     assert(!sym->isInGot());
+     sym->gotIndex = entries.size() - 1;
+-
+-    addNonLazyBindingEntries(sym, isec, sym->gotIndex * target->wordSize);
+   }
+ }
+ 
+@@ -566,8 +564,35 @@
+     return ordinalForDylibSymbol(*dysym);
+   assert(cast<Defined>(&sym)->interposable);
+   return BIND_SPECIAL_DYLIB_FLAT_LOOKUP;
++}
++
++// Xcode's ld orders the GOT by the slots' ordinals read as unsigned: the
++// image's own symbols, each dylib's in turn, the weak definitions (bound or
++// not), then the flat lookups; and by name within each.
++static uint16_t gotOrder(const Symbol &sym) {
++  if (sym.isWeakDef())
++    return static_cast<uint16_t>(BIND_SPECIAL_DYLIB_WEAK_LOOKUP);
++  if (needsBinding(&sym))
++    return static_cast<uint16_t>(ordinalForSymbol(sym));
++  return 0;
+ }
+ 
++void NonLazyPointerSectionBase::finalizeEntries(bool inXcodeOrder) {
++  if (inXcodeOrder) {
++    std::vector<const Symbol *> sorted(entries.begin(), entries.end());
++    llvm::stable_sort(sorted, [](const Symbol *a, const Symbol *b) {
++      return std::make_pair(gotOrder(*a), a->getName()) <
++             std::make_pair(gotOrder(*b), b->getName());
++    });
++    entries.clear();
++    entries.insert(sorted.begin(), sorted.end());
++  }
++  for (const auto &[i, sym] : llvm::enumerate(entries)) {
++    const_cast<Symbol *>(sym)->gotIndex = i;
++    addNonLazyBindingEntries(sym, isec, i * target->wordSize);
++  }
++}
++
+ static void encodeDylibOrdinal(int16_t ordinal, raw_svector_ostream &os) {
+   if (ordinal <= 0) {
+     os << static_cast<uint8_t>(BIND_OPCODE_SET_DYLIB_SPECIAL_IMM |
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -1410,6 +1410,9 @@
+   // the ordinary __TEXT,_text InputSections.
+   sortSegmentsAndSections();
+   createLoadCommands<LP>();
++  // The GOT's order depends on the dylib ordinals, known from here on.
++  in.got->finalizeEntries(/*inXcodeOrder=*/true);
++  in.tlvPointers->finalizeEntries(/*inXcodeOrder=*/false);
+   finalizeAddresses();
+ 
+   llvm::thread mapFileWriter([&] {

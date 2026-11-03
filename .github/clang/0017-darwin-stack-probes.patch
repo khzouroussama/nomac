@@ -1,0 +1,679 @@
+Apple's stack probe, ___chkstk_darwin, as Xcode 27.0's clang calls it (B-170, docs/formats/build.md "Stack checks"),
+written from Xcode's observed output (.github/scripts/clang_stack_experiments.py):
+- the driver passes -fstack-check unasked to Apple devices from macOS 10.15, iOS and tvOS 13, watchOS 6, Mac Catalyst
+  and visionOS, not to simulators, DriverKit, arm64_32 or -ffreestanding compiles; -fstack-check and -fno-stack-check
+  are options instead of ignored flags;
+- with it, every function of an Apple target gets "probe-stack"="__chkstk_darwin" ("___chkstk_darwin" on x86);
+- AArch64: a frame of 4096 bytes of locals or more is probed after the callee saves, with its size in w9 and the probe
+  called through x16 loaded from the GOT, with its linker optimization hint (lr kept around the call where the
+  function does not save it, x9 to x12 where shrink-wrapping moved the prologue out of the entry block); a dynamic
+  alloca calls it with the unrounded size in x9 (the size GlobalISel rounded at -O0), then takes the rounded size from
+  sp; x9 to x11, x16, x17 and lr are not kept across the call;
+- x86: every dynamic alloca calls the probe with the unrounded size, rounds it after the call and subtracts it; the
+  call keeps the callee-saved and vector registers only; rax is pushed and popped around a prologue's call that the
+  callee saves leave misaligned; leaf frames the probe does not need keep the red zone.
+--- a/clang/include/clang/Basic/CodeGenOptions.def
++++ b/clang/include/clang/Basic/CodeGenOptions.def
+@@ -184,6 +184,7 @@
+ CODEGENOPT(MisExpect         , 1, 0, Benign) ///< Set when -Wmisexpect is enabled
+ CODEGENOPT(EnableSegmentedStacks , 1, 0, Benign) ///< Set when -fsplit-stack is enabled.
+ CODEGENOPT(StackClashProtector, 1, 0, Benign) ///< Set when -fstack-clash-protection is enabled.
++CODEGENOPT(StackCheck, 1, 0, Benign) ///< Set when -fstack-check is enabled.
+ CODEGENOPT(NoImplicitFloat   , 1, 0, Benign) ///< Set when -mno-implicit-float is enabled.
+ CODEGENOPT(NullPointerIsValid , 1, 0, Benign) ///< Assume Null pointer deference is defined.
+ CODEGENOPT(OpenCLCorrectlyRoundedDivSqrt, 1, 0, Benign) ///< -cl-fp32-correctly-rounded-divide-sqrt
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -7253,7 +7253,11 @@
+ defm single_precision_constant : BooleanFFlag<"single-precision-constant">,
+     Group<clang_ignored_gcc_optimization_f_Group>;
+ defm spec_constr_count : BooleanFFlag<"spec-constr-count">, Group<clang_ignored_f_Group>;
+-defm stack_check : BooleanFFlag<"stack-check">, Group<clang_ignored_f_Group>;
++defm stack_check : BoolFOption<"stack-check",
++  CodeGenOpts<"StackCheck">, DefaultFalse,
++  PosFlag<SetTrue, [], [ClangOption, CC1Option], "Enable">,
++  NegFlag<SetFalse, [], [ClangOption], "Disable">,
++  BothFlags<[], [ClangOption], " stack probes on Apple platforms">>;
+ defm strength_reduce :
+     BooleanFFlag<"strength-reduce">, Group<clang_ignored_gcc_optimization_f_Group>;
+ defm tls_model : BooleanFFlag<"tls-model">, Group<clang_ignored_f_Group>;
+--- a/clang/lib/CodeGen/CGCall.cpp
++++ b/clang/lib/CodeGen/CGCall.cpp
+@@ -2235,6 +2235,13 @@
+     TargetCodeGenInfo::initPointerAuthFnAttributes(CodeGenOpts.PointerAuth,
+                                                    FuncAttrs);
+ 
++  // Xcode 27.0's clang names Apple's stack probe in every function of a
++  // -fstack-check compile, with x86's extra underscore.
++  if (!AttrOnCallSite && CodeGenOpts.StackCheck && getTriple().isOSDarwin())
++    FuncAttrs.addAttribute("probe-stack", getTriple().isX86()
++                                              ? "___chkstk_darwin"
++                                              : "__chkstk_darwin");
++
+   // If we're just getting the default, get the default values for mergeable
+   // attributes.
+   if (!AttrOnCallSite)
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -3544,6 +3544,24 @@
+   return llvm::all_of(S, [](char C) { return std::isalnum(C) || C == '_'; });
+ }
+ 
++// Where Xcode 27.0's driver passes -fstack-check unasked: Apple devices from
++// macOS 10.15, iOS and tvOS 13, watchOS 6, Mac Catalyst and visionOS, but not
++// simulators, DriverKit, arm64_32 or -ffreestanding.
++static bool checksStackByDefault(const llvm::Triple &Triple,
++                                 const ArgList &Args) {
++  if (!Triple.isOSDarwin() || Triple.isSimulatorEnvironment() ||
++      Triple.isDriverKit() || Triple.getArch() == llvm::Triple::aarch64_32 ||
++      Args.hasFlag(options::OPT_ffreestanding, options::OPT_fhosted, false))
++    return false;
++  if (Triple.isMacCatalystEnvironment() || Triple.isXROS())
++    return true;
++  if (Triple.isMacOSX())
++    return !Triple.isMacOSXVersionLT(10, 15);
++  if (Triple.isWatchOS())
++    return !Triple.isOSVersionLT(6);
++  return !Triple.isOSVersionLT(13);
++}
++
+ static void RenderSSPOptions(const Driver &D, const ToolChain &TC,
+                              const ArgList &Args, ArgStringList &CmdArgs,
+                              bool KernelOrKext) {
+@@ -7272,6 +7290,9 @@
+                     options::OPT_mno_speculative_load_hardening);
+ 
+   RenderSSPOptions(D, TC, Args, CmdArgs, KernelOrKext);
++  if (Args.hasFlag(options::OPT_fstack_check, options::OPT_fno_stack_check,
++                   checksStackByDefault(Triple, Args)))
++    CmdArgs.push_back("-fstack-check");
+   RenderSCPOptions(TC, Args, CmdArgs);
+   RenderTrivialAutoVarInitOptions(D, TC, Args, CmdArgs);
+ 
+--- a/llvm/include/llvm/CodeGen/TargetLowering.h
++++ b/llvm/include/llvm/CodeGen/TargetLowering.h
+@@ -2140,6 +2140,12 @@
+ 
+   virtual bool hasInlineStackProbe(const MachineFunction &MF) const { return false; }
+ 
++  /// True if DYNAMIC_STACKALLOC gets the size before its rounding to the stack
++  /// alignment as a fourth operand, for a stack probe that takes it.
++  virtual bool probesUnroundedDynamicAlloca(const MachineFunction &MF) const {
++    return false;
++  }
++
+   virtual StringRef getStackProbeSymbolName(const MachineFunction &MF) const {
+     return "";
+   }
+--- a/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/SelectionDAGBuilder.cpp
+@@ -4580,6 +4580,7 @@
+   if (*Alignment <= StackAlign)
+     Alignment = std::nullopt;
+ 
++  SDValue UnroundedSize = AllocSize;
+   const uint64_t StackAlignMask = StackAlign.value() - 1U;
+   // Round the size of the allocation up to the stack alignment size
+   // by add SA-1 to the size. This doesn't overflow because we're computing
+@@ -4592,9 +4593,11 @@
+   AllocSize = DAG.getNode(ISD::AND, dl, AllocSize.getValueType(), AllocSize,
+                           DAG.getSignedConstant(~StackAlignMask, dl, IntPtr));
+ 
+-  SDValue Ops[] = {
++  SmallVector<SDValue, 4> Ops = {
+       getRoot(), AllocSize,
+       DAG.getConstant(Alignment ? Alignment->value() : 0, dl, IntPtr)};
++  if (TLI.probesUnroundedDynamicAlloca(DAG.getMachineFunction()))
++    Ops.push_back(UnroundedSize);
+   SDVTList VTs = DAG.getVTList(AllocSize.getValueType(), MVT::Other);
+   SDValue DSA = DAG.getNode(ISD::DYNAMIC_STACKALLOC, dl, VTs, Ops);
+   setValue(&I, DSA);
+--- a/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
++++ b/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
+@@ -321,6 +321,9 @@
+ 
+   MInstToMCSymbol LOHInstToLabel;
+ 
++  /// The labels of the GOT loads of Apple's stack probe in this function.
++  SmallVector<std::pair<MCSymbol *, MCSymbol *>, 1> StackProbeLOHs;
++
+   bool shouldEmitWeakSwiftAsyncExtendedFramePointerFlags() const override {
+     return ShouldEmitWeakSwiftAsyncExtendedFramePointerFlags;
+   }
+@@ -1126,6 +1129,11 @@
+ void AArch64AsmPrinter::emitFunctionBodyEnd() {
+   if (!AArch64FI->getLOHRelated().empty())
+     emitLOHs();
++  for (auto [Adrp, Ldr] : StackProbeLOHs) {
++    SmallVector<MCSymbol *, 3> Args = {Adrp, Ldr};
++    OutStreamer->emitLOHDirective(MCLOH_AdrpLdrGot, Args);
++  }
++  StackProbeLOHs.clear();
+ }
+ 
+ /// GetCPISymbol - Return the symbol for the specified constant pool entry.
+@@ -3122,6 +3130,34 @@
+     TmpInst.setOpcode(AArch64::BR);
+     TmpInst.addOperand(MCOperand::createReg(MI->getOperand(0).getReg()));
+     EmitToStreamer(*OutStreamer, TmpInst);
++    return;
++  }
++  case AArch64::StkChkIndirectCall: {
++    // As Xcode 27.0's clang: x16 loaded from the GOT, with a linker
++    // optimization hint at every optimization level, after the function's
++    // other hints.
++    MCOperand Page, PageOffset;
++    MCInstLowering.lowerOperand(
++        MachineOperand::CreateES("__chkstk_darwin",
++                                 AArch64II::MO_GOT | AArch64II::MO_PAGE),
++        Page);
++    MCInstLowering.lowerOperand(
++        MachineOperand::CreateES("__chkstk_darwin", AArch64II::MO_GOT |
++                                                        AArch64II::MO_PAGEOFF |
++                                                        AArch64II::MO_NC),
++        PageOffset);
++    MCSymbol *AdrpLabel = createTempSymbol("loh");
++    OutStreamer->emitLabel(AdrpLabel);
++    EmitToStreamer(
++        MCInstBuilder(AArch64::ADRP).addReg(AArch64::X16).addOperand(Page));
++    MCSymbol *LdrLabel = createTempSymbol("loh");
++    OutStreamer->emitLabel(LdrLabel);
++    EmitToStreamer(MCInstBuilder(AArch64::LDRXui)
++                       .addReg(AArch64::X16)
++                       .addReg(AArch64::X16)
++                       .addOperand(PageOffset));
++    EmitToStreamer(MCInstBuilder(AArch64::BLR).addReg(AArch64::X16));
++    StackProbeLOHs.push_back({AdrpLabel, LdrLabel});
+     return;
+   }
+   case AArch64::TCRETURNdi: {
+--- a/llvm/lib/Target/AArch64/AArch64CallingConvention.td
++++ b/llvm/lib/Target/AArch64/AArch64CallingConvention.td
+@@ -725,6 +725,13 @@
+                            (sequence "X%u", 18, 28), FP, SP,
+                            (sequence "Q%u", 0, 31))>;
+ 
++// Apple's ___chkstk_darwin, as Xcode 27.0's clang allocates registers around
++// it: the size in x9, and x9 to x11, x16, x17 and lr not kept.
++def CSR_AArch64_StackProbe_Darwin
++    : CalleeSavedRegs<(add (sequence "X%u", 0, 8), (sequence "X%u", 12, 15),
++                           (sequence "X%u", 18, 28), FP, SP,
++                           (sequence "Q%u", 0, 31))>;
++
+ // Darwin variants of AAPCS.
+ // Darwin puts the frame-record at the top of the callee-save area.
+ def CSR_Darwin_AArch64_AAPCS : CalleeSavedRegs<(add LR, FP, X19, X20, X21, X22,
+--- a/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64FrameLowering.cpp
+@@ -1096,6 +1096,13 @@
+          StackSizeInBytes >= uint64_t(MFI.getStackProbeSize());
+ }
+ 
++static bool darwinRequiresStackProbe(const MachineFunction &MF,
++                                     uint64_t StackSizeInBytes) {
++  const AArch64FunctionInfo &AFI = *MF.getInfo<AArch64FunctionInfo>();
++  return AFI.hasDarwinStackProbe() &&
++         StackSizeInBytes >= uint64_t(AFI.getDarwinStackProbeSize());
++}
++
+ static void getLiveRegsForEntryMBB(LivePhysRegs &LiveRegs,
+                                    const MachineBasicBlock &MBB) {
+   const MachineFunction *MF = MBB.getParent();
+@@ -1179,7 +1186,8 @@
+ 
+   // Certain stack probing sequences might clobber flags, then we can't use
+   // the block as a prologue if the flags register is a live-in.
+-  if (MF->getInfo<AArch64FunctionInfo>()->hasStackProbing() &&
++  if ((MF->getInfo<AArch64FunctionInfo>()->hasStackProbing() ||
++       MF->getInfo<AArch64FunctionInfo>()->hasDarwinStackProbe()) &&
+       MBB.isLiveIn(AArch64::NZCV))
+     return false;
+ 
+@@ -2104,7 +2112,8 @@
+   // function, including the funclet.
+   int64_t NumBytes =
+       IsFunclet ? getWinEHFuncletFrameSize(MF) : MFI.getStackSize();
+-  if (!AFI->hasStackFrame() && !windowsRequiresStackProbe(MF, NumBytes)) {
++  if (!AFI->hasStackFrame() && !windowsRequiresStackProbe(MF, NumBytes) &&
++      !darwinRequiresStackProbe(MF, NumBytes)) {
+     assert(!HasFP && "unexpected function without stack frame but with FP");
+     assert(!SVEStackSize &&
+            "unexpected function without stack frame but with SVE objects");
+@@ -2449,6 +2458,56 @@
+           .addReg(X15Scratch, RegState::Implicit)
+           .setMIFlag(MachineInstr::FrameSetup);
+     }
++  }
++
++  if (darwinRequiresStackProbe(MF, NumBytes)) {
++    // As Xcode 27.0's prologues: the frame size in w9, lr kept around the call
++    // where the function does not save it, and x9 to x12 where shrink-wrapping
++    // moved the prologue out of the entry block.
++    bool SavesLR = llvm::any_of(
++        MFI.getCalleeSavedInfo(),
++        [](const CalleeSavedInfo &Info) { return Info.getReg() == AArch64::LR; });
++    bool SavesScratch = !MBB.isEntryBlock();
++    if (!SavesLR)
++      BuildMI(MBB, MBBI, DL, TII->get(AArch64::STRXpre), AArch64::SP)
++          .addReg(AArch64::LR)
++          .addReg(AArch64::SP)
++          .addImm(-16)
++          .setMIFlag(MachineInstr::FrameSetup);
++    if (SavesScratch) {
++      for (auto [First, Second] : {std::pair(AArch64::X9, AArch64::X10),
++                                   std::pair(AArch64::X11, AArch64::X12)})
++        BuildMI(MBB, MBBI, DL, TII->get(AArch64::STPXpre), AArch64::SP)
++            .addReg(First, RegState::Undef)
++            .addReg(Second, RegState::Undef)
++            .addReg(AArch64::SP)
++            .addImm(-2)
++            .setMIFlag(MachineInstr::FrameSetup);
++    }
++    BuildMI(MBB, MBBI, DL, TII->get(AArch64::MOVi32imm), AArch64::W9)
++        .addImm(NumBytes)
++        .setMIFlag(MachineInstr::FrameSetup);
++    BuildMI(MBB, MBBI, DL, TII->get(AArch64::StkChkIndirectCall))
++        .addRegMask(RegInfo->getDarwinStackProbePreservedMask())
++        .setMIFlag(MachineInstr::FrameSetup);
++    if (SavesScratch) {
++      for (auto [First, Second] : {std::pair(AArch64::X11, AArch64::X12),
++                                   std::pair(AArch64::X9, AArch64::X10)})
++        BuildMI(MBB, MBBI, DL, TII->get(AArch64::LDPXpost))
++            .addDef(AArch64::SP)
++            .addDef(First)
++            .addDef(Second)
++            .addReg(AArch64::SP)
++            .addImm(2)
++            .setMIFlag(MachineInstr::FrameSetup);
++    }
++    if (!SavesLR)
++      BuildMI(MBB, MBBI, DL, TII->get(AArch64::LDRXpost))
++          .addDef(AArch64::SP)
++          .addDef(AArch64::LR)
++          .addReg(AArch64::SP)
++          .addImm(16)
++          .setMIFlag(MachineInstr::FrameSetup);
+   }
+ 
+   StackOffset SVECalleeSavesSize = {}, SVELocalsSize = SVEStackSize;
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.cpp
+@@ -16371,13 +16371,52 @@
+   return DAG.getMergeValues(Ops, DL);
+ }
+ 
++// As Xcode 27.0's clang: the unrounded size in x9 for Apple's stack probe,
++// then the rounded size taken from sp.
+ SDValue
++AArch64TargetLowering::LowerDarwinDYNAMIC_STACKALLOC(SDValue Op,
++                                                     SelectionDAG &DAG) const {
++  SDLoc DL(Op);
++  SDValue Chain = Op.getOperand(0);
++  SDValue Size = Op.getOperand(1);
++  SDValue UnroundedSize = Op.getNumOperands() > 3 ? Op.getOperand(3) : Size;
++  MaybeAlign Align =
++      cast<ConstantSDNode>(Op.getOperand(2))->getMaybeAlignValue();
++  EVT VT = Op.getNode()->getValueType(0);
++
++  Chain = DAG.getCALLSEQ_START(Chain, 0, 0, DL);
++  Chain = DAG.getCopyToReg(Chain, DL, AArch64::X9, UnroundedSize, SDValue());
++  const uint32_t *Mask =
++      Subtarget->getRegisterInfo()->getDarwinStackProbePreservedMask();
++  Chain = SDValue(DAG.getMachineNode(AArch64::StkChkIndirectCall, DL,
++                                     DAG.getVTList(MVT::Other, MVT::Glue),
++                                     {DAG.getRegisterMask(Mask), Chain,
++                                      Chain.getValue(1)}),
++                  0);
++
++  SDValue SP = DAG.getCopyFromReg(Chain, DL, AArch64::SP, MVT::i64);
++  Chain = SP.getValue(1);
++  SP = DAG.getNode(ISD::SUB, DL, MVT::i64, SP, Size);
++  if (Align)
++    SP = DAG.getNode(ISD::AND, DL, VT, SP.getValue(0),
++                     DAG.getSignedConstant(-(uint64_t)Align->value(), DL, VT));
++  Chain = DAG.getCopyToReg(Chain, DL, AArch64::SP, SP);
++
++  Chain = DAG.getCALLSEQ_END(Chain, 0, 0, SDValue(), DL);
++
++  SDValue Ops[2] = {SP, Chain};
++  return DAG.getMergeValues(Ops, DL);
++}
++
++SDValue
+ AArch64TargetLowering::LowerDYNAMIC_STACKALLOC(SDValue Op,
+                                                SelectionDAG &DAG) const {
+   MachineFunction &MF = DAG.getMachineFunction();
+ 
+   if (Subtarget->isTargetWindows())
+     return LowerWindowsDYNAMIC_STACKALLOC(Op, DAG);
++  else if (MF.getInfo<AArch64FunctionInfo>()->hasDarwinStackProbe())
++    return LowerDarwinDYNAMIC_STACKALLOC(Op, DAG);
+   else if (hasInlineStackProbe(MF))
+     return LowerInlineDYNAMIC_STACKALLOC(Op, DAG);
+   else
+@@ -30769,6 +30808,11 @@
+     const MachineFunction &MF) const {
+   return !Subtarget->isTargetWindows() &&
+          MF.getInfo<AArch64FunctionInfo>()->hasStackProbing();
++}
++
++bool AArch64TargetLowering::probesUnroundedDynamicAlloca(
++    const MachineFunction &MF) const {
++  return MF.getInfo<AArch64FunctionInfo>()->hasDarwinStackProbe();
+ }
+ 
+ bool AArch64TargetLowering::isTypeDesirableForOp(unsigned Opc, EVT VT) const {
+--- a/llvm/lib/Target/AArch64/AArch64ISelLowering.h
++++ b/llvm/lib/Target/AArch64/AArch64ISelLowering.h
+@@ -539,6 +539,8 @@
+   /// True if stack clash protection is enabled for this functions.
+   bool hasInlineStackProbe(const MachineFunction &MF) const override;
+ 
++  bool probesUnroundedDynamicAlloca(const MachineFunction &MF) const override;
++
+   /// In AArch64, true if FEAT_CPA is present. Allows pointer arithmetic
+   /// semantics to be preserved for instruction selection.
+   bool shouldPreservePtrArith(const Function &F, EVT PtrVT) const override;
+@@ -726,6 +728,7 @@
+   SDValue LowerVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
+   SDValue LowerATOMIC_LOAD_AND(SDValue Op, SelectionDAG &DAG) const;
+   SDValue LowerWindowsDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
++  SDValue LowerDarwinDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+   SDValue LowerInlineDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+   SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) const;
+ 
+--- a/llvm/lib/Target/AArch64/AArch64InstrInfo.td
++++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+@@ -1353,6 +1353,12 @@
+ } // Defs = [SP, NZCV], Uses = [SP] in
+ } // hasSideEffects = 1, isCodeGenOnly = 1
+ 
++// A call to Apple's stack probe with the size in x9, through x16 loaded from
++// the GOT (AArch64ExpandPseudoInsts).
++let isCall = 1, hasSideEffects = 1, isCodeGenOnly = 1, Size = 12,
++    Defs = [LR, X16, X17], Uses = [X9, SP] in
++def StkChkIndirectCall : Pseudo<(outs), (ins variable_ops), []>, Sched<[]>;
++
+ let isReMaterializable = 1, isCodeGenOnly = 1 in {
+ // FIXME: The following pseudo instructions are only needed because remat
+ // cannot handle multiple instructions.  When that changes, they can be
+--- a/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.cpp
++++ b/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.cpp
+@@ -137,7 +137,9 @@
+     else if (const auto *PS = dyn_cast_or_null<MDString>(
+                  F.getParent()->getModuleFlag("probe-stack")))
+       ProbeKind = PS->getString();
+-    if (ProbeKind.size()) {
++    if (ProbeKind == "__chkstk_darwin" && STI->isTargetDarwin()) {
++      DarwinStackProbeSize = ProbeSize;
++    } else if (ProbeKind.size()) {
+       if (ProbeKind != "inline-asm")
+         report_fatal_error("Unsupported stack probing method");
+       StackProbeSize = ProbeSize;
+--- a/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.h
++++ b/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.h
+@@ -231,6 +231,9 @@
+ 
+   int64_t StackProbeSize = 0;
+ 
++  /// The frame size from which the prologue calls Apple's stack probe.
++  int64_t DarwinStackProbeSize = 0;
++
+   // Holds a register containing pstate.sm. This is set
+   // on function entry to record the initial pstate of a function.
+   Register PStateSMReg = MCRegister::NoRegister;
+@@ -598,6 +601,10 @@
+   bool hasStackProbing() const { return StackProbeSize != 0; }
+ 
+   int64_t getStackProbeSize() const { return StackProbeSize; }
++
++  bool hasDarwinStackProbe() const { return DarwinStackProbeSize != 0; }
++
++  int64_t getDarwinStackProbeSize() const { return DarwinStackProbeSize; }
+ 
+ private:
+   // Hold the lists of LOHs.
+--- a/llvm/lib/Target/AArch64/AArch64RegisterInfo.cpp
++++ b/llvm/lib/Target/AArch64/AArch64RegisterInfo.cpp
+@@ -411,6 +411,10 @@
+   return CSR_AArch64_StackProbe_Windows_RegMask;
+ }
+ 
++const uint32_t *AArch64RegisterInfo::getDarwinStackProbePreservedMask() const {
++  return CSR_AArch64_StackProbe_Darwin_RegMask;
++}
++
+ std::optional<std::string>
+ AArch64RegisterInfo::explainReservedReg(const MachineFunction &MF,
+                                         MCRegister PhysReg) const {
+--- a/llvm/lib/Target/AArch64/AArch64RegisterInfo.h
++++ b/llvm/lib/Target/AArch64/AArch64RegisterInfo.h
+@@ -92,6 +92,7 @@
+ 
+   /// Stack probing calls preserve different CSRs to the normal CC.
+   const uint32_t *getWindowsStackProbePreservedMask() const;
++  const uint32_t *getDarwinStackProbePreservedMask() const;
+ 
+   BitVector getStrictlyReservedRegs(const MachineFunction &MF) const;
+   BitVector getUserReservedRegs(const MachineFunction &MF) const;
+--- a/llvm/lib/Target/AArch64/GISel/AArch64LegalizerInfo.cpp
++++ b/llvm/lib/Target/AArch64/GISel/AArch64LegalizerInfo.cpp
+@@ -12,6 +12,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "AArch64LegalizerInfo.h"
++#include "AArch64MachineFunctionInfo.h"
+ #include "AArch64Subtarget.h"
+ #include "llvm/ADT/STLExtras.h"
+ #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
+@@ -2297,6 +2298,18 @@
+   MachineFunction &MF = *MI.getParent()->getParent();
+   MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+   MachineRegisterInfo &MRI = *MIRBuilder.getMRI();
++
++  // Apple's stack probe gets the rounded size in x9, as with Xcode 27.0's
++  // clang at -O0.
++  if (MF.getInfo<AArch64FunctionInfo>()->hasDarwinStackProbe()) {
++    MIRBuilder.buildCopy(Register(AArch64::X9), MI.getOperand(1).getReg());
++    MIRBuilder.buildInstr(AArch64::StkChkIndirectCall)
++        .addRegMask(MF.getSubtarget<AArch64Subtarget>()
++                        .getRegisterInfo()
++                        ->getDarwinStackProbePreservedMask());
++    Helper.lowerDynStackAlloc(MI);
++    return true;
++  }
+ 
+   // If stack probing is not enabled for this function, use the default
+   // lowering.
+--- a/llvm/lib/Target/X86/X86CallingConv.td
++++ b/llvm/lib/Target/X86/X86CallingConv.td
+@@ -1123,6 +1123,11 @@
+ def CSR_32 : CalleeSavedRegs<(add ESI, EDI, EBX, EBP)>;
+ def CSR_64 : CalleeSavedRegs<(add RBX, R12, R13, R14, R15, RBP)>;
+ 
++// Apple's ___chkstk_darwin, as Xcode 27.0's clang allocates registers around
++// it: the vector registers kept, the other general-purpose ones not.
++def CSR_64_AVX512 : CalleeSavedRegs<(add CSR_64, (sequence "ZMM%u", 0, 31),
++                                         (sequence "K%u", 0, 7))>;
++
+ def CSR_64_SwiftError : CalleeSavedRegs<(sub CSR_64, R12)>;
+ def CSR_64_SwiftTail : CalleeSavedRegs<(sub CSR_64, R13, R14)>;
+ 
+--- a/llvm/lib/Target/X86/X86DynAllocaExpander.cpp
++++ b/llvm/lib/Target/X86/X86DynAllocaExpander.cpp
+@@ -61,6 +61,7 @@
+   unsigned SlotSize = 0;
+   int64_t StackProbeSize = 0;
+   bool NoStackArgProbe = false;
++  bool AlwaysProbe = false;
+ 
+   StringRef getPassName() const override { return "X86 DynAlloca Expander"; }
+ 
+@@ -99,8 +100,9 @@
+ X86DynAllocaExpander::Lowering
+ X86DynAllocaExpander::getLowering(int64_t CurrentOffset,
+                                   int64_t AllocaAmount) {
+-  // For a non-constant amount or a large amount, we have to probe.
+-  if (AllocaAmount < 0 || AllocaAmount > StackProbeSize)
++  // For a non-constant amount or a large amount, we have to probe; Apple's
++  // stack probe is called for every amount, as with Xcode 27.0's clang.
++  if (AlwaysProbe || AllocaAmount < 0 || AllocaAmount > StackProbeSize)
+     return Probe;
+ 
+   // If it fits within the safe region of the stack, just subtract.
+@@ -291,6 +293,8 @@
+   NoStackArgProbe = MF.getFunction().hasFnAttribute("no-stack-arg-probe");
+   if (NoStackArgProbe)
+     StackProbeSize = INT64_MAX;
++  AlwaysProbe =
++      !NoStackArgProbe && STI->getTargetLowering()->hasDarwinStackProbe(MF);
+ 
+   LoweringMap Lowerings;
+   computeLowerings(MF, Lowerings);
+--- a/llvm/lib/Target/X86/X86FrameLowering.cpp
++++ b/llvm/lib/Target/X86/X86FrameLowering.cpp
+@@ -1221,6 +1221,9 @@
+              .addExternalSymbol(MF.createExternalSymbolName(Symbol));
+   }
+ 
++  if (Uses64BitFramePtr && STI.getTargetLowering()->hasDarwinStackProbe(MF))
++    CI.addRegMask(TRI->getDarwinStackProbePreservedMask());
++
+   unsigned AX = Uses64BitFramePtr ? X86::RAX : X86::EAX;
+   unsigned SP = Uses64BitFramePtr ? X86::RSP : X86::ESP;
+   CI.addReg(AX, RegState::Implicit)
+@@ -1229,6 +1232,24 @@
+       .addReg(SP, RegState::Define | RegState::Implicit)
+       .addReg(X86::EFLAGS, RegState::Define | RegState::Implicit);
+ 
++  // Apple's probe gets a dynamic alloca's size unrounded and keeps it in AX,
++  // which is rounded to the stack alignment after the call, as with Xcode
++  // 27.0's clang.
++  if (!InProlog && STI.getTargetLowering()->hasDarwinStackProbe(MF)) {
++    uint64_t StackAlignMask = getStackAlign().value() - 1;
++    BuildMI(MBB, MBBI, DL, TII.get(getADDriOpcode(Uses64BitFramePtr)), AX)
++        .addReg(AX)
++        .addImm(StackAlignMask)
++        ->getOperand(3)
++        .setIsDead();
++    BuildMI(MBB, MBBI, DL,
++            TII.get(getANDriOpcode(Uses64BitFramePtr, ~StackAlignMask)), AX)
++        .addReg(AX)
++        .addImm(~StackAlignMask)
++        ->getOperand(3)
++        .setIsDead();
++  }
++
+   MachineInstr *ModInst = CI;
+   if (STI.isTargetWin64() || !STI.isOSWindows()) {
+     // MSVC x32's _chkstk and cygwin/mingw's _alloca adjust %esp themselves.
+@@ -1727,10 +1748,16 @@
+   // pointer, calls, or dynamic alloca then we do not need to adjust the
+   // stack pointer (we fit in the Red Zone). We also check that we don't
+   // push and pop from the stack.
++  // Apple's stack probe leaves the red zone to the frames it does not probe,
++  // as with Xcode 27.0's clang.
++  bool ProbesStack =
++      EmitStackProbeCall &&
++      !(STI.getTargetLowering()->hasDarwinStackProbe(MF) &&
++        StackSize < StackProbeSize);
+   if (has128ByteRedZone(MF) && !TRI->hasStackRealignment(MF) &&
+       !MFI.hasVarSizedObjects() &&             // No dynamic alloca.
+       !MFI.adjustsStack() &&                   // No calls.
+-      !EmitStackProbeCall &&                   // No stack probes.
++      !ProbesStack &&                          // No stack probes.
+       !MFI.hasCopyImplyingStackAdjustment() && // Don't push and pop.
+       !MF.shouldSplitStack()) {                // Regular stack
+     uint64_t MinSize =
+@@ -2026,6 +2053,17 @@
+     // Check whether EAX is livein for this block.
+     bool isEAXAlive = isEAXLiveIn(MBB);
+ 
++    // Xcode 27.0's clang keeps the stack aligned for the call to Apple's
++    // probe with a push and a pop of rax around it.
++    bool AlignsProbeCall =
++        Is64Bit && !isEAXAlive &&
++        STI.getTargetLowering()->hasDarwinStackProbe(MF) &&
++        NumBytes % getStackAlign().value() != 0;
++    if (AlignsProbeCall)
++      BuildMI(MBB, MBBI, DL, TII.get(X86::PUSH64r))
++          .addReg(X86::RAX, RegState::Undef)
++          .setMIFlag(MachineInstr::FrameSetup);
++
+     if (isEAXAlive) {
+       if (Is64Bit) {
+         // Save RAX
+@@ -2057,6 +2095,10 @@
+ 
+     // Call __chkstk, __chkstk_ms, or __alloca.
+     emitStackProbe(MF, MBB, MBBI, DL, true);
++
++    if (AlignsProbeCall)
++      BuildMI(MBB, MBBI, DL, TII.get(X86::POP64r), X86::RAX)
++          .setMIFlag(MachineInstr::FrameSetup);
+ 
+     if (isEAXAlive) {
+       // Restore RAX/EAX
+--- a/llvm/lib/Target/X86/X86ISelLowering.cpp
++++ b/llvm/lib/Target/X86/X86ISelLowering.cpp
+@@ -25844,6 +25844,8 @@
+         DAG.getNode(X86ISD::SEG_ALLOCA, dl, {SPTy, MVT::Other}, {Chain, Size});
+     Chain = Result.getValue(1);
+   } else {
++    if (Op.getNumOperands() > 3)
++      Size = Op.getOperand(3);
+     SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
+     Chain = DAG.getNode(X86ISD::DYN_ALLOCA, dl, NodeTys, Chain, Size);
+     MF.getInfo<X86MachineFunctionInfo>()->setHasDynAlloca(true);
+@@ -62152,6 +62154,17 @@
+ /// Returns true if stack probing through a function call is requested.
+ bool X86TargetLowering::hasStackProbeSymbol(const MachineFunction &MF) const {
+   return !getStackProbeSymbolName(MF).empty();
++}
++
++bool X86TargetLowering::hasDarwinStackProbe(const MachineFunction &MF) const {
++  return Subtarget.isTargetDarwin() && hasStackProbeSymbol(MF);
++}
++
++/// Apple's stack probe gets a dynamic alloca's size before its rounding (and
++/// rounds it after the call), as with Xcode 27.0's clang.
++bool X86TargetLowering::probesUnroundedDynamicAlloca(
++    const MachineFunction &MF) const {
++  return hasDarwinStackProbe(MF);
+ }
+ 
+ /// Returns true if stack probing through inline assembly is requested.
+--- a/llvm/lib/Target/X86/X86ISelLowering.h
++++ b/llvm/lib/Target/X86/X86ISelLowering.h
+@@ -1640,6 +1640,8 @@
+ 
+     bool hasStackProbeSymbol(const MachineFunction &MF) const override;
+     bool hasInlineStackProbe(const MachineFunction &MF) const override;
++    bool probesUnroundedDynamicAlloca(const MachineFunction &MF) const override;
++    bool hasDarwinStackProbe(const MachineFunction &MF) const;
+     StringRef getStackProbeSymbolName(const MachineFunction &MF) const override;
+ 
+     unsigned getStackProbeSize(const MachineFunction &MF) const;
+--- a/llvm/lib/Target/X86/X86RegisterInfo.cpp
++++ b/llvm/lib/Target/X86/X86RegisterInfo.cpp
+@@ -533,6 +533,10 @@
+   return CSR_NoRegs_RegMask;
+ }
+ 
++const uint32_t *X86RegisterInfo::getDarwinStackProbePreservedMask() const {
++  return CSR_64_AVX512_RegMask;
++}
++
+ const uint32_t *X86RegisterInfo::getDarwinTLSCallPreservedMask() const {
+   return CSR_64_TLS_Darwin_RegMask;
+ }
+--- a/llvm/lib/Target/X86/X86RegisterInfo.h
++++ b/llvm/lib/Target/X86/X86RegisterInfo.h
+@@ -110,6 +110,7 @@
+   // Calls involved in thread-local variable lookup save more registers than
+   // normal calls, so they need a different mask to represent this.
+   const uint32_t *getDarwinTLSCallPreservedMask() const;
++  const uint32_t *getDarwinStackProbePreservedMask() const;
+ 
+   /// getReservedRegs - Returns a bitset indexed by physical register number
+   /// indicating if a register is a special register that has particular uses and

@@ -1,0 +1,28 @@
+Comments of a declaration of a just-parsed group are searched in the declaration's own file: the declarations of an
+@implementation that #includes a header with method definitions (expo-modules-core's SwiftUIVirtualViewObjC.mm) were
+searched with the main file's comments, whose offsets into the header's buffer read past it and crashed clang with
+-Wdocumentation when the main file's last comment was not attached yet. Xcode 27.0's clang compiles these files and
+checks the comments of both files (B-170, docs/formats/build.md "Comments of declarations in included files").
+--- a/clang/lib/AST/ASTContext.cpp
++++ b/clang/lib/AST/ASTContext.cpp
+@@ -583,9 +583,19 @@
+     for (const auto DeclLoc : DeclLocs) {
+       if (DeclLoc.isInvalid() || !DeclLoc.isFileID())
+         continue;
++
++      // A declaration of the group can be in another file (a header included
++      // in an @implementation); search the comments of its own file, as
++      // offsets into another file's comments would not mean anything.
++      auto CommentsInDeclFile = CommentsInThisFile;
++      if (FileID DeclFile = SourceMgr.getFileID(DeclLoc); DeclFile != File) {
++        CommentsInDeclFile = Comments.getCommentsInFile(DeclFile);
++        if (!CommentsInDeclFile || CommentsInDeclFile->empty())
++          continue;
++      }
+ 
+       if (RawComment *const DocComment = getRawCommentForDeclNoCacheImpl(
+-              D, DeclLoc, *CommentsInThisFile)) {
++              D, DeclLoc, *CommentsInDeclFile)) {
+         cacheRawCommentForDecl(*D, *DocComment);
+         comments::FullComment *FC = DocComment->parse(*this, PP, D);
+         ParsedComments[D->getCanonicalDecl()] = FC;

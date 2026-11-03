@@ -1,0 +1,54 @@
+__TEXT's sections in Xcode 27.0's ld order (B-193, docs/formats/build.md "Objective-C references, archive members
+and hints in the linked image"): __objc_methlist right after __init_offsets, before the sections in input order,
+and __oslogstring after __eh_frame, last. lld placed both in input order.
+--- a/lld/MachO/OutputSegment.cpp
++++ b/lld/MachO/OutputSegment.cpp
+@@ -96,26 +96,30 @@
+   // Sections are uniquely identified by their segment + section name.
+   if (segname == segment_names::text) {
+     if (osec->name == section_names::header)
+-      return -7;
++      return -8;
+     // `__text` needs to precede the other code sections since its
+     // expected to be the largest. This means in effect that it will
+     // be the section that determines whether we need thunks or not.
+     if (osec->name == section_names::text)
+-      return -6;
++      return -7;
+ 
+     // Prioritize specific section ordering based on our knowledge. This ensures
+     // that certain sections are placed in a particular order, even if they
+     // are also categorized as code sections. This explicit ordering takes
+-    // precedence over the general code section ordering.
++    // precedence over the general code section ordering. As in Xcode 27.0's
++    // ld, the method lists follow the initializer offsets and the os_log
++    // strings end the segment.
+     int knownPriority =
+         StringSwitch<int>(osec->name)
+-            .Case(section_names::stubs, -4)
+-            .Case(section_names::stubHelper, -3)
+-            .Case(section_names::objcStubs, -2)
+-            .Case(section_names::initOffsets, -1)
++            .Case(section_names::stubs, -5)
++            .Case(section_names::stubHelper, -4)
++            .Case(section_names::objcStubs, -3)
++            .Case(section_names::initOffsets, -2)
++            .Case(section_names::objcMethList, -1)
+             .Case(section_names::unwindInfo,
+-                  std::numeric_limits<int>::max() - 1)
+-            .Case(section_names::ehFrame, std::numeric_limits<int>::max())
++                  std::numeric_limits<int>::max() - 2)
++            .Case(section_names::ehFrame, std::numeric_limits<int>::max() - 1)
++            .Case("__oslogstring", std::numeric_limits<int>::max())
+             .Default(0);
+ 
+     if (knownPriority != 0)
+@@ -124,7 +128,7 @@
+     // Ensure all code sections are contiguous with `__text` for thunk
+     // calculations.
+     if (sections::isCodeSection(osec->name, segment_names::text, osec->flags)) {
+-      return -5;
++      return -6;
+     }
+ 
+     return osec->inputOrder;

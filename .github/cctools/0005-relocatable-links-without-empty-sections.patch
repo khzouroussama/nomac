@@ -1,0 +1,22 @@
+--- a/cctools/ld64/src/ld/ld.cpp
++++ b/cctools/ld64/src/ld/ld.cpp
+@@ -1648,6 +1648,19 @@
+ 
+ 		options.writeDependencyInfo();
+ 
++		// nomac: Xcode's ld writes no empty section into a relocatable object, nor the local labels in one
++		if ( options.outputKind() == Options::kObjectFile ) {
++			state.sections.erase(std::remove_if(state.sections.begin(), state.sections.end(), [](ld::Internal::FinalSection* sect) {
++				if ( sect->isSectionHidden() )
++					return false;
++				for (const ld::Atom* atom : sect->atoms) {
++					if ( (atom->size() != 0) || (atom->scope() == ld::Atom::scopeGlobal) )
++						return false;
++				}
++				return true;
++			}), state.sections.end());
++		}
++
+ 		// write output file
+ 		statistics.startOutput = mach_absolute_time();
+ 		ld::tool::OutputFile& out = *(new ld::tool::OutputFile(options, state));

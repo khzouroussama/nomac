@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+/Packages/
+*.xcodeproj/xcuserdata/
+.DS_Store
+/out/
+__pycache__/
+# Captures and upgrade runs hold Xcode's outputs and the host's identity; capture_reference.py
+# and xcode_upgrade.py refuse to write them here, and these keep any that land here anyway out.
+host.json
+showsdks.json
+/reference/
+/xcode-upgrade/

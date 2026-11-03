@@ -1,0 +1,100 @@
+Backport of llvm/llvm-project#191091, "[ObjC] Fix missing ptrauth signing of isa in constant ObjC literals" (merged 2026-04-21), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+
+diff --git a/clang/lib/CodeGen/CGObjCMac.cpp b/clang/lib/CodeGen/CGObjCMac.cpp
+index 8adf676c..3fd6b8de 100644
+--- a/clang/lib/CodeGen/CGObjCMac.cpp
++++ b/clang/lib/CodeGen/CGObjCMac.cpp
+@@ -2315,7 +2315,9 @@ CGObjCCommonMac::GenerateConstantNSNumber(const llvm::APSInt &Value,
+   auto Fields = Builder.beginStruct(NSConstantIntegerNumberType);
+ 
+   // Class pointer.
+-  Fields.add(Class);
++  Fields.addSignedPointer(Class,
++                          CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
++                          GlobalDecl(), QualType());
+ 
+   // add the @encode
+   Fields.add(CGM.GetAddrOfConstantCString(ObjCEncodingType).getPointer());
+@@ -2391,7 +2393,9 @@ CGObjCCommonMac::GenerateConstantNSNumber(const llvm::APFloat &Value,
+     auto Fields = Builder.beginStruct(NSConstantFloatNumberType);
+ 
+     // Class pointer.
+-    Fields.add(Class);
++    Fields.addSignedPointer(Class,
++                            CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
++                            GlobalDecl(), QualType());
+ 
+     // add the value stored.
+     llvm::Constant *FV = llvm::ConstantFP::get(CGM.FloatTy, Value);
+@@ -2425,7 +2429,9 @@ CGObjCCommonMac::GenerateConstantNSNumber(const llvm::APFloat &Value,
+   auto Fields = Builder.beginStruct(NSConstantDoubleNumberType);
+ 
+   // Class pointer.
+-  Fields.add(Class);
++  Fields.addSignedPointer(Class,
++                          CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
++                          GlobalDecl(), QualType());
+ 
+   // add the value stored.
+   llvm::Constant *DV = llvm::ConstantFP::get(CGM.DoubleTy, Value);
+@@ -2501,7 +2507,9 @@ ConstantAddress CGObjCCommonMac::GenerateConstantNSArray(
+   auto Fields = Builder.beginStruct(NSConstantArrayType);
+ 
+   // Class pointer.
+-  Fields.add(Class);
++  Fields.addSignedPointer(Class,
++                          CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
++                          GlobalDecl(), QualType());
+ 
+   // count
+   uint64_t ObjectCount = Objects.size();
+@@ -2567,7 +2575,9 @@ ConstantAddress CGObjCCommonMac::GenerateConstantNSDictionary(
+   auto Fields = Builder.beginStruct(NSConstantDictionaryType);
+ 
+   // Class pointer.
+-  Fields.add(Class);
++  Fields.addSignedPointer(Class,
++                          CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
++                          GlobalDecl(), QualType());
+ 
+   // Use the hashing helper to manage the keys and sorting
+   auto HashOpts(NSDictionaryBuilder::Options::Sorted);
+diff --git a/clang/test/CodeGenObjC/objc2-constant-literals-ptrauth.m b/clang/test/CodeGenObjC/objc2-constant-literals-ptrauth.m
+new file mode 100644
+index 00000000..b62416a4
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc2-constant-literals-ptrauth.m
+@@ -0,0 +1,32 @@
++// RUN: %clang_cc1 -triple arm64e-apple-macosx26.0.0 -fobjc-runtime=macosx-26.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -fptrauth-intrinsics -fptrauth-calls -fptrauth-objc-isa -I %S/Inputs -emit-llvm -o - %s | FileCheck %s
++// rdar://174359070
++
++#include "constant-literal-support.h"
++
++#if __has_feature(objc_bool)
++#define YES __objc_yes
++#define NO __objc_no
++#else
++#define YES ((BOOL)1)
++#define NO ((BOOL)0)
++#endif
++
++// Check that isa pointers in all ObjC constant literal structs are signed with
++// ptrauth (key 2, discriminator 0x6AE1 = 27361, address-discriminated).
++
++// CHECK: @_unnamed_nsconstantintegernumber_ = private constant %struct.__builtin_NSConstantIntegerNumber { ptr ptrauth (ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", i32 2, i64 27361, ptr @_unnamed_nsconstantintegernumber_), ptr @.str, i64 42 }
++// CHECK: @_unnamed_nsconstantfloatnumber_ = private constant %struct.__builtin_NSConstantFloatNumber { ptr ptrauth (ptr @"OBJC_CLASS_$_NSConstantFloatNumber", i32 2, i64 27361, ptr @_unnamed_nsconstantfloatnumber_)
++// CHECK: @_unnamed_nsconstantdoublenumber_ = private constant %struct.__builtin_NSConstantDoubleNumber { ptr ptrauth (ptr @"OBJC_CLASS_$_NSConstantDoubleNumber", i32 2, i64 27361, ptr @_unnamed_nsconstantdoublenumber_)
++// CHECK: @_unnamed_cfstring_ = private global %struct.__NSConstantString_tag { ptr ptrauth (ptr @__CFConstantStringClassReference, i32 2, i64 27361, ptr @_unnamed_cfstring_)
++// CHECK: @_unnamed_nsarray_ = private constant %struct.__builtin_NSArray { ptr ptrauth (ptr @"OBJC_CLASS_$_NSConstantArray", i32 2, i64 27361, ptr @_unnamed_nsarray_)
++// CHECK: @_unnamed_nsdictionary_ = private constant %struct.__builtin_NSDictionary { ptr ptrauth (ptr @"OBJC_CLASS_$_NSConstantDictionary", i32 2, i64 27361, ptr @_unnamed_nsdictionary_)
++
++int main() {
++  NSNumber *n = @42;
++  NSNumber *f = @3.14f;
++  NSNumber *d = @3.14;
++  NSNumber *b = @YES;
++  NSArray *a = @[ @"foo" ];
++  NSDictionary *dict = @{ @"a" : @1, @"b" : @2 };
++  return 0;
++}

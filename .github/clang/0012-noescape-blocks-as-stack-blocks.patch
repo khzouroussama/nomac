@@ -1,0 +1,38 @@
+A block passed to a non-escaping parameter compiles as any other block, as Xcode 27.0's clang compiles it: a stack
+block with copy and dispose helpers, not a global one, and a __block variable it captures keeps its byref structure;
+Sema still knows the block does not escape (-Wimplicit-retain-self says nothing about it, as Xcode's). Written from
+Xcode's observed output at iOS 12 to 18, macOS and Linux targets, every ABI level, with ARC or without (B-170).
+
+--- a/clang/lib/CodeGen/CGBlocks.cpp
++++ b/clang/lib/CodeGen/CGBlocks.cpp
+@@ -572,8 +572,9 @@
+              CGM.getLangOpts().getGC() == LangOptions::NonGC)
+     info.HasCapturedVariableLayout = true;
+ 
+-  if (block->doesNotEscape())
+-    info.NoEscape = true;
++  // Xcode 27.0's clang compiles a block passed to a non-escaping parameter as
++  // any other block: a stack block with copy and dispose helpers, without
++  // BLOCK_IS_NOESCAPE or BLOCK_IS_GLOBAL, at every target.
+ 
+   // Collect the layout chunks.
+   SmallVector<BlockLayoutChunk, 16> layout;
+--- a/clang/lib/Sema/Sema.cpp
++++ b/clang/lib/Sema/Sema.cpp
+@@ -2626,13 +2626,10 @@
+   for (const BlockDecl *BD : FSI.Blocks) {
+     for (const BlockDecl::Capture &BC : BD->captures()) {
+       VarDecl *VD = BC.getVariable();
+-      if (VD->hasAttr<BlocksAttr>()) {
+-        // Nothing to do if this is a __block variable captured by a
+-        // non-escaping block.
+-        if (BD->doesNotEscape())
+-          continue;
++      // A __block variable captured by a non-escaping block escapes too, as in
++      // Xcode 27.0's clang, which keeps its byref structure.
++      if (VD->hasAttr<BlocksAttr>())
+         VD->setEscapingByref();
+-      }
+       // Check whether the captured variable is or contains an object of
+       // non-trivial C union type.
+       QualType CapType = BC.getVariable()->getType();

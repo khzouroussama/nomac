@@ -1,0 +1,509 @@
+Merged categories laid out as Xcode 27.0's ld lays them out (B-193, docs/formats/build.md "Objective-C references,
+archive members and hints in the linked image"): categories merged into one keep the first category's body, name and
+list slot; merging into a class rewrites only the lists the categories add to; the merged lists are named
+<prefix><class>(<categories>) with __OBJC_$_INSTANCE_METHODS_, __OBJC_$_CLASS_METHODS_ and __OBJC_CLASS_PROTOCOLS_$_,
+the property lists without a symbol. __objc_methlist holds the live method lists of classes, categories and protocols,
+ordered by their symbols' names, each at a multiple of 8 bytes. lld wrote a new category named "A|B", rewrote every
+list of the class, named the lists __OBJC_$_INSTANCE_METHODS_(C) and __OBJC_$_CATEGORY_CLASS_METHODS_..., left the
+protocols' lists in __objc_const, ended merged protocol lists with a null pointer and kept the replaced lists, in
+input order.
+--- a/lld/MachO/ObjC.h
++++ b/lld/MachO/ObjC.h
+@@ -32,6 +32,10 @@
+ constexpr const char categoryClassMethods[] =
+     "__OBJC_$_CATEGORY_CLASS_METHODS_";
+ constexpr const char categoryProtocols[] = "__OBJC_CATEGORY_PROTOCOLS_$_";
++constexpr const char classProtocols[] = "__OBJC_CLASS_PROTOCOLS_$_";
++constexpr const char protocolInstanceMethods[] =
++    "__OBJC_$_PROTOCOL_INSTANCE_METHODS_";
++constexpr const char protocolClassMethods[] = "__OBJC_$_PROTOCOL_CLASS_METHODS_";
+ 
+ constexpr const char swift_objc_category[] = "__CATEGORY_";
+ constexpr const char swift_objc_klass[] = "_$s";
+--- a/lld/MachO/ObjC.cpp
++++ b/lld/MachO/ObjC.cpp
+@@ -405,16 +405,16 @@
+     // In case we generate new data, mark the new data as belonging to this file
+     ObjFile *objFileForMergeData = nullptr;
+ 
++    // The merged lists' names, as Xcode 27.0's ld names them; it gives the
++    // property lists none.
+     PointerListInfo instanceMethods = {objc::symbol_names::instanceMethods,
+                                        /*pointersPerStruct=*/3};
+-    PointerListInfo classMethods = {objc::symbol_names::categoryClassMethods,
++    PointerListInfo classMethods = {objc::symbol_names::classMethods,
+                                     /*pointersPerStruct=*/3};
+-    PointerListInfo protocols = {objc::symbol_names::categoryProtocols,
++    PointerListInfo protocols = {objc::symbol_names::classProtocols,
+                                  /*pointersPerStruct=*/0};
+-    PointerListInfo instanceProps = {objc::symbol_names::listProprieties,
+-                                     /*pointersPerStruct=*/2};
+-    PointerListInfo classProps = {objc::symbol_names::klassPropList,
+-                                  /*pointersPerStruct=*/2};
++    PointerListInfo instanceProps = {nullptr, /*pointersPerStruct=*/2};
++    PointerListInfo classProps = {nullptr, /*pointersPerStruct=*/2};
+   };
+ 
+ public:
+@@ -465,14 +465,6 @@
+                                    const ClassExtensionInfo &extInfo,
+                                    const PointerListInfo &ptrList);
+ 
+-  Defined *emitCategory(const ClassExtensionInfo &extInfo);
+-  Defined *emitCatListEntrySec(const std::string &forCategoryName,
+-                               const std::string &forBaseClassName,
+-                               ObjFile *objFile);
+-  Defined *emitCategoryBody(const std::string &name, const Defined *nameSym,
+-                            const Symbol *baseClassSym,
+-                            const std::string &baseClassName, ObjFile *objFile);
+-  Defined *emitCategoryName(const std::string &name, ObjFile *objFile);
+   void createSymbolReference(Defined *refFrom, const Symbol *refTo,
+                              uint32_t offset, const Reloc &relocTemplate);
+   Defined *tryFindDefinedOnIsec(const InputSection *isec, uint32_t offset);
+@@ -866,9 +858,9 @@
+ 
+   assert(ptrList.allPtrs.size() == ptrList.structCount);
+ 
++  // Xcode 27.0's ld ends the merged list without a null pointer.
+   uint32_t bodySize = (ptrList.structCount * target->wordSize) +
+-                      /*header(count)*/ protocolListHeaderLayout.totalSize +
+-                      /*extra null value*/ target->wordSize;
++                      /*header(count)*/ protocolListHeaderLayout.totalSize;
+   llvm::ArrayRef<uint8_t> bodyData = newSectionData(bodySize);
+ 
+   // This theoretically can be either 32b or 64b, but writing just the first 32b
+@@ -946,13 +938,15 @@
+ 
+   listSec->parent = infoCategoryWriter.catPtrListInfo.outputSection;
+ 
+-  std::string symName = ptrList.categoryPrefix;
++  std::string symName = ptrList.categoryPrefix ? ptrList.categoryPrefix
++                                               : "<merged property list>";
+   symName += extInfo.baseClassName + "(" + extInfo.mergedContainerName + ")";
+ 
+   Defined *ptrListSym = make<Defined>(
+       newStringData(symName.c_str()), /*file=*/parentSym->getObjectFile(),
+       listSec, /*value=*/0, bodyData.size(), /*isWeakDef=*/false,
+-      /*isExternal=*/false, /*isPrivateExtern=*/false, /*includeInSymtab=*/true,
++      /*isExternal=*/false, /*isPrivateExtern=*/false,
++      /*includeInSymtab=*/ptrList.categoryPrefix != nullptr,
+       /*isReferencedDynamically=*/false, /*noDeadStrip=*/false,
+       /*isWeakDefCanBeHidden=*/false);
+ 
+@@ -969,155 +963,6 @@
+                           infoCategoryWriter.catPtrListInfo.relocTemplate);
+     offset += target->wordSize;
+   }
+-}
+-
+-// This method creates an __objc_catlist ConcatInputSection with a single slot
+-Defined *
+-ObjcCategoryMerger::emitCatListEntrySec(const std::string &forCategoryName,
+-                                        const std::string &forBaseClassName,
+-                                        ObjFile *objFile) {
+-  uint32_t sectionSize = target->wordSize;
+-  llvm::ArrayRef<uint8_t> bodyData = newSectionData(sectionSize);
+-
+-  ConcatInputSection *newCatList =
+-      make<ConcatInputSection>(*infoCategoryWriter.catListInfo.inputSection,
+-                               bodyData, infoCategoryWriter.catListInfo.align);
+-  newCatList->parent = infoCategoryWriter.catListInfo.outputSection;
+-  newCatList->live = true;
+-
+-  newCatList->parent = infoCategoryWriter.catListInfo.outputSection;
+-
+-  std::string catSymName = "<__objc_catlist slot for merged category ";
+-  catSymName += forBaseClassName + "(" + forCategoryName + ")>";
+-
+-  Defined *catListSym = make<Defined>(
+-      newStringData(catSymName.c_str()), /*file=*/objFile, newCatList,
+-      /*value=*/0, bodyData.size(), /*isWeakDef=*/false, /*isExternal=*/false,
+-      /*isPrivateExtern=*/false, /*includeInSymtab=*/false,
+-      /*isReferencedDynamically=*/false, /*noDeadStrip=*/false,
+-      /*isWeakDefCanBeHidden=*/false);
+-
+-  catListSym->used = true;
+-  objFile->symbols.push_back(catListSym);
+-  addInputSection(newCatList);
+-  return catListSym;
+-}
+-
+-// Here we generate the main category body and link the name and base class into
+-// it. We don't link any other info yet like the protocol and class/instance
+-// methods/props.
+-Defined *ObjcCategoryMerger::emitCategoryBody(const std::string &name,
+-                                              const Defined *nameSym,
+-                                              const Symbol *baseClassSym,
+-                                              const std::string &baseClassName,
+-                                              ObjFile *objFile) {
+-  llvm::ArrayRef<uint8_t> bodyData = newSectionData(catLayout.totalSize);
+-
+-  uint32_t *ptrSize = (uint32_t *)(const_cast<uint8_t *>(bodyData.data()) +
+-                                   catLayout.sizeOffset);
+-  *ptrSize = catLayout.totalSize;
+-
+-  ConcatInputSection *newBodySec =
+-      make<ConcatInputSection>(*infoCategoryWriter.catBodyInfo.inputSection,
+-                               bodyData, infoCategoryWriter.catBodyInfo.align);
+-  newBodySec->parent = infoCategoryWriter.catBodyInfo.outputSection;
+-  newBodySec->live = true;
+-
+-  std::string symName =
+-      objc::symbol_names::category + baseClassName + "(" + name + ")";
+-  Defined *catBodySym = make<Defined>(
+-      newStringData(symName.c_str()), /*file=*/objFile, newBodySec,
+-      /*value=*/0, bodyData.size(), /*isWeakDef=*/false, /*isExternal=*/false,
+-      /*isPrivateExtern=*/false, /*includeInSymtab=*/true,
+-      /*isReferencedDynamically=*/false, /*noDeadStrip=*/false,
+-      /*isWeakDefCanBeHidden=*/false);
+-
+-  catBodySym->used = true;
+-  objFile->symbols.push_back(catBodySym);
+-  addInputSection(newBodySec);
+-
+-  createSymbolReference(catBodySym, nameSym, catLayout.nameOffset,
+-                        infoCategoryWriter.catBodyInfo.relocTemplate);
+-
+-  // Create a reloc to the base class (either external or internal)
+-  createSymbolReference(catBodySym, baseClassSym, catLayout.klassOffset,
+-                        infoCategoryWriter.catBodyInfo.relocTemplate);
+-
+-  return catBodySym;
+-}
+-
+-// This writes the new category name (for the merged category) into the binary
+-// and returns the sybmol for it.
+-Defined *ObjcCategoryMerger::emitCategoryName(const std::string &name,
+-                                              ObjFile *objFile) {
+-  StringRef nameStrData = newStringData(name.c_str());
+-  // We use +1 below to include the null terminator
+-  llvm::ArrayRef<uint8_t> nameData(
+-      reinterpret_cast<const uint8_t *>(nameStrData.data()),
+-      nameStrData.size() + 1);
+-
+-  auto *parentSection = infoCategoryWriter.catNameInfo.inputSection;
+-  CStringInputSection *newStringSec = make<CStringInputSection>(
+-      *infoCategoryWriter.catNameInfo.inputSection, nameData,
+-      infoCategoryWriter.catNameInfo.align, /*dedupLiterals=*/true);
+-
+-  parentSection->subsections.push_back({0, newStringSec});
+-
+-  newStringSec->splitIntoPieces();
+-  newStringSec->pieces[0].live = true;
+-  newStringSec->parent = infoCategoryWriter.catNameInfo.outputSection;
+-  in.cStringSection->addInput(newStringSec);
+-  assert(newStringSec->pieces.size() == 1);
+-
+-  Defined *catNameSym = make<Defined>(
+-      "<merged category name>", /*file=*/objFile, newStringSec,
+-      /*value=*/0, nameData.size(),
+-      /*isWeakDef=*/false, /*isExternal=*/false, /*isPrivateExtern=*/false,
+-      /*includeInSymtab=*/false, /*isReferencedDynamically=*/false,
+-      /*noDeadStrip=*/false, /*isWeakDefCanBeHidden=*/false);
+-
+-  catNameSym->used = true;
+-  objFile->symbols.push_back(catNameSym);
+-  return catNameSym;
+-}
+-
+-// This method fully creates a new category from the given ClassExtensionInfo.
+-// It creates the category name, body and method/protocol/prop lists and links
+-// them all together. Then it creates a new __objc_catlist entry and adds the
+-// category to it. Calling this method will fully generate a category which will
+-// be available in the final binary.
+-Defined *ObjcCategoryMerger::emitCategory(const ClassExtensionInfo &extInfo) {
+-  Defined *catNameSym = emitCategoryName(extInfo.mergedContainerName,
+-                                         extInfo.objFileForMergeData);
+-
+-  Defined *catBodySym = emitCategoryBody(
+-      extInfo.mergedContainerName, catNameSym, extInfo.baseClass,
+-      extInfo.baseClassName, extInfo.objFileForMergeData);
+-
+-  Defined *catListSym =
+-      emitCatListEntrySec(extInfo.mergedContainerName, extInfo.baseClassName,
+-                          extInfo.objFileForMergeData);
+-
+-  // Add the single category body to the category list at the offset 0.
+-  createSymbolReference(catListSym, catBodySym, /*offset=*/0,
+-                        infoCategoryWriter.catListInfo.relocTemplate);
+-
+-  emitAndLinkPointerList(catBodySym, catLayout.instanceMethodsOffset, extInfo,
+-                         extInfo.instanceMethods);
+-
+-  emitAndLinkPointerList(catBodySym, catLayout.classMethodsOffset, extInfo,
+-                         extInfo.classMethods);
+-
+-  emitAndLinkProtocolList(catBodySym, catLayout.protocolsOffset, extInfo,
+-                          extInfo.protocols);
+-
+-  emitAndLinkPointerList(catBodySym, catLayout.instancePropsOffset, extInfo,
+-                         extInfo.instanceProps);
+-
+-  emitAndLinkPointerList(catBodySym, catLayout.classPropsOffset, extInfo,
+-                         extInfo.classProps);
+-
+-  return catBodySym;
+ }
+ 
+ // This method merges all the categories (sharing a base class) into a single
+@@ -1132,13 +977,29 @@
+     if (!parseCatInfoToExtInfo(catInfo, extInfo))
+       return false;
+ 
+-  Defined *newCatDef = emitCategory(extInfo);
+-  assert(newCatDef && "Failed to create a new category");
+-
+-  // Suppress unsuded var warning
+-  (void)newCatDef;
++  // Xcode 27.0's ld keeps the first category, its name and its place in the
++  // lists, and gives it the merged lists.
++  ConcatInputSection *body = categories.front().catBodyIsec;
++  Defined *bodySym = *llvm::find_if(
++      body->symbols, [](const Defined *sym) { return sym->value == 0; });
++  for (uint32_t offset :
++       {catLayout.instanceMethodsOffset, catLayout.classMethodsOffset,
++        catLayout.protocolsOffset, catLayout.instancePropsOffset,
++        catLayout.classPropsOffset})
++    eraseSymbolAtIsecOffset(body, offset);
+ 
+-  for (auto &catInfo : categories)
++  emitAndLinkPointerList(bodySym, catLayout.instanceMethodsOffset, extInfo,
++                         extInfo.instanceMethods);
++  emitAndLinkPointerList(bodySym, catLayout.classMethodsOffset, extInfo,
++                         extInfo.classMethods);
++  emitAndLinkProtocolList(bodySym, catLayout.protocolsOffset, extInfo,
++                          extInfo.protocols);
++  emitAndLinkPointerList(bodySym, catLayout.instancePropsOffset, extInfo,
++                         extInfo.instanceProps);
++  emitAndLinkPointerList(bodySym, catLayout.classPropsOffset, extInfo,
++                         extInfo.classProps);
++
++  for (auto &catInfo : llvm::drop_begin(categories))
+     catInfo.wasMerged = true;
+ 
+   return true;
+@@ -1490,6 +1351,9 @@
+   // Collect all the info from the categories
+   ClassExtensionInfo extInfo(catLayout);
+   extInfo.baseClass = baseClass;
++  extInfo.baseClassName = baseClass->getName().str();
++  if (StringRef(extInfo.baseClassName).starts_with(objc::symbol_names::klass))
++    extInfo.baseClassName.erase(0, strlen(objc::symbol_names::klass));
+   extInfo.baseClassSourceLanguage = getClassSymSourceLang(baseClass);
+ 
+   for (auto &catInfo : categories)
+@@ -1502,62 +1366,52 @@
+   Defined *classRo = getClassRo(baseClass, /*getMetaRo=*/false);
+   ConcatInputSection *classIsec = dyn_cast<ConcatInputSection>(classRo->isec());
+ 
+-  // Now collect the info from the base class from the various lists in the
+-  // class metadata
++  // Xcode 27.0's ld rewrites only the class's lists the categories add to,
++  // each with the categories' entries first, and keeps the others. Protocol
++  // lists are a special case - the same protocol list is in classRo and
++  // metaRo, so we only need to parse it once.
++  if (!extInfo.protocols.allPtrs.empty()) {
++    parseProtocolListInfo(classIsec, roClassLayout.baseProtocolsOffset,
++                          extInfo.protocols, extInfo.baseClassSourceLanguage);
+ 
+-  // Protocol lists are a special case - the same protocol list is in classRo
+-  // and metaRo, so we only need to parse it once
+-  parseProtocolListInfo(classIsec, roClassLayout.baseProtocolsOffset,
+-                        extInfo.protocols, extInfo.baseClassSourceLanguage);
++    // Check that the classRo and metaRo protocol lists are identical
++    assert(parseProtocolListInfo(classIsec, roClassLayout.baseProtocolsOffset,
++                                 extInfo.baseClassSourceLanguage) ==
++               parseProtocolListInfo(metaIsec,
++                                     roClassLayout.baseProtocolsOffset,
++                                     extInfo.baseClassSourceLanguage) &&
++           "Category merger expects classRo and metaRo to have the same "
++           "protocol list");
+ 
+-  // Check that the classRo and metaRo protocol lists are identical
+-  assert(parseProtocolListInfo(classIsec, roClassLayout.baseProtocolsOffset,
+-                               extInfo.baseClassSourceLanguage) ==
+-             parseProtocolListInfo(metaIsec, roClassLayout.baseProtocolsOffset,
+-                                   extInfo.baseClassSourceLanguage) &&
+-         "Category merger expects classRo and metaRo to have the same protocol "
+-         "list");
+-
+-  parsePointerListInfo(metaIsec, roClassLayout.baseMethodsOffset,
+-                       extInfo.classMethods);
+-  parsePointerListInfo(classIsec, roClassLayout.baseMethodsOffset,
+-                       extInfo.instanceMethods);
+-
+-  parsePointerListInfo(metaIsec, roClassLayout.basePropertiesOffset,
+-                       extInfo.classProps);
+-  parsePointerListInfo(classIsec, roClassLayout.basePropertiesOffset,
+-                       extInfo.instanceProps);
+-
+-  // Erase the old lists - these will be generated and replaced
+-  eraseSymbolAtIsecOffset(metaIsec, roClassLayout.baseMethodsOffset);
+-  eraseSymbolAtIsecOffset(metaIsec, roClassLayout.baseProtocolsOffset);
+-  eraseSymbolAtIsecOffset(metaIsec, roClassLayout.basePropertiesOffset);
+-  eraseSymbolAtIsecOffset(classIsec, roClassLayout.baseMethodsOffset);
+-  eraseSymbolAtIsecOffset(classIsec, roClassLayout.baseProtocolsOffset);
+-  eraseSymbolAtIsecOffset(classIsec, roClassLayout.basePropertiesOffset);
+-
+-  // Emit the newly merged lists - first into the meta RO then into the class RO
+-  // First we emit and link the protocol list into the meta RO. Then we link it
+-  // in the classRo as well (they're supposed to be identical)
+-  if (Defined *protoListSym =
+-          emitAndLinkProtocolList(metaRo, roClassLayout.baseProtocolsOffset,
+-                                  extInfo, extInfo.protocols)) {
++    eraseSymbolAtIsecOffset(metaIsec, roClassLayout.baseProtocolsOffset);
++    eraseSymbolAtIsecOffset(classIsec, roClassLayout.baseProtocolsOffset);
++    // First we emit and link the protocol list into the meta RO. Then we link
++    // it in the classRo as well (they're supposed to be identical)
++    Defined *protoListSym =
++        emitAndLinkProtocolList(metaRo, roClassLayout.baseProtocolsOffset,
++                                extInfo, extInfo.protocols);
+     createSymbolReference(classRo, protoListSym,
+                           roClassLayout.baseProtocolsOffset,
+                           infoCategoryWriter.catBodyInfo.relocTemplate);
+   }
+ 
+-  emitAndLinkPointerList(metaRo, roClassLayout.baseMethodsOffset, extInfo,
+-                         extInfo.classMethods);
+-  emitAndLinkPointerList(classRo, roClassLayout.baseMethodsOffset, extInfo,
+-                         extInfo.instanceMethods);
++  auto mergeList = [&](Defined *ro, ConcatInputSection *roIsec, uint32_t offset,
++                       PointerListInfo &ptrList) {
++    if (ptrList.allPtrs.empty())
++      return;
++    parsePointerListInfo(roIsec, offset, ptrList);
++    eraseSymbolAtIsecOffset(roIsec, offset);
++    emitAndLinkPointerList(ro, offset, extInfo, ptrList);
++  };
++  mergeList(metaRo, metaIsec, roClassLayout.baseMethodsOffset,
++            extInfo.classMethods);
++  mergeList(classRo, classIsec, roClassLayout.baseMethodsOffset,
++            extInfo.instanceMethods);
++  mergeList(metaRo, metaIsec, roClassLayout.basePropertiesOffset,
++            extInfo.classProps);
++  mergeList(classRo, classIsec, roClassLayout.basePropertiesOffset,
++            extInfo.instanceProps);
+ 
+-  emitAndLinkPointerList(metaRo, roClassLayout.basePropertiesOffset, extInfo,
+-                         extInfo.classProps);
+-
+-  emitAndLinkPointerList(classRo, roClassLayout.basePropertiesOffset, extInfo,
+-                         extInfo.instanceProps);
+-
+   // Mark all the categories as merged - this will be used to erase them later
+   for (auto &catInfo : categories)
+     catInfo.wasMerged = true;
+--- a/lld/MachO/SyntheticSections.h
++++ b/lld/MachO/SyntheticSections.h
+@@ -739,6 +739,7 @@
+   // Relative method lists have 4 byte alignment as all data in the InputSection
+   // is 4 byte
+   static constexpr uint32_t relativeOffsetSize = sizeof(uint32_t);
++  static constexpr uint32_t methodListAlign = 8;
+ 
+   // The output size of the __objc_methlist section, computed during finalize()
+   uint32_t sectionSize = 0;
+--- a/lld/MachO/SyntheticSections.cpp
++++ b/lld/MachO/SyntheticSections.cpp
+@@ -2097,7 +2097,7 @@
+ ObjCMethListSection::ObjCMethListSection()
+     : SyntheticSection(segment_names::text, section_names::objcMethList) {
+   flags = S_ATTR_NO_DEAD_STRIP;
+-  align = relativeOffsetSize;
++  align = methodListAlign;
+ }
+ 
+ // Go through all input method lists and ensure that we have selrefs for all
+@@ -2105,6 +2105,9 @@
+ // create them early on here to ensure they are processed correctly by the lld
+ // pipeline.
+ void ObjCMethListSection::setUp() {
++  // Category merging replaces method lists after they were added here.
++  llvm::erase_if(inputs,
++                 [](const ConcatInputSection *isec) { return !isec->live; });
+   for (const ConcatInputSection *isec : inputs) {
+     uint32_t structSizeAndFlags = 0, structCount = 0;
+     readMethodListHeader(isec->data.data(), structSizeAndFlags, structCount);
+@@ -2130,19 +2133,28 @@
+ // Calculate section size and final offsets for where InputSection's need to be
+ // written.
+ void ObjCMethListSection::finalize() {
++  // Xcode 27.0's ld orders the method lists by their symbols' names and starts
++  // each at a multiple of 8 bytes.
++  auto listName = [](const ConcatInputSection *isec) {
++    for (const Defined *sym : isec->symbols)
++      if (!sym->getName().starts_with("ltmp"))
++        return sym->getName();
++    return StringRef();
++  };
++  llvm::stable_sort(inputs, [&](const ConcatInputSection *a,
++                                const ConcatInputSection *b) {
++    return listName(a) < listName(b);
++  });
++
+   // sectionSize will be the total size of the __objc_methlist section
+   sectionSize = 0;
+   for (ConcatInputSection *isec : inputs) {
+-    // We can also use sectionSize as write offset for isec
+-    assert(sectionSize == alignToPowerOf2(sectionSize, relativeOffsetSize) &&
+-           "expected __objc_methlist to be aligned by default with the "
+-           "required section alignment");
+-    isec->outSecOff = sectionSize;
++    isec->outSecOff = alignToPowerOf2(sectionSize, methodListAlign);
+ 
+     isec->isFinal = true;
+     uint32_t relativeListSize =
+         computeRelativeMethodListSize(isec->data.size());
+-    sectionSize += relativeListSize;
++    sectionSize = isec->outSecOff + relativeListSize;
+ 
+     // If encoding the method list in relative offset format shrinks the size,
+     // then we also need to adjust symbol sizes to match the new size. Note that
+@@ -2168,25 +2180,21 @@
+ }
+ 
+ void ObjCMethListSection::writeTo(uint8_t *bufStart) const {
+-  uint8_t *buf = bufStart;
+-  for (const ConcatInputSection *isec : inputs) {
+-    assert(buf - bufStart == std::ptrdiff_t(isec->outSecOff) &&
+-           "Writing at unexpected offset");
+-    uint32_t writtenSize = writeRelativeMethodList(isec, buf);
+-    buf += writtenSize;
+-  }
+-  assert(buf - bufStart == std::ptrdiff_t(sectionSize) &&
+-         "Written size does not match expected section size");
++  for (const ConcatInputSection *isec : inputs)
++    writeRelativeMethodList(isec, bufStart + isec->outSecOff);
+ }
+ 
+ // Check if an InputSection is a method list. To do this we scan the
+ // InputSection for any symbols who's names match the patterns we expect clang
+ // to generate for method lists.
+ bool ObjCMethListSection::isMethodList(const ConcatInputSection *isec) {
++  // Xcode 27.0's ld writes the protocols' method lists there too.
+   const char *symPrefixes[] = {objc::symbol_names::classMethods,
+                                objc::symbol_names::instanceMethods,
+                                objc::symbol_names::categoryInstanceMethods,
+-                               objc::symbol_names::categoryClassMethods};
++                               objc::symbol_names::categoryClassMethods,
++                               objc::symbol_names::protocolInstanceMethods,
++                               objc::symbol_names::protocolClassMethods};
+   if (!isec)
+     return false;
+   for (const Symbol *sym : isec->symbols) {
+@@ -2216,7 +2224,14 @@
+     const ConcatInputSection *isec, uint8_t *buf, uint32_t &inSecOff,
+     uint32_t &outSecOff, bool useSelRef) const {
+   const Reloc *reloc = isec->getRelocAt(inSecOff);
+-  assert(reloc && "Relocation expected at __objc_methlist Offset");
++  // A protocol's methods have no implementation, which Xcode 27.0's ld writes
++  // as offset 0.
++  if (!reloc) {
++    write32le(buf + outSecOff, 0);
++    inSecOff += target->wordSize;
++    outSecOff += relativeOffsetSize;
++    return;
++  }
+ 
+   uint32_t symVA = 0;
+   if (useSelRef) {

@@ -1,0 +1,114 @@
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1938,8 +1938,12 @@
+     config->installName = config->finalOutput;
+   }
+ 
+-  auto getClientName = [&]() {
+-    StringRef cn = path::filename(config->finalOutput);
++  // Xcode's ld names the client after a dylib's install name, and an executable
++  // or a bundle only by -client_name.
++  auto getClientName = [&]() -> StringRef {
++    if (config->outputType != MH_DYLIB)
++      return StringRef();
++    StringRef cn = path::filename(config->installName);
+     cn.consume_front("lib");
+     auto firstDotOrUnderscore = cn.find_first_of("._");
+     cn = cn.take_front(firstDotOrUnderscore);
+--- a/lld/MachO/DriverUtils.cpp
++++ b/lld/MachO/DriverUtils.cpp
+@@ -244,6 +244,8 @@
+   if (file) {
+     if (explicitlyLinked)
+       file->setExplicitlyLinked();
++    if (!umbrella)
++      file->bindDirectlyIfAllowed();
+     return file;
+   }
+ 
+@@ -259,6 +261,8 @@
+       DylibFile *realfile = it->second;
+       if (explicitlyLinked)
+         realfile->setExplicitlyLinked();
++      if (!umbrella)
++        realfile->bindDirectlyIfAllowed();
+       return realfile;
+     }
+   }
+@@ -298,11 +302,7 @@
+   }
+ 
+   if (explicitlyLinked && !newFile->allowableClients.empty()) {
+-    bool allowed =
+-        llvm::any_of(newFile->allowableClients, [&](StringRef allowableClient) {
+-          // We only do a prefix match to match LD64's behaviour.
+-          return allowableClient.starts_with(config->clientName);
+-        });
++    bool allowed = newFile->isAllowedClient();
+ 
+     // TODO: This behaviour doesn't quite match the latest available source
+     // release of LD64 (ld64-951.9), which allows "parents" and "siblings"
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -2040,6 +2040,26 @@
+       return false;
+ 
+   return true;
++}
++
++bool DylibFile::isAllowedClient() const {
++  if (allowableClients.empty())
++    return true;
++  return !config->clientName.empty() &&
++         llvm::any_of(allowableClients, [](StringRef allowableClient) {
++           return allowableClient.starts_with(config->clientName);
++         });
++}
++
++void DylibFile::bindDirectlyIfAllowed() {
++  if (exportingFile == this || !exportingFile || !isAllowedClient())
++    return;
++  DylibFile *previous = exportingFile;
++  exportingFile = this;
++  for (Symbol *sym : symbols)
++    if (auto *dysym = dyn_cast_or_null<DylibSymbol>(sym))
++      if (dysym->getFile() == previous)
++        dysym->setFile(this);
+ }
+ 
+ DylibFile *DylibFile::getSyntheticDylib(StringRef installName,
+--- a/lld/MachO/InputFiles.h
++++ b/lld/MachO/InputFiles.h
+@@ -243,6 +243,15 @@
+   bool isReferenced() const { return numReferencedSymbols > 0; }
+   bool isExplicitlyLinked() const;
+   void setExplicitlyLinked() { explicitlyLinked = true; }
++  // Whether the image being linked may link this dylib directly: Xcode's ld
++  // takes a client name that begins an allowable client's (a dylib named
++  // "App" may link one that allows "AppKit"), and none without a client name.
++  bool isAllowedClient() const;
++  // A dylib loaded as a re-export binds its symbols through its umbrella;
++  // loaded directly as well (an object autolinks libswift_Builtin_float,
++  // which libswiftDarwin re-exports), Xcode's ld binds them to the dylib
++  // itself, if the image may link it.
++  void bindDirectlyIfAllowed();
+ 
+   static bool classof(const InputFile *f) { return f->kind() == DylibKind; }
+ 
+--- a/lld/MachO/Symbols.h
++++ b/lld/MachO/Symbols.h
+@@ -283,6 +283,14 @@
+   bool isReferenced() const { return refState != RefState::Unreferenced; }
+   bool isTlv() const override { return tlv; }
+   bool isDynamicLookup() const { return file == nullptr; }
++  // Binds the symbol to another dylib that exports it, its references with it.
++  void setFile(DylibFile *newFile) {
++    if (file && refState > RefState::Unreferenced) {
++      getFile()->numReferencedSymbols--;
++      newFile->numReferencedSymbols++;
++    }
++    file = newFile;
++  }
+   bool hasStubsHelper() const { return stubsHelperIndex != UINT32_MAX; }
+ 
+   DylibFile *getFile() const {

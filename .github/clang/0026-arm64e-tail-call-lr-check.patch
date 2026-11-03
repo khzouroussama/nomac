@@ -1,0 +1,83 @@
+For arm64e, a function that signs its return address (PACIBSP where it spills lr, "ptrauth-returns") and has
+ptrauth-auth-traps checks lr after AUTIBSP before a tail call (eor x16, x30, x30, lsl #1; tbz x16, #62; brk #0xc471),
+as Xcode 27.0's clang does; swiftlang checks only for other object formats and its own return-address signing (B-170,
+docs/formats/build.md "arm64e tail calls").
+--- a/llvm/lib/Target/AArch64/AArch64Subtarget.cpp
++++ b/llvm/lib/Target/AArch64/AArch64Subtarget.cpp
+@@ -633,9 +633,8 @@
+ AArch64PAuth::AuthCheckMethod AArch64Subtarget::getAuthenticatedLRCheckMethod(
+     const MachineFunction &MF) const {
+   // TODO: Check subtarget for the scheme. Present variant is a default for
+-  // pauthtest ABI.
+-  if (!getTargetTriple().isOSBinFormatMachO() &&
+-      MF.getFunction().hasFnAttribute("ptrauth-returns") &&
++  // pauthtest ABI, and for arm64e as Xcode 27.0's clang checks.
++  if (MF.getFunction().hasFnAttribute("ptrauth-returns") &&
+       MF.getFunction().hasFnAttribute("ptrauth-auth-traps"))
+     return AArch64PAuth::AuthCheckMethod::HighBitsNoTBI;
+   if (AuthenticatedLRCheckMethod.getNumOccurrences())
+--- a/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.h
++++ b/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.h
+@@ -556,6 +556,9 @@
+   }
+ 
+   bool shouldSignReturnAddress(const MachineFunction &MF) const;
++  /// True if the return address is signed with the arm64e scheme
++  /// ("ptrauth-returns" on Mach-O: PACIBSP where LR is spilled).
++  bool signsReturnAddressForArm64e(const MachineFunction &MF) const;
+   bool shouldSignReturnAddress(bool SpillsLR) const;
+ 
+   bool needsShadowCallStackPrologueEpilogue(MachineFunction &MF) const;
+--- a/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.cpp
++++ b/llvm/lib/Target/AArch64/AArch64MachineFunctionInfo.cpp
+@@ -173,6 +173,12 @@
+   return shouldSignReturnAddress(isLRSpilled(MF));
+ }
+ 
++bool AArch64FunctionInfo::signsReturnAddressForArm64e(
++    const MachineFunction &MF) const {
++  return MF.getSubtarget<AArch64Subtarget>().isTargetMachO() &&
++         MF.getFunction().hasFnAttribute("ptrauth-returns") && isLRSpilled(MF);
++}
++
+ bool AArch64FunctionInfo::needsShadowCallStackPrologueEpilogue(
+     MachineFunction &MF) const {
+   if (!(isLRSpilled(MF) &&
+--- a/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
++++ b/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
+@@ -2160,7 +2160,10 @@
+ // Otherwise, the callee may re-sign the invalid return address,
+ // introducing a signing oracle.
+ void AArch64AsmPrinter::emitPtrauthTailCallHardening(const MachineInstr *TC) {
+-  if (!AArch64FI->shouldSignReturnAddress(*MF))
++  // An arm64e return address signed with the B key is checked too, as Xcode
++  // 27.0's clang does.
++  bool SignsForArm64e = AArch64FI->signsReturnAddressForArm64e(*MF);
++  if (!AArch64FI->shouldSignReturnAddress(*MF) && !SignsForArm64e)
+     return;
+ 
+   auto LRCheckMethod = STI->getAuthenticatedLRCheckMethod(*MF);
+@@ -2172,8 +2175,9 @@
+       TC->readsRegister(AArch64::X16, TRI) ? AArch64::X17 : AArch64::X16;
+   assert(!TC->readsRegister(ScratchReg, TRI) &&
+          "Neither x16 nor x17 is available as a scratch register");
+-  AArch64PACKey::ID Key =
+-      AArch64FI->shouldSignWithBKey() ? AArch64PACKey::IB : AArch64PACKey::IA;
++  AArch64PACKey::ID Key = AArch64FI->shouldSignWithBKey() || SignsForArm64e
++                               ? AArch64PACKey::IB
++                               : AArch64PACKey::IA;
+   emitPtrauthCheckAuthenticatedValue(
+       AArch64::LR, ScratchReg, Key, LRCheckMethod,
+       /*ShouldTrap=*/true, /*OnFailure=*/nullptr);
+--- a/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp
++++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.cpp
+@@ -122,7 +122,8 @@
+     NumBytes = Desc.getSize() ? Desc.getSize() : 4;
+ 
+     const auto *MFI = MF->getInfo<AArch64FunctionInfo>();
+-    if (!MFI->shouldSignReturnAddress(MF))
++    if (!MFI->shouldSignReturnAddress(MF) &&
++        !MFI->signsReturnAddressForArm64e(*MF))
+       return NumBytes;
+ 
+     const auto &STI = MF->getSubtarget<AArch64Subtarget>();

@@ -1,0 +1,20 @@
+-fmodules-cache-path claimed where the driver does not use it (no modules, explicit modules), as Xcode 27.0's
+driver accepts it without an unused-argument warning in C, Objective-C and C++ compiles, with -fno-modules and with
+-fno-implicit-modules (B-170, docs/formats/build.md "Clang's driver"); its other module-only options
+(-fimplicit-modules-lock-timeout, -fprebuilt-implicit-modules, -fprebuilt-module-path,
+-fmodules-validate-input-files-content, -fmodules-search-all) draw the warning there as here. Written from Xcode's
+observed behavior; upstream LLVM leaves the option unclaimed.
+
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -4044,6 +4044,10 @@
+ 
+     Args.AddLastArg(CmdArgs, options::OPT_fimplicit_modules_lock_timeout_EQ);
+   }
++
++  // Xcode 27.0's driver accepts -fmodules-cache-path where it does not use it
++  // (no modules, explicit modules) without an unused-argument warning.
++  Args.ClaimAllArgs(options::OPT_fmodules_cache_path);
+ 
+   if (HaveModules) {
+     if (Args.hasFlag(options::OPT_fprebuilt_implicit_modules,

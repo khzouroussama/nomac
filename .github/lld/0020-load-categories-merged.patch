@@ -1,0 +1,281 @@
+Categories with +load methods merged as Xcode 27.0's ld merges them (B-193, docs/formats/build.md "Objective-C
+references, archive members and hints in the linked image"): into a class of the image when the class and its
+categories have one +load method at most, the class then listed in __objc_nlclslist; a class of a dylib with a +load
+category keeps all its categories unmerged. lld left every category of __objc_nlcatlist out of merging and merged the
+other categories of such a class into one.
+--- a/lld/MachO/ObjC.cpp
++++ b/lld/MachO/ObjC.cpp
+@@ -335,6 +335,9 @@
+     ConcatInputSection *catBodyIsec;
+     uint32_t offCatListIsec = 0;
+     SourceLanguage sourceLanguage = SourceLanguage::Unknown;
++    // For a category with a +load method: its __objc_nlcatlist slot.
++    ConcatInputSection *nlCatListIsec = nullptr;
++    uint32_t offNlCatListIsec = 0;
+ 
+     bool wasMerged = false;
+   };
+@@ -420,7 +423,8 @@
+   static void doCleanup();
+ 
+ private:
+-  DenseSet<const Symbol *> collectNlCategories();
++  DenseMap<const Symbol *, std::pair<ConcatInputSection *, uint32_t>>
++  collectListSlots(StringRef listName);
+   void collectAndValidateCategoriesData();
+   bool
+   mergeCategoriesIntoSingleCategory(std::vector<InfoInputCategory> &categories);
+@@ -430,7 +434,12 @@
+ 
+   void generateCatListForNonErasedCategories(
+       MapVector<ConcatInputSection *, std::set<uint64_t>>
+-          catListToErasedOffsets);
++          catListToErasedOffsets,
++      bool nonLazy = false);
++  void emitListSlot(const InfoWriteSection &listInfo, StringRef listName,
++                    Defined *target);
++  void addToNonLazyClassList(const Defined *baseClass,
++                             const InfoInputCategory &loadCategory);
+   void collectSectionWriteInfoFromIsec(const InputSection *isec,
+                                        InfoWriteSection &catWriteInfo);
+   bool collectCategoryWriterInfoFromCategory(const InfoInputCategory &catInfo);
+@@ -1146,26 +1155,29 @@
+   refFrom->isec()->relocs.push_back(r);
+ }
+ 
+-// Get the list of categories in the '__objc_nlcatlist' section. We can't
+-// optimize these as they have a '+load' method that has to be called at
+-// runtime.
+-DenseSet<const Symbol *> ObjcCategoryMerger::collectNlCategories() {
+-  DenseSet<const Symbol *> nlCategories;
++// The classes or categories that a list section ('__objc_nlcatlist',
++// '__objc_nlclslist') lists, with their slots: those with a +load method.
++DenseMap<const Symbol *, std::pair<ConcatInputSection *, uint32_t>>
++ObjcCategoryMerger::collectListSlots(StringRef listName) {
++  DenseMap<const Symbol *, std::pair<ConcatInputSection *, uint32_t>> slots;
+ 
+   for (InputSection *sec : allInputSections) {
+-    if (sec->getName() != section_names::objcNonLazyCatList)
++    if (sec->getName() != listName)
+       continue;
++    auto *isec = dyn_cast<ConcatInputSection>(sec);
++    if (!isec)
++      continue;
+ 
+     for (auto &r : sec->relocs) {
+       const Symbol *sym = r.referent.dyn_cast<Symbol *>();
+-      nlCategories.insert(sym);
++      slots.try_emplace(sym, isec, r.offset);
+     }
+   }
+-  return nlCategories;
++  return slots;
+ }
+ 
+ void ObjcCategoryMerger::collectAndValidateCategoriesData() {
+-  auto nlCategories = collectNlCategories();
++  auto nlCategories = collectListSlots(section_names::objcNonLazyCatList);
+ 
+   for (InputSection *sec : allInputSections) {
+     if (sec->getName() != section_names::objcCatList)
+@@ -1180,9 +1192,6 @@
+       assert(categorySym &&
+              "Failed to get a valid category at __objc_catlit offset");
+ 
+-      if (nlCategories.count(categorySym))
+-        continue;
+-
+       auto *catBodyIsec = dyn_cast<ConcatInputSection>(categorySym->isec());
+       assert(catBodyIsec &&
+              "Category data section is not an ConcatInputSection");
+@@ -1197,6 +1206,10 @@
+         llvm_unreachable("Unexpected category symbol name");
+ 
+       InfoInputCategory catInputInfo{catListCisec, catBodyIsec, off, eLang};
++      if (auto it = nlCategories.find(categorySym); it != nlCategories.end()) {
++        catInputInfo.nlCatListIsec = it->second.first;
++        catInputInfo.offNlCatListIsec = it->second.second;
++      }
+ 
+       // Check that the category has a reloc at 'klassOffset' (which is
+       // a pointer to the class symbol)
+@@ -1218,9 +1231,63 @@
+ // erase) only some. There will be some categories that will remain untouched
+ // (not erased). For these not erased categories, we generate new __objc_catlist
+ // entries since the parent __objc_catlist entry will be erased
++void ObjcCategoryMerger::emitListSlot(const InfoWriteSection &listInfo,
++                                      StringRef listName, Defined *entry) {
++  // Allocate data for the new slot
++  llvm::ArrayRef<uint8_t> bodyData = newSectionData(target->wordSize);
++
++  // We mark the slot as belonging to the same file as its entry
++  ObjFile *objFile = dyn_cast<ObjFile>(entry->getFile());
++
++  ConcatInputSection *listSec = make<ConcatInputSection>(
++      *listInfo.inputSection, bodyData, listInfo.align);
++  if (listInfo.outputSection)
++    listSec->parent = listInfo.outputSection;
++  listSec->live = true;
++
++  std::string slotSymName = "<" + listName.str() + " slot for ";
++  slotSymName += entry->getName();
++  slotSymName += ">";
++
++  Defined *slotSym = make<Defined>(
++      newStringData(slotSymName.c_str()), /*file=*/objFile, listSec,
++      /*value=*/0, bodyData.size(),
++      /*isWeakDef=*/false, /*isExternal=*/false, /*isPrivateExtern=*/false,
++      /*includeInSymtab=*/false, /*isReferencedDynamically=*/false,
++      /*noDeadStrip=*/false, /*isWeakDefCanBeHidden=*/false);
++
++  slotSym->used = true;
++  objFile->symbols.push_back(slotSym);
++  addInputSection(listSec);
++
++  // Now link the entry into the newly created slot
++  createSymbolReference(slotSym, entry, 0, listInfo.relocTemplate);
++}
++
++// As Xcode 27.0's ld: a class of the image that a +load category was merged
++// into is listed in __objc_nlclslist, so that the runtime calls its +load.
++void ObjcCategoryMerger::addToNonLazyClassList(
++    const Defined *baseClass, const InfoInputCategory &loadCategory) {
++  ConcatInputSection *nlCatList = loadCategory.nlCatListIsec;
++  auto *section = make<Section>(
++      baseClass->getFile(), segment_names::data,
++      section_names::objcNonLazyClassList, nlCatList->getFlags(), /*addr=*/0);
++  InfoWriteSection listInfo;
++  listInfo.valid = true;
++  listInfo.align = nlCatList->align;
++  listInfo.inputSection = section;
++  listInfo.outputSection = nullptr;
++  for (const Reloc &r : nlCatList->relocs)
++    if (r.offset == loadCategory.offNlCatListIsec)
++      listInfo.relocTemplate = r;
++  emitListSlot(listInfo, section_names::objcNonLazyClassList,
++               const_cast<Defined *>(baseClass));
++}
++
+ void ObjcCategoryMerger::generateCatListForNonErasedCategories(
+     const MapVector<ConcatInputSection *, std::set<uint64_t>>
+-        catListToErasedOffsets) {
++        catListToErasedOffsets,
++    bool nonLazy) {
+ 
+   // Go through all offsets of all __objc_catlist's that we process and if there
+   // are categories that we didn't process - generate a new __objc_catlist for
+@@ -1238,37 +1305,21 @@
+           tryGetDefinedAtIsecOffset(catListIsec, catListIsecOffset);
+       assert(nonErasedCatBody && "Failed to relocate non-deleted category");
+ 
+-      // Allocate data for the new __objc_catlist slot
+-      llvm::ArrayRef<uint8_t> bodyData = newSectionData(target->wordSize);
+-
+-      // We mark the __objc_catlist slot as belonging to the same file as the
+-      // category
+-      ObjFile *objFile = dyn_cast<ObjFile>(nonErasedCatBody->getFile());
+-
+-      ConcatInputSection *listSec = make<ConcatInputSection>(
+-          *infoCategoryWriter.catListInfo.inputSection, bodyData,
+-          infoCategoryWriter.catListInfo.align);
+-      listSec->parent = infoCategoryWriter.catListInfo.outputSection;
+-      listSec->live = true;
+-
+-      std::string slotSymName = "<__objc_catlist slot for category ";
+-      slotSymName += nonErasedCatBody->getName();
+-      slotSymName += ">";
+-
+-      Defined *catListSlotSym = make<Defined>(
+-          newStringData(slotSymName.c_str()), /*file=*/objFile, listSec,
+-          /*value=*/0, bodyData.size(),
+-          /*isWeakDef=*/false, /*isExternal=*/false, /*isPrivateExtern=*/false,
+-          /*includeInSymtab=*/false, /*isReferencedDynamically=*/false,
+-          /*noDeadStrip=*/false, /*isWeakDefCanBeHidden=*/false);
+-
+-      catListSlotSym->used = true;
+-      objFile->symbols.push_back(catListSlotSym);
+-      addInputSection(listSec);
+-
+-      // Now link the category body into the newly created slot
+-      createSymbolReference(catListSlotSym, nonErasedCatBody, 0,
+-                            infoCategoryWriter.catListInfo.relocTemplate);
++      if (!nonLazy) {
++        emitListSlot(infoCategoryWriter.catListInfo,
++                     section_names::objcCatList, nonErasedCatBody);
++        continue;
++      }
++      InfoWriteSection listInfo;
++      listInfo.valid = true;
++      listInfo.align = catListIsec->align;
++      listInfo.inputSection = const_cast<Section *>(&catListIsec->section);
++      listInfo.outputSection = catListIsec->parent;
++      for (const Reloc &r : catListIsec->relocs)
++        if (r.offset == catListIsecOffset)
++          listInfo.relocTemplate = r;
++      emitListSlot(listInfo, section_names::objcNonLazyCatList,
++                   nonErasedCatBody);
+     }
+   }
+ }
+@@ -1285,6 +1336,7 @@
+ void ObjcCategoryMerger::eraseMergedCategories() {
+   // Map of InputSection to a set of offsets of the categories that were merged
+   MapVector<ConcatInputSection *, std::set<uint64_t>> catListToErasedOffsets;
++  MapVector<ConcatInputSection *, std::set<uint64_t>> nlCatListToErasedOffsets;
+ 
+   for (auto &mapEntry : categoryMap) {
+     for (InfoInputCategory &catInfo : mapEntry.second) {
+@@ -1292,14 +1344,21 @@
+         eraseISec(catInfo.catListIsec);
+         catListToErasedOffsets[catInfo.catListIsec].insert(
+             catInfo.offCatListIsec);
++        if (catInfo.nlCatListIsec) {
++          eraseISec(catInfo.nlCatListIsec);
++          nlCatListToErasedOffsets[catInfo.nlCatListIsec].insert(
++              catInfo.offNlCatListIsec);
++        }
+       }
+     }
+   }
+ 
+   // If there were categories that we did not erase, we need to generate a new
+   // __objc_catList that contains only the un-merged categories, and get rid of
+-  // the references to the ones we merged.
++  // the references to the ones we merged; the same for __objc_nlcatlist.
+   generateCatListForNonErasedCategories(catListToErasedOffsets);
++  generateCatListForNonErasedCategories(nlCatListToErasedOffsets,
++                                        /*nonLazy=*/true);
+ 
+   // Erase the old method lists & names of the categories that were merged
+   for (auto &mapEntry : categoryMap) {
+@@ -1335,11 +1394,29 @@
+ void ObjcCategoryMerger::doMerge() {
+   collectAndValidateCategoriesData();
+ 
++  auto nlClasses = collectListSlots(section_names::objcNonLazyClassList);
++
+   for (auto &[baseClass, catInfos] : categoryMap) {
++    // As Xcode 27.0's ld: categories with +load methods are merged only into a
++    // class of the image, and only when the class and its categories have one
++    // +load method at most; a class of a dylib with a +load category keeps all
++    // its categories.
++    auto loadCategory = llvm::find_if(catInfos, [](const auto &catInfo) {
++      return catInfo.nlCatListIsec != nullptr;
++    });
++    size_t loads = llvm::count_if(catInfos, [](const auto &catInfo) {
++      return catInfo.nlCatListIsec != nullptr;
++    });
++    auto *baseClassDef = dyn_cast<Defined>(baseClass);
++    if (loads && (!baseClassDef || loads + nlClasses.count(baseClass) > 1))
++      continue;
++
+     bool merged = false;
+-    if (auto *baseClassDef = dyn_cast<Defined>(baseClass)) {
++    if (baseClassDef) {
+       // Merge all categories into the base class
+       merged = mergeCategoriesIntoBaseClass(baseClassDef, catInfos);
++      if (merged && loads && !nlClasses.count(baseClass))
++        addToNonLazyClassList(baseClassDef, *loadCategory);
+     } else if (catInfos.size() > 1) {
+       // Merge all categories into a new, single category
+       merged = mergeCategoriesIntoSingleCategory(catInfos);

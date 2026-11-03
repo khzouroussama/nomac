@@ -1,0 +1,37 @@
+# Observes how Xcode evaluates package manifests (compilation conditions on the Mac) and which
+# deployment targets and project order it gives package projects in the PIF, with packages
+# written from scratch by .github/scripts/package_experiments.py (docs/formats/pif.md).
+name: package-experiments
+
+on:
+  # Manual only (Actions tab): macOS minutes are billed at 10x. The script also runs on any Mac
+  # with Xcode 27.0 (docs/VERIFICATION.md "Without CI").
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-experiments-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(python3 -c 'import json; print(json.load(open("corpus/corpus.json"))["xcode"]["path"])')"
+          xcodebuild -version
+      - name: Run the experiments
+        run: python3 .github/scripts/package_experiments.py "$RUNNER_TEMP/package-experiments"
+      - name: Compare with the SDKs' version maps
+        run: python3 .github/scripts/sdk_version_maps.py "$RUNNER_TEMP/package-experiments/observations.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: package-experiments
+          path: ${{ runner.temp }}/package-experiments
+          retention-days: 30

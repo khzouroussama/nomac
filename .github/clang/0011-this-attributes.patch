@@ -1,0 +1,23 @@
+No nonnull, dereferenceable or align on `this` for Apple platforms, as Xcode 27.0's clang compiles them with
+-clang-vendor-feature=+thisNoNullAttr and +thisNoAlignAttr, which its driver passes for Apple targets only (B-170,
+docs/formats/build.md "Objective-C literals, runtime entrypoints and `this`"). Written from Xcode's observed output (.github/scripts/clang_objc_experiments.py).
+
+diff --git a/clang/lib/CodeGen/CGCall.cpp b/clang/lib/CodeGen/CGCall.cpp
+index 942e9d79..d188cd32 100644
+--- a/clang/lib/CodeGen/CGCall.cpp
++++ b/clang/lib/CodeGen/CGCall.cpp
+@@ -2775,10 +2775,12 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
+   }
+ 
+   // Apply `nonnull`, `dereferenceable(N)` and `align N` to the `this` argument,
+-  // unless this is a thunk function.
++  // unless this is a thunk function. Xcode 27.0's clang gives `this` none of
++  // them for Apple platforms (its thisNoNullAttr and thisNoAlignAttr).
+   // FIXME: fix this properly, https://reviews.llvm.org/D100388
+   if (FI.isInstanceMethod() && !IRFunctionArgs.hasInallocaArg() &&
+-      !FI.arg_begin()->type->isVoidPointerType() && !IsThunk) {
++      !FI.arg_begin()->type->isVoidPointerType() && !IsThunk &&
++      !getTarget().getTriple().isOSDarwin()) {
+     auto IRArgs = IRFunctionArgs.getIRArgs(0);
+ 
+     assert(IRArgs.second == 1 && "Expected only a single `this` pointer.");

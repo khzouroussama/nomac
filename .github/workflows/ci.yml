@@ -1,0 +1,53 @@
+# Builds nomac and runs its test suite on Linux, the primary platform.
+name: ci
+
+on:
+  # Pull requests cover work branches; pushes to main cover merges (and milestone tags, ADR 0007).
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    container: swift:6.4.1-noble
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      # The tools the suite runs (python3 scripts, git repositories of test packages, openssl),
+      # as in the image the merge gate's Linux runs use.
+      - name: Install system libraries and tools
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q libsqlite3-dev libxml2-dev zlib1g-dev libncurses-dev python3 zstd openssl rsync
+          git config --system --add safe.directory '*'
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: linux-build-${{ matrix.runner }}-${{ hashFiles('Package.resolved') }}-${{ hashFiles('Sources/**', 'Tests/**') }}
+          restore-keys: |
+            linux-build-${{ matrix.runner }}-${{ hashFiles('Package.resolved') }}-
+      - name: Build
+        run: swift build --build-tests
+      - name: Test
+        run: swift test --skip-build
+
+  notices:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: NOTICE lists every third-party component
+        run: python3 .github/scripts/third_party_notices.py --check

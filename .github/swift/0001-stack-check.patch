@@ -1,0 +1,69 @@
+Swift's -stack-check (and -no-stack-check), as Xcode 27.0's frontend takes them (ADR 0106, docs/formats/build.md
+"Swift stack checks"): with -stack-check, every function IRGen makes, defined or declared, gets
+"probe-stack"="__chkstk_darwin" on 64-bit targets; -no-stack-check is accepted and changes nothing. Clang's
+own default for the probe (.github/clang 0017) stays out of the attributes Swift's functions start from:
+Xcode's Swift functions never have it without -stack-check, and name __chkstk_darwin on x86_64 too.
+
+--- a/include/swift/AST/IRGenOptions.h
++++ b/include/swift/AST/IRGenOptions.h
+@@ -372,6 +372,10 @@
+   /// objects.
+   unsigned EmitStackPromotionChecks : 1;
+ 
++  /// Whether functions call the platform's stack probe before large stack
++  /// allocations (-stack-check).
++  unsigned EmitStackChecks : 1;
++
+   unsigned UseSingleModuleLLVMEmission : 1;
+ 
+   /// Emit functions to separate sections.
+@@ -660,7 +664,7 @@
+         DebugInfoFormat(IRGenDebugInfoFormat::None),
+         DisableClangModuleSkeletonCUs(false), UseJIT(false),
+         DisableLLVMOptzns(false), DisableSwiftSpecificLLVMOptzns(false),
+-        Playground(false), EmitStackPromotionChecks(false),
++        Playground(false), EmitStackPromotionChecks(false), EmitStackChecks(false),
+         UseSingleModuleLLVMEmission(false), FunctionSections(false),
+         PrintInlineTree(false), AlwaysCompile(false),
+         EmbedMode(IRGenEmbedMode::None), LLVMLTOKind(IRGenLLVMLTOKind::None),
+--- a/include/swift/Option/Options.td
++++ b/include/swift/Option/Options.td
+@@ -1181,6 +1181,13 @@
+   Flags<[HelpHidden]>,
+   HelpText<"Don't statically link the executable">;
+ 
++def stack_check : Flag<["-"], "stack-check">,
++  Flags<[FrontendOption, HelpHidden]>,
++  HelpText<"enable stack checking">;
++def no_stack_check : Flag<["-"], "no-stack-check">,
++  Flags<[FrontendOption, HelpHidden]>,
++  HelpText<"disable stack checking">;
++
+ def use_ld : Joined<["-"], "use-ld=">,
+   Flags<[DoesNotAffectIncrementalBuild]>,
+   HelpText<"Specifies the flavor of the linker to be used">;
+--- a/lib/Frontend/CompilerInvocation.cpp
++++ b/lib/Frontend/CompilerInvocation.cpp
+@@ -3697,6 +3697,7 @@
+                                  OPT_disable_llvm_verify_each, Opts.VerifyEach);
+ 
+   Opts.EmitStackPromotionChecks |= Args.hasArg(OPT_stack_promotion_checks);
++  Opts.EmitStackChecks = Args.hasArg(OPT_stack_check);
+   if (const Arg *A = Args.getLastArg(OPT_stack_promotion_limit)) {
+     unsigned limit;
+     if (StringRef(A->getValue()).getAsInteger(10, limit)) {
+--- a/lib/IRGen/IRGenModule.cpp
++++ b/lib/IRGen/IRGenModule.cpp
+@@ -1550,6 +1550,12 @@
+   // Add the default attributes for the Clang configuration.
+   clang::CodeGen::addDefaultFunctionDefinitionAttributes(getClangCGM(), Attrs);
+ 
++  // Swift functions name Apple's stack probe only with -stack-check, whatever
++  // the Clang configuration's defaults, and on 64-bit targets only.
++  Attrs.removeAttribute("probe-stack");
++  if (IRGen.Opts.EmitStackChecks && Triple.isArch64Bit())
++    Attrs.addAttribute("probe-stack", "__chkstk_darwin");
++
+   // Add/remove MinSize based on the appropriate setting.
+   if (FuncOptMode == OptimizationMode::NotSet)
+     FuncOptMode = IRGen.Opts.OptMode;

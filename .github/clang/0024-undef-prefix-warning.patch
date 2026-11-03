@@ -1,0 +1,17 @@
+An undefined TARGET_OS_ macro in #if is a warning (-Wundef-prefix=TARGET_OS_ without -Werror=undef-prefix), as with
+Xcode 27.0's driver; swiftlang's makes it an error, which fails a build Xcode's warns about (B-170, docs/formats/build.md
+"Clang's driver").
+--- a/clang/lib/Driver/ToolChains/Darwin.cpp
++++ b/clang/lib/Driver/ToolChains/Darwin.cpp
+@@ -1357,9 +1357,9 @@
+     : Darwin(D, Triple, Args) {}
+ 
+ void DarwinClang::addClangWarningOptions(ArgStringList &CC1Args) const {
+-  // Always error about undefined 'TARGET_OS_*' macros.
++  // Warn about undefined 'TARGET_OS_*' macros; Xcode 27.0's driver does not
++  // make it an error.
+   CC1Args.push_back("-Wundef-prefix=TARGET_OS_");
+-  CC1Args.push_back("-Werror=undef-prefix");
+ 
+   // For modern targets, promote certain warnings to errors.
+   if (isTargetWatchOSBased() || getTriple().isArch64Bit()) {

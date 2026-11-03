@@ -1,0 +1,42 @@
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -544,23 +544,33 @@
+     SmallVector<StringRef> LCLinkerOptions(unprocessedLCLinkerOptions);
+     unprocessedLCLinkerOptions.clear();
+ 
++    // Xcode's ld loads the autolinked frameworks before the autolinked
++    // libraries, each sorted by name, whatever order the objects list them in.
++    SmallVector<StringRef> frameworks;
++    SmallVector<StringRef> libraries;
+     for (unsigned i = 0; i < LCLinkerOptions.size(); ++i) {
+       StringRef arg = LCLinkerOptions[i];
+       if (arg.consume_front("-l")) {
+         assert(!config->ignoreAutoLinkOptions.contains(arg));
+-        addLibrary(arg, /*isNeeded=*/false, /*isWeak=*/false,
+-                   /*isReexport=*/false, /*isHidden=*/false,
+-                   /*isExplicit=*/false, LoadType::LCLinkerOption);
++        libraries.push_back(arg);
+       } else if (arg == "-framework") {
+         StringRef name = LCLinkerOptions[++i];
+         assert(!config->ignoreAutoLinkOptions.contains(name));
+-        addFramework(name, /*isNeeded=*/false, /*isWeak=*/false,
+-                     /*isReexport=*/false, /*isExplicit=*/false,
+-                     LoadType::LCLinkerOption);
++        frameworks.push_back(name);
+       } else {
+         error(arg + " is not allowed in LC_LINKER_OPTION");
+       }
+     }
++    llvm::sort(frameworks);
++    llvm::sort(libraries);
++    for (StringRef name : frameworks)
++      addFramework(name, /*isNeeded=*/false, /*isWeak=*/false,
++                   /*isReexport=*/false, /*isExplicit=*/false,
++                   LoadType::LCLinkerOption);
++    for (StringRef name : libraries)
++      addLibrary(name, /*isNeeded=*/false, /*isWeak=*/false,
++                 /*isReexport=*/false, /*isHidden=*/false,
++                 /*isExplicit=*/false, LoadType::LCLinkerOption);
+   }
+ }
+ 

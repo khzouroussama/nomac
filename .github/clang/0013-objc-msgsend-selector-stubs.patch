@@ -1,0 +1,325 @@
+Backport of llvm/llvm-project#186293, "[ObjC] Support emission of selector stubs calls instead of objc_msgSend."
+(merged 2026-03-13), to swiftlang/llvm-project swift-6.4.0-RELEASE
+(docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170). Calls objc_msgSend$<selector> stubs for
+AArch64 Apple targets when the linker version is 811.2 or later, as Xcode 27.0's clang (linker version 1166.2) does.
+Adapted: Options.td at clang/include/clang/Driver/Options.td; the driver hunk before the legacy-runtime
+subscripting comment of RenderObjCOptions (upstream's context has -fobjc-direct-precondition-thunk, which
+swift-6.4.0-RELEASE lacks).
+
+diff --git a/clang/include/clang/Basic/CodeGenOptions.def b/clang/include/clang/Basic/CodeGenOptions.def
+index 95ac6e08..bf848446 100644
+--- a/clang/include/clang/Basic/CodeGenOptions.def
++++ b/clang/include/clang/Basic/CodeGenOptions.def
+@@ -206,6 +206,7 @@ CODEGENOPT(NoZeroInitializedInBSS , 1, 0, Benign) ///< -fno-zero-initialized-in-
+ ENUM_CODEGENOPT(ObjCDispatchMethod, ObjCDispatchMethodKind, 2, Legacy, Benign)
+ /// Replace certain message sends with calls to ObjC runtime entrypoints
+ CODEGENOPT(ObjCConvertMessagesToRuntimeCalls , 1, 1, Benign)
++CODEGENOPT(ObjCMsgSendSelectorStubs , 1, 0, Benign) ///< Use per-selector linker stubs for objc_msgSend
+ CODEGENOPT(ObjCAvoidHeapifyLocalBlocks, 1, 0, Benign)
+ 
+ 
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index ad2d6305..eb1ffd05 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -3868,6 +3868,9 @@ defm objc_convert_messages_to_runtime_calls : BoolFOption<"objc-convert-messages
+   CodeGenOpts<"ObjCConvertMessagesToRuntimeCalls">, DefaultTrue,
+   NegFlag<SetFalse, [], [ClangOption, CC1Option]>,
+   PosFlag<SetTrue>>;
++defm objc_msgsend_selector_stubs : BoolFOption<"objc-msgsend-selector-stubs",
++  CodeGenOpts<"ObjCMsgSendSelectorStubs">, DefaultFalse,
++  PosFlag<SetTrue, [], [ClangOption, CC1Option]>, NegFlag<SetFalse>>;
+ defm objc_arc_exceptions : BoolFOption<"objc-arc-exceptions",
+   CodeGenOpts<"ObjCAutoRefCountExceptions">, DefaultFalse,
+   PosFlag<SetTrue, [], [ClangOption, CC1Option],
+diff --git a/clang/lib/CodeGen/CGObjCMac.cpp b/clang/lib/CodeGen/CGObjCMac.cpp
+index aa8603fa..ec1d69c0 100644
+--- a/clang/lib/CodeGen/CGObjCMac.cpp
++++ b/clang/lib/CodeGen/CGObjCMac.cpp
+@@ -858,6 +858,9 @@ protected:
+   llvm::DenseMap<const ObjCMethodDecl *, llvm::Function *>
+       DirectMethodDefinitions;
+ 
++  /// MethodSelectorStubs - map of selector stub functions
++  llvm::DenseMap<Selector, llvm::Function *> MethodSelectorStubs;
++
+   /// PropertyNames - uniqued method variable names.
+   llvm::DenseMap<IdentifierInfo *, llvm::GlobalVariable *> PropertyNames;
+ 
+@@ -1207,6 +1210,10 @@ public:
+                                     const ObjCMethodDecl *OMD,
+                                     const ObjCContainerDecl *CD) override;
+ 
++  llvm::Function *
++  GenerateMethodSelectorStub(Selector Sel,
++                             const ObjCCommonTypesHelper &ObjCTypes);
++
+   void GenerateProtocol(const ObjCProtocolDecl *PD) override;
+ 
+   /// GetOrEmitProtocolRef - Get a forward reference to the protocol
+@@ -2755,8 +2762,15 @@ CodeGen::RValue CGObjCCommonMac::EmitMessageSend(
+     // must be made for it.
+     if (ReceiverCanBeNull && CGM.ReturnTypeUsesSRet(MSI.CallInfo))
+       RequiresNullCheck = true;
+-    Fn = (ObjCABI == 2) ? ObjCTypes.getSendFn2(IsSuper)
+-                        : ObjCTypes.getSendFn(IsSuper);
++    if (!IsSuper && CGM.getCodeGenOpts().ObjCMsgSendSelectorStubs) {
++      // Try to use a selector stub declaration instead of objc_msgSend.
++      Fn = GenerateMethodSelectorStub(Sel, ObjCTypes);
++      // Selector stubs synthesize `_cmd` in the stub, so we don't have to.
++      RequiresSelValue = false;
++    } else {
++      Fn = (ObjCABI == 2) ? ObjCTypes.getSendFn2(IsSuper)
++                          : ObjCTypes.getSendFn(IsSuper);
++    }
+   }
+ 
+   // Cast function to proper signature
+@@ -4664,6 +4678,24 @@ void CGObjCCommonMac::GenerateDirectMethodPrologue(
+   }
+ }
+ 
++llvm::Function *CGObjCCommonMac::GenerateMethodSelectorStub(
++    Selector Sel, const ObjCCommonTypesHelper &ObjCTypes) {
++  auto I = MethodSelectorStubs.find(Sel);
++
++  if (I != MethodSelectorStubs.end())
++    return I->second;
++
++  auto *FnTy = llvm::FunctionType::get(
++      ObjCTypes.ObjectPtrTy, {ObjCTypes.ObjectPtrTy, ObjCTypes.SelectorPtrTy},
++      /*IsVarArg=*/true);
++  auto *Fn = cast<llvm::Function>(
++      CGM.CreateRuntimeFunction(FnTy, "objc_msgSend$" + Sel.getAsString())
++          .getCallee());
++
++  MethodSelectorStubs.insert(std::make_pair(Sel, Fn));
++  return Fn;
++}
++
+ llvm::GlobalVariable *
+ CGObjCCommonMac::CreateMetadataVar(Twine Name, ConstantStructBuilder &Init,
+                                    StringRef Section, CharUnits Align,
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index 49ed5715..43f02bae 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -4260,6 +4260,14 @@ static void RenderObjCOptions(const ToolChain &TC, const Driver &D,
+     }
+   }
+ 
++
++  // Pass down -fobjc-msgsend-selector-stubs if present.
++  if (types::isObjC(Input.getType())) {
++    if (Args.hasFlag(options::OPT_fobjc_msgsend_selector_stubs,
++                     options::OPT_fno_objc_msgsend_selector_stubs, false))
++      CmdArgs.push_back("-fobjc-msgsend-selector-stubs");
++  }
++
+   // When ObjectiveC legacy runtime is in effect on MacOSX, turn on the option
+   // to do Array/Dictionary subscripting by default.
+   if (Arch == llvm::Triple::x86 && T.isMacOSX() &&
+diff --git a/clang/lib/Driver/ToolChains/Darwin.cpp b/clang/lib/Driver/ToolChains/Darwin.cpp
+index 7b01e02f..99dde9e0 100644
+--- a/clang/lib/Driver/ToolChains/Darwin.cpp
++++ b/clang/lib/Driver/ToolChains/Darwin.cpp
+@@ -3540,6 +3540,14 @@ void Darwin::addClangTargetOptions(
+       isAlignedAllocationUnavailable())
+     CC1Args.push_back("-faligned-alloc-unavailable");
+ 
++  // Enable objc_msgSend selector stubs by default if the linker supports it.
++  // ld64-811.2+ does, for arm64, arm64e, and arm64_32.
++  if (!DriverArgs.hasArgNoClaim(options::OPT_fobjc_msgsend_selector_stubs,
++                                options::OPT_fno_objc_msgsend_selector_stubs) &&
++      getTriple().isAArch64() &&
++      (getLinkerVersion(DriverArgs) >= VersionTuple(811, 2)))
++    CC1Args.push_back("-fobjc-msgsend-selector-stubs");
++
+   // Pass "-fno-sized-deallocation" only when the user hasn't manually enabled
+   // or disabled sized deallocations.
+   if (!DriverArgs.hasArgNoClaim(options::OPT_fsized_deallocation,
+diff --git a/clang/test/CodeGenObjC/method-selector-stub.m b/clang/test/CodeGenObjC/method-selector-stub.m
+new file mode 100644
+index 00000000..9359b708
+--- /dev/null
++++ b/clang/test/CodeGenObjC/method-selector-stub.m
+@@ -0,0 +1,131 @@
++// RUN: %clang_cc1 -emit-llvm -fobjc-msgsend-selector-stubs -triple arm64-apple-ios15 %s -o - | FileCheck %s
++// RUN: %clang_cc1 -emit-llvm -fobjc-msgsend-selector-stubs -triple arm64_32-apple-watchos8 %s -o - | FileCheck %s
++
++__attribute__((objc_root_class))
++@interface Root
++- (int)test0;
+++ (int)class0;
++- (int)test1: (int)a0;
++- (int)test2: (int)a0 withA: (int)a1;
++
++@property(readonly) int intProperty;
++@end
++
++@interface Foo : Root
++@end
++
++@interface Foo ()
++- (int)testSuper0;
++- (int)methodInExtension;
++@end
++
++@interface Foo (Cat)
++- (int)methodInCategory;
++@end
++
++
++// CHECK: [[TEST0_METHNAME:@OBJC_METH_VAR_NAME_[^ ]*]] = private unnamed_addr constant [6 x i8] c"test0\00", section "__TEXT,__objc_methname,cstring_literals"
++// CHECK: [[TEST0_SELREF:@OBJC_SELECTOR_REFERENCES_[^ ]*]] = internal externally_initialized global ptr [[TEST0_METHNAME]], section "__DATA,__objc_selrefs,literal_pointers,no_dead_strip"
++
++@implementation Foo
++
++- (int)testSuper0 {
++  // Super calls don't have stubs.
++  // CHECK-LABEL: define{{.*}} i32 @"\01-[Foo testSuper0]"(
++  // CHECK: [[SEL:%[^ ]]] = load ptr, ptr [[TEST0_SELREF]]
++  // CHECK: %{{[^ ]*}}  = call i32 @objc_msgSendSuper2(ptr {{[^,]+}}, ptr {{[^,)]*}}[[SEL]])
++
++  return [super test0];
++}
++
++// CHECK-LABEL: define internal i32 @"\01-[Foo methodInExtension]"(
++- (int)methodInExtension {
++  return 42;
++}
++@end
++
++@implementation Foo (Cat)
++// CHECK-LABEL: define internal i32 @"\01-[Foo(Cat) methodInCategory]"(
++- (int)methodInCategory {
++  return 42;
++}
++// CHECK-LABEL: define internal i32 @"\01-[Foo(Cat) methodInCategoryNoDecl]"(
++- (int)methodInCategoryNoDecl {
++  return 42;
++}
++@end
++
++int test_root_test0(Root *r) {
++  // CHECK-LABEL: define{{.*}} i32 @test_root_test0(
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$test0"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef)
++  return [r test0];
++}
++
++// CHECK: declare ptr @"objc_msgSend$test0"(ptr, ptr, ...)
++
++int test_root_class0() {
++  // CHECK-LABEL: define{{.*}} i32 @test_root_class0(
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$class0"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef)
++  return [Root class0];
++}
++
++// CHECK: declare ptr @"objc_msgSend$class0"(ptr, ptr, ...)
++
++int test_root_test1(Root *r) {
++  // CHECK-LABEL: define{{.*}} i32 @test_root_test1(
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$test1:"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef, i32 {{[^,)]*}}42)
++  return [r test1: 42];
++}
++
++// CHECK: declare ptr @"objc_msgSend$test1:"(ptr, ptr, ...)
++
++int test_root_test2(Root *r) {
++  // CHECK-LABEL: define{{.*}} i32 @test_root_test2(
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$test2:withA:"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef, i32 {{[^,)]*}}42, i32 {{[^,)]*}}84)
++  return [r test2: 42 withA: 84];
++
++}
++
++// CHECK: declare ptr @"objc_msgSend$test2:withA:"(ptr, ptr, ...)
++
++int test_extension(Foo *f) {
++  // CHECK-LABEL: define{{.*}} i32 @test_extension
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$methodInExtension"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef)
++  return [f methodInExtension];
++}
++
++// CHECK: declare ptr @"objc_msgSend$methodInExtension"(ptr, ptr, ...)
++
++int test_category(Foo *f) {
++  // CHECK-LABEL: define{{.*}} i32 @test_category
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$methodInCategory"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef)
++  return [f methodInCategory];
++}
++
++// CHECK: declare ptr @"objc_msgSend$methodInCategory"(ptr, ptr, ...)
++
++int test_category_nodecl(Foo *f) {
++  // CHECK-LABEL: define{{.*}} i32 @test_category_nodecl
++  // CHECK: %{{[^ ]*}} = call i32 @"objc_msgSend$methodInCategoryNoDecl"(ptr {{[^,]+}}, ptr {{[^,)]*}}undef)
++  return [f methodInCategoryNoDecl];
++}
++
++// CHECK: declare ptr @"objc_msgSend$methodInCategoryNoDecl"(ptr, ptr, ...)
++
++
++// === Test the special case where there's no method, but only a selector.
++
++@interface NSArray
++@end;
++
++extern void use(id);
++
++void test_fastenum_rawsel(NSArray *array) {
++  // CHECK-LABEL: define{{.*}} void @test_fastenum_rawsel
++  // CHECK: %{{[^ ]*}} = call {{i32|i64}} @"objc_msgSend$countByEnumeratingWithState:objects:count:"(ptr {{[^,]+}}, ptr
++  // CHECK-NOT: @objc_msgSend to
++  for (id x in array)
++    use(x);
++}
++
++// CHECK: declare ptr @"objc_msgSend$countByEnumeratingWithState:objects:count:"(ptr, ptr, ...)
+diff --git a/clang/test/Driver/darwin-objc-selector-stubs.m b/clang/test/Driver/darwin-objc-selector-stubs.m
+new file mode 100644
+index 00000000..47d9473b
+--- /dev/null
++++ b/clang/test/Driver/darwin-objc-selector-stubs.m
+@@ -0,0 +1,42 @@
++// Check default enablement of Objective-C objc_msgSend selector stubs codegen.
++
++// Enabled by default with ld64-811.2+ ...
++
++// ... for arm64
++// RUN: %clang -target arm64-apple-ios15            -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s
++// RUN: %clang -target arm64-apple-ios15            -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++// RUN: %clang -target arm64-apple-macos12          -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s
++// RUN: %clang -target arm64-apple-macos12          -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++// ... for arm64e
++// RUN: %clang -target arm64e-apple-ios15           -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s
++// RUN: %clang -target arm64e-apple-ios15           -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++// ... and arm64_32.
++// RUN: %clang -target arm64_32-apple-watchos8      -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s
++// RUN: %clang -target arm64_32-apple-watchos8      -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++
++// Disabled elsewhere, e.g. x86_64.
++// RUN: %clang -target x86_64-apple-macos12         -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++// RUN: %clang -target x86_64-apple-macos12         -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++// RUN: %clang -target x86_64-apple-ios15-simulator -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++// RUN: %clang -target x86_64-apple-ios15-simulator -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++// ... or armv7k.
++// RUN: %clang -target armv7k-apple-watchos6        -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++// RUN: %clang -target armv7k-apple-watchos6        -mlinker-version=811   -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++
++// Enabled if you ask for it.
++// RUN: %clang -target arm64-apple-macos12 -fobjc-msgsend-selector-stubs                    -### %s 2>&1 | FileCheck %s
++// RUN: %clang -target arm64-apple-macos12 -fobjc-msgsend-selector-stubs -mlinker-version=0 -### %s 2>&1 | FileCheck %s
++
++// Disabled if you ask for that.
++// RUN: %clang -target arm64-apple-macos12 -fno-objc-msgsend-selector-stubs -mlinker-version=811.2 -### %s 2>&1 | FileCheck %s --check-prefix=NOSTUBS
++
++
++// CHECK: "-fobjc-msgsend-selector-stubs"
++// NOSTUBS-NOT: objc-msgsend-selector-stubs

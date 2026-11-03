@@ -1,0 +1,105 @@
+A function with a personality whose stack objects the stack protector guards gets one cleanup landing pad that
+resumes, and every call outside landing pads that may unwind, other than tail calls, unwinds to it, as Xcode 27.0's
+clang prepares exception handling (B-170, docs/formats/build.md "Exception tables of stack-protected functions"): with
+-fstack-protector, -strong or -all, -O0 to -Os, arm64, x86_64 and Linux targets. Without it, such a function whose
+landing pads were optimized away (React Native's REACSSPlatformProps.o) has no exception table, ___gxx_personality_v0
+or _Unwind_Resume where Xcode's has them, and functions with landing pads have other call-site tables.
+--- a/llvm/lib/CodeGen/DwarfEHPrepare.cpp
++++ b/llvm/lib/CodeGen/DwarfEHPrepare.cpp
+@@ -13,15 +13,18 @@
+ 
+ #include "llvm/CodeGen/DwarfEHPrepare.h"
+ #include "llvm/ADT/BitVector.h"
++#include "llvm/ADT/SmallPtrSet.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/ADT/Statistic.h"
+ #include "llvm/Analysis/CFG.h"
+ #include "llvm/Analysis/DomTreeUpdater.h"
+ #include "llvm/Analysis/TargetTransformInfo.h"
++#include "llvm/CodeGen/StackProtector.h"
+ #include "llvm/CodeGen/TargetLowering.h"
+ #include "llvm/CodeGen/TargetPassConfig.h"
+ #include "llvm/CodeGen/TargetSubtargetInfo.h"
+ #include "llvm/IR/BasicBlock.h"
++#include "llvm/IR/CFG.h"
+ #include "llvm/IR/Constants.h"
+ #include "llvm/IR/DebugInfoMetadata.h"
+ #include "llvm/IR/DerivedTypes.h"
+@@ -29,6 +32,7 @@
+ #include "llvm/IR/EHPersonalities.h"
+ #include "llvm/IR/Function.h"
+ #include "llvm/IR/Instructions.h"
++#include "llvm/IR/IntrinsicInst.h"
+ #include "llvm/IR/Module.h"
+ #include "llvm/IR/Type.h"
+ #include "llvm/InitializePasses.h"
+@@ -77,6 +81,11 @@
+   /// into calls to the appropriate _Unwind_Resume function.
+   bool InsertUnwindResumeCalls();
+ 
++  /// Make the calls that may unwind outside landing pads, other than tail
++  /// calls, unwind to a cleanup landing pad that resumes, in a function with a
++  /// personality whose stack objects the stack protector guards.
++  bool addStackProtectorCleanup();
++
+ public:
+   DwarfEHPrepare(CodeGenOptLevel OptLevel_, Function &F_,
+                  const TargetLowering &TLI_, DomTreeUpdater *DTU_,
+@@ -311,8 +320,56 @@
+   return true;
+ }
+ 
++// As Xcode 27.0's clang: one cleanup landing pad for all such calls, which
++// unwinding through the function then runs.
++bool DwarfEHPrepare::addStackProtectorCleanup() {
++  if (!F.hasPersonalityFn() ||
++      isScopedEHPersonality(classifyEHPersonality(F.getPersonalityFn())))
++    return false;
++  DenseMap<const AllocaInst *, MachineFrameInfo::SSPLayoutKind> Layout;
++  if (!StackProtector::requiresStackProtector(&F, &Layout) || Layout.empty())
++    return false;
++
++  SmallPtrSet<BasicBlock *, 32> Reached = {&F.getEntryBlock()};
++  SmallVector<BasicBlock *, 32> Worklist = {&F.getEntryBlock()};
++  while (!Worklist.empty()) {
++    Instruction *Terminator = Worklist.pop_back_val()->getTerminator();
++    if (auto *Invoke = dyn_cast<InvokeInst>(Terminator)) {
++      if (Reached.insert(Invoke->getNormalDest()).second)
++        Worklist.push_back(Invoke->getNormalDest());
++      continue;
++    }
++    for (BasicBlock *Successor : successors(Terminator->getParent()))
++      if (Reached.insert(Successor).second)
++        Worklist.push_back(Successor);
++  }
++
++  SmallVector<CallInst *, 16> Calls;
++  for (BasicBlock &BB : F)
++    if (Reached.contains(&BB))
++      for (Instruction &I : BB)
++        if (auto *Call = dyn_cast<CallInst>(&I))
++          if (!Call->doesNotThrow() && !Call->isInlineAsm() &&
++              !Call->isTailCall() && !isa<IntrinsicInst>(Call))
++            Calls.push_back(Call);
++  if (Calls.empty())
++    return false;
++
++  LLVMContext &Ctx = F.getContext();
++  BasicBlock *Pad = BasicBlock::Create(Ctx, "", &F);
++  auto *LandingPad = LandingPadInst::Create(
++      StructType::get(PointerType::getUnqual(Ctx), Type::getInt32Ty(Ctx)), 0,
++      "", Pad);
++  LandingPad->setCleanup(true);
++  ResumeInst::Create(LandingPad, Pad);
++  for (CallInst *Call : Calls)
++    changeToInvokeAndSplitBasicBlock(Call, Pad, DTU);
++  return true;
++}
++
+ bool DwarfEHPrepare::run() {
+-  bool Changed = InsertUnwindResumeCalls();
++  bool Changed = addStackProtectorCleanup();
++  Changed |= InsertUnwindResumeCalls();
+ 
+   return Changed;
+ }

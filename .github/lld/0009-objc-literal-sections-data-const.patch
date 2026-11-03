@@ -1,0 +1,40 @@
+Constant Objective-C literals' sections in __DATA_CONST, where Xcode 27.0's ld puts them: __objc_arraydata,
+__objc_arrayobj, __objc_dictobj, __objc_doubleobj, __objc_floatobj and __objc_intobj, which clang writes in __DATA
+(docs/formats/build.md "Objective-C literals, runtime entrypoints and `this`", .github/clang 0001).
+
+diff --git a/lld/MachO/Driver.cpp b/lld/MachO/Driver.cpp
+index 4a9894a..24ed516 100644
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -677,7 +677,13 @@ static void initializeSectionRenameMap() {
+                              section_names::objcCatList,
+                              section_names::objcNonLazyCatList,
+                              section_names::objcProtoList,
+-                             section_names::objCImageInfo};
++                             section_names::objCImageInfo,
++                             section_names::objcArrayData,
++                             section_names::objcArrayObj,
++                             section_names::objcDictObj,
++                             section_names::objcDoubleObj,
++                             section_names::objcFloatObj,
++                             section_names::objcIntObj};
+     for (StringRef s : v)
+       config->sectionRenameMap[{segment_names::data, s}] = {
+           segment_names::dataConst, s};
+diff --git a/lld/MachO/InputSection.h b/lld/MachO/InputSection.h
+index 8e1f7ea..116a8bc 100644
+--- a/lld/MachO/InputSection.h
++++ b/lld/MachO/InputSection.h
+@@ -344,6 +344,12 @@ constexpr const char moduleInitFunc[] = "__mod_init_func";
+ constexpr const char moduleTermFunc[] = "__mod_term_func";
+ constexpr const char nonLazySymbolPtr[] = "__nl_symbol_ptr";
+ constexpr const char objcCatList[] = "__objc_catlist";
++constexpr const char objcArrayData[] = "__objc_arraydata";
++constexpr const char objcArrayObj[] = "__objc_arrayobj";
++constexpr const char objcDictObj[] = "__objc_dictobj";
++constexpr const char objcDoubleObj[] = "__objc_doubleobj";
++constexpr const char objcFloatObj[] = "__objc_floatobj";
++constexpr const char objcIntObj[] = "__objc_intobj";
+ constexpr const char objcClassList[] = "__objc_classlist";
+ constexpr const char objcMethList[] = "__objc_methlist";
+ constexpr const char objcClassRefs[] = "__objc_classrefs";

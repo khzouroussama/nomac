@@ -1,0 +1,35 @@
+Backport of llvm/llvm-project#204208, "[Driver] Re-enable -fobjc-constant-literals by default" (merged 2026-06-16), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index 9c18419e..49ed5715 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -4337,7 +4337,7 @@ static void RenderObjCOptions(const ToolChain &TC, const Driver &D,
+     bool EnableConstantLiterals =
+         Args.hasFlag(options::OPT_fobjc_constant_literals,
+                      options::OPT_fno_objc_constant_literals,
+-                     /*default=*/false) &&
++                     /*default=*/true) &&
+         Runtime.hasConstantLiteralClasses();
+     if (EnableConstantLiterals)
+       CmdArgs.push_back("-fobjc-constant-literals");
+diff --git a/clang/test/Driver/objc-constant-literals.m b/clang/test/Driver/objc-constant-literals.m
+index e926a67d..3adfc68f 100644
+--- a/clang/test/Driver/objc-constant-literals.m
++++ b/clang/test/Driver/objc-constant-literals.m
+@@ -5,10 +5,10 @@
+ // RUN: %clang -### -target arm64-apple-macosx11 -fno-objc-constant-literals -c %s 2>&1 \
+ // RUN:   | FileCheck %s --check-prefix=DISABLED
+ 
+-// DEFAULT-NOT: -fobjc-constant-literals
+-// DEFAULT-NOT: -fconstant-nsnumber-literals
+-// DEFAULT-NOT: -fconstant-nsarray-literals
+-// DEFAULT-NOT: -fconstant-nsdictionary-literals
++// DEFAULT: -fobjc-constant-literals
++// DEFAULT: -fconstant-nsnumber-literals
++// DEFAULT: -fconstant-nsarray-literals
++// DEFAULT: -fconstant-nsdictionary-literals
+ 
+ // ENABLED: -fobjc-constant-literals
+ // ENABLED: -fconstant-nsnumber-literals

@@ -1,0 +1,105 @@
+Archive members are fetched once every input is loaded, in rounds: each round fetches the members for the undefined
+symbols in sorted order, and the undefined symbols the fetched members add wait for the next round, as Xcode 27.0's ld
+loads them. lld fetched a member as soon as a symbol it defines was referenced, which loaded a strong definition
+where Xcode's ld loads the member with the weak one first (swiftfin's _vlc_thread_set_name in libvlc.a; docs/formats/
+build.md "Archive members").
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -2082,6 +2082,9 @@
+                                 : NamespaceKind::flat;
+ 
+   config->undefinedSymbolTreatment = getUndefinedSymbolTreatment(args);
++
++  // Archive members are loaded once every input is, as Xcode's ld loads them.
++  symtab->deferArchiveFetches = true;
+ 
+   if (config->outputType == MH_EXECUTE)
+     config->entry = symtab->addUndefined(args.getLastArgValue(OPT_e, "_main"),
+@@ -2252,6 +2255,7 @@
+ 
+     initLLVM(); // must be run before any call to addFile()
+     createFiles(args);
++    symtab->fetchPendingArchiveMembers();
+ 
+     // Now that all dylibs have been loaded, search for those that should be
+     // re-exported.
+--- a/lld/MachO/SymbolTable.h
++++ b/lld/MachO/SymbolTable.h
+@@ -35,6 +35,8 @@
+  * pointers the "old" Symbol -- they will automatically point to the new one.
+  */
+ class SymbolTable {
++  std::vector<Symbol *> pendingArchiveFetches;
++
+ public:
+   Defined *addDefined(StringRef name, InputFile *, InputSection *,
+                       uint64_t value, uint64_t size, bool isWeakDef,
+@@ -46,6 +48,15 @@
+ 
+   Symbol *addUndefined(StringRef name, InputFile *, bool isWeakRef);
+ 
++  /// While set, an undefined symbol an archive defines waits for
++  /// fetchPendingArchiveMembers() instead of fetching the member at once.
++  bool deferArchiveFetches = false;
++
++  /// Fetches the archive members of the undefined symbols in rounds, as Xcode
++  /// 27.0's ld loads them: each round takes the undefined symbol names in
++  /// sorted order, and the members it loads leave theirs for the next round.
++  void fetchPendingArchiveMembers();
++
+   Symbol *addCommon(StringRef name, InputFile *, uint64_t size, uint32_t align,
+                     bool isPrivateExtern);
+ 
+--- a/lld/MachO/SymbolTable.cpp
++++ b/lld/MachO/SymbolTable.cpp
+@@ -232,8 +232,12 @@
+   if (wasInserted)
+     replaceSymbol<Undefined>(s, name, file, refState,
+                              /*wasBitcodeSymbol=*/false);
+-  else if (auto *lazy = dyn_cast<LazyArchive>(s))
+-    lazy->fetchArchiveMember();
++  else if (auto *lazy = dyn_cast<LazyArchive>(s)) {
++    if (deferArchiveFetches)
++      pendingArchiveFetches.push_back(s);
++    else
++      lazy->fetchArchiveMember();
++  }
+   else if (isa<LazyObject>(s))
+     extract(*s->getFile(), s->getName());
+   else if (auto *dynsym = dyn_cast<DylibSymbol>(s))
+@@ -302,7 +306,12 @@
+   if (wasInserted) {
+     replaceSymbol<LazyArchive>(s, file, sym);
+   } else if (isa<Undefined>(s)) {
+-    file->fetch(sym);
++    if (deferArchiveFetches) {
++      replaceSymbol<LazyArchive>(s, file, sym);
++      pendingArchiveFetches.push_back(s);
++    } else {
++      file->fetch(sym);
++    }
+   } else if (auto *dysym = dyn_cast<DylibSymbol>(s)) {
+     if (dysym->isWeakDef()) {
+       if (dysym->getRefState() != RefState::Unreferenced)
+@@ -314,6 +323,21 @@
+   return s;
+ }
+ 
++void SymbolTable::fetchPendingArchiveMembers() {
++  while (!pendingArchiveFetches.empty()) {
++    std::vector<Symbol *> round = std::move(pendingArchiveFetches);
++    pendingArchiveFetches.clear();
++    llvm::sort(round, [](const Symbol *a, const Symbol *b) {
++      return a->getName() < b->getName();
++    });
++    round.erase(std::unique(round.begin(), round.end()), round.end());
++    for (Symbol *s : round)
++      if (auto *lazy = dyn_cast<LazyArchive>(s))
++        lazy->fetchArchiveMember();
++  }
++  deferArchiveFetches = false;
++}
++
+ Symbol *SymbolTable::addLazyObject(StringRef name, InputFile &file) {
+   auto [s, wasInserted] = insert(name, &file);
+ 

@@ -1,0 +1,3220 @@
+Backport of llvm/llvm-project#185130, "[ObjC] Emit number, array, and dictionary literals as constants" (merged 2026-03-25), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+Adapted: the options go in clang/include/clang/Driver/Options.td (upstream has since moved the file to
+clang/include/clang/Options/), before `fno_common`.
+
+Adapted: CodeGenModule::DefaultPtrTy is UnqualPtrTy before llvm-project's rename.
+diff --git a/clang/docs/LanguageExtensions.rst b/clang/docs/LanguageExtensions.rst
+index f448a9a8..60fab9ff 100644
+--- a/clang/docs/LanguageExtensions.rst
++++ b/clang/docs/LanguageExtensions.rst
+@@ -2315,8 +2315,9 @@ programming patterns, makes programs more concise, and improves the safety of
+ container creation.  There are several feature macros associated with object
+ literals and subscripting: ``__has_feature(objc_array_literals)`` tests the
+ availability of array literals; ``__has_feature(objc_dictionary_literals)``
+-tests the availability of dictionary literals;
+-``__has_feature(objc_subscripting)`` tests the availability of object
++tests the availability of dictionary literals; ``objc_constant_literals``
++tests the availability of having number, array, and dictionary literals
++emitted at compile time; ``__has_feature(objc_subscripting)`` tests the availability of object
+ subscripting.
+ 
+ Objective-C Autosynthesis of Properties
+diff --git a/clang/docs/ReleaseNotes.rst b/clang/docs/ReleaseNotes.rst
+index 48c587f1..7e0b2662 100644
+--- a/clang/docs/ReleaseNotes.rst
++++ b/clang/docs/ReleaseNotes.rst
+@@ -335,6 +335,17 @@ C11 Feature Support
+   C99 semantics will never be implemented (it would require dynamic allocations
+   of memory which leaks, which users would not appreciate).
+ 
++Objective-C Language Changes
++-----------------------------
++
++- Clang now emits Objective-C number, array, and dictionary literals as
++  compile-time constant data structures rather than runtime ``objc_msgSend``
++  calls on targets whose runtime supports constant literal classes. The
++  feature can be disabled altogether with ``-fno-objc-constant-literals``,
++  or selectively per literal kind with ``-fno-constant-nsnumber-literals``,
++  ``-fno-constant-nsarray-literals``, and
++  ``-fno-constant-nsdictionary-literals``.
++
+ Non-comprehensive list of changes in this release
+ -------------------------------------------------
+ 
+diff --git a/clang/include/clang/AST/ExprObjC.h b/clang/include/clang/AST/ExprObjC.h
+index 5d39a708..51a871ed 100644
+--- a/clang/include/clang/AST/ExprObjC.h
++++ b/clang/include/clang/AST/ExprObjC.h
+@@ -46,20 +46,51 @@ namespace clang {
+ class ASTContext;
+ class CXXBaseSpecifier;
+ 
++/// Base class for Objective-C object literals (@"...", @42, @[], @{}).
++class ObjCObjectLiteral : public Expr {
++protected:
++  ObjCObjectLiteral(StmtClass SC, QualType T,
++                    bool ExpressibleAsConstantInitializer, ExprValueKind VK,
++                    ExprObjectKind OK)
++      : Expr(SC, T, VK, OK) {
++    setDependence(ExprDependence::None);
++    ObjCObjectLiteralBits.IsExpressibleAsConstantInitializer =
++        ExpressibleAsConstantInitializer;
++  }
++  explicit ObjCObjectLiteral(StmtClass SC, EmptyShell Empty)
++      : Expr(SC, Empty) {}
++
++public:
++  bool isGlobalAllocation() const {
++    return isExpressibleAsConstantInitializer();
++  }
++  bool isExpressibleAsConstantInitializer() const {
++    return ObjCObjectLiteralBits.IsExpressibleAsConstantInitializer;
++  }
++  void
++  setExpressibleAsConstantInitializer(bool ExpressibleAsConstantInitializer) {
++    ObjCObjectLiteralBits.IsExpressibleAsConstantInitializer =
++        ExpressibleAsConstantInitializer;
++  }
++  static bool classof(const Stmt *T) {
++    return T->getStmtClass() >= firstObjCObjectLiteralConstant &&
++           T->getStmtClass() <= lastObjCObjectLiteralConstant;
++  }
++};
++
+ /// ObjCStringLiteral, used for Objective-C string literals
+ /// i.e. @"foo".
+-class ObjCStringLiteral : public Expr {
++class ObjCStringLiteral final : public ObjCObjectLiteral {
+   Stmt *String;
+   SourceLocation AtLoc;
+ 
+ public:
+   ObjCStringLiteral(StringLiteral *SL, QualType T, SourceLocation L)
+-      : Expr(ObjCStringLiteralClass, T, VK_PRValue, OK_Ordinary), String(SL),
+-        AtLoc(L) {
+-    setDependence(ExprDependence::None);
+-  }
++      : ObjCObjectLiteral(ObjCStringLiteralClass, T, true, VK_PRValue,
++                          OK_Ordinary),
++        String(SL), AtLoc(L) {}
+   explicit ObjCStringLiteral(EmptyShell Empty)
+-      : Expr(ObjCStringLiteralClass, Empty) {}
++      : ObjCObjectLiteral(ObjCStringLiteralClass, Empty) {}
+ 
+   StringLiteral *getString() { return cast<StringLiteral>(String); }
+   const StringLiteral *getString() const { return cast<StringLiteral>(String); }
+@@ -124,7 +155,7 @@ public:
+ /// as in: @(strdup("hello world")), @(random()) or @(view.frame)
+ /// Also used for boxing non-parenthesized numeric literals;
+ /// as in: @42 or \@true (c++/objc++) or \@__objc_yes (c/objc).
+-class ObjCBoxedExpr : public Expr {
++class ObjCBoxedExpr final : public ObjCObjectLiteral {
+   Stmt *SubExpr;
+   ObjCMethodDecl *BoxingMethod;
+   SourceRange Range;
+@@ -132,13 +163,16 @@ class ObjCBoxedExpr : public Expr {
+ public:
+   friend class ASTStmtReader;
+ 
+-  ObjCBoxedExpr(Expr *E, QualType T, ObjCMethodDecl *method, SourceRange R)
+-      : Expr(ObjCBoxedExprClass, T, VK_PRValue, OK_Ordinary), SubExpr(E),
+-        BoxingMethod(method), Range(R) {
++  ObjCBoxedExpr(Expr *E, QualType T, ObjCMethodDecl *Method,
++                bool ExpressibleAsConstantInitializer, SourceRange R)
++      : ObjCObjectLiteral(ObjCBoxedExprClass, T,
++                          ExpressibleAsConstantInitializer, VK_PRValue,
++                          OK_Ordinary),
++        SubExpr(E), BoxingMethod(Method), Range(R) {
+     setDependence(computeDependence(this));
+   }
+   explicit ObjCBoxedExpr(EmptyShell Empty)
+-      : Expr(ObjCBoxedExprClass, Empty) {}
++      : ObjCObjectLiteral(ObjCBoxedExprClass, Empty) {}
+ 
+   Expr *getSubExpr() { return cast<Expr>(SubExpr); }
+   const Expr *getSubExpr() const { return cast<Expr>(SubExpr); }
+@@ -147,12 +181,6 @@ public:
+     return BoxingMethod;
+   }
+ 
+-  // Indicates whether this boxed expression can be emitted as a compile-time
+-  // constant.
+-  bool isExpressibleAsConstantInitializer() const {
+-    return !BoxingMethod && SubExpr;
+-  }
+-
+   SourceLocation getAtLoc() const { return Range.getBegin(); }
+ 
+   SourceLocation getBeginLoc() const LLVM_READONLY { return Range.getBegin(); }
+@@ -187,26 +215,28 @@ public:
+ /// ObjCArrayLiteral - used for objective-c array containers; as in:
+ /// @[@"Hello", NSApp, [NSNumber numberWithInt:42]];
+ class ObjCArrayLiteral final
+-    : public Expr,
++    : public ObjCObjectLiteral,
+       private llvm::TrailingObjects<ObjCArrayLiteral, Expr *> {
+   unsigned NumElements;
+   SourceRange Range;
+   ObjCMethodDecl *ArrayWithObjectsMethod;
+ 
+-  ObjCArrayLiteral(ArrayRef<Expr *> Elements,
+-                   QualType T, ObjCMethodDecl * Method,
+-                   SourceRange SR);
++  ObjCArrayLiteral(ArrayRef<Expr *> Elements, QualType T,
++                   ObjCMethodDecl *Method,
++                   bool ExpressibleAsConstantInitializer, SourceRange SR);
+ 
+   explicit ObjCArrayLiteral(EmptyShell Empty, unsigned NumElements)
+-      : Expr(ObjCArrayLiteralClass, Empty), NumElements(NumElements) {}
++      : ObjCObjectLiteral(ObjCArrayLiteralClass, Empty),
++        NumElements(NumElements) {}
+ 
+ public:
+   friend class ASTStmtReader;
+   friend TrailingObjects;
+ 
+   static ObjCArrayLiteral *Create(const ASTContext &C,
+-                                  ArrayRef<Expr *> Elements,
+-                                  QualType T, ObjCMethodDecl * Method,
++                                  ArrayRef<Expr *> Elements, QualType T,
++                                  ObjCMethodDecl *Method,
++                                  bool ExpressibleAsConstantInitializer,
+                                   SourceRange SR);
+ 
+   static ObjCArrayLiteral *CreateEmpty(const ASTContext &C,
+@@ -225,6 +255,11 @@ public:
+   /// getNumElements - Return number of elements of objective-c array literal.
+   unsigned getNumElements() const { return NumElements; }
+ 
++  /// elements - Return the elements of the array literal.
++  ArrayRef<const Expr *> elements() const {
++    return {getElements(), NumElements};
++  }
++
+   /// getElement - Return the Element at the specified index.
+   Expr *getElement(unsigned Index) {
+     assert((Index < NumElements) && "Arg access out of range!");
+@@ -301,7 +336,7 @@ struct ObjCDictionaryLiteral_ExpansionData {
+ /// ObjCDictionaryLiteral - AST node to represent objective-c dictionary
+ /// literals; as in:  @{@"name" : NSUserName(), @"date" : [NSDate date] };
+ class ObjCDictionaryLiteral final
+-    : public Expr,
++    : public ObjCObjectLiteral,
+       private llvm::TrailingObjects<ObjCDictionaryLiteral,
+                                     ObjCDictionaryLiteral_KeyValuePair,
+                                     ObjCDictionaryLiteral_ExpansionData> {
+@@ -325,14 +360,14 @@ class ObjCDictionaryLiteral final
+   using ExpansionData = ObjCDictionaryLiteral_ExpansionData;
+ 
+   ObjCDictionaryLiteral(ArrayRef<ObjCDictionaryElement> VK,
+-                        bool HasPackExpansions,
+-                        QualType T, ObjCMethodDecl *method,
+-                        SourceRange SR);
++                        bool HasPackExpansions, QualType T,
++                        ObjCMethodDecl *Method,
++                        bool ExpressibleAsConstantInitializer, SourceRange SR);
+ 
+   explicit ObjCDictionaryLiteral(EmptyShell Empty, unsigned NumElements,
+                                  bool HasPackExpansions)
+-      : Expr(ObjCDictionaryLiteralClass, Empty), NumElements(NumElements),
+-        HasPackExpansions(HasPackExpansions) {}
++      : ObjCObjectLiteral(ObjCDictionaryLiteralClass, Empty),
++        NumElements(NumElements), HasPackExpansions(HasPackExpansions) {}
+ 
+   size_t numTrailingObjects(OverloadToken<KeyValuePair>) const {
+     return NumElements;
+@@ -343,11 +378,10 @@ public:
+   friend class ASTStmtWriter;
+   friend TrailingObjects;
+ 
+-  static ObjCDictionaryLiteral *Create(const ASTContext &C,
+-                                       ArrayRef<ObjCDictionaryElement> VK,
+-                                       bool HasPackExpansions,
+-                                       QualType T, ObjCMethodDecl *method,
+-                                       SourceRange SR);
++  static ObjCDictionaryLiteral *
++  Create(const ASTContext &C, ArrayRef<ObjCDictionaryElement> VK,
++         bool HasPackExpansions, QualType T, ObjCMethodDecl *Method,
++         bool ExpressibleAsConstantInitializer, SourceRange SR);
+ 
+   static ObjCDictionaryLiteral *CreateEmpty(const ASTContext &C,
+                                             unsigned NumElements,
+diff --git a/clang/include/clang/AST/Stmt.h b/clang/include/clang/AST/Stmt.h
+index 22a2241c..ca7fe3f8 100644
+--- a/clang/include/clang/AST/Stmt.h
++++ b/clang/include/clang/AST/Stmt.h
+@@ -1319,6 +1319,14 @@ protected:
+ 
+   //===--- Obj-C Expression bitfields classes ---===//
+ 
++  class ObjCObjectLiteralBitfields {
++    friend class ObjCObjectLiteral;
++
++    unsigned : NumExprBits;
++
++    unsigned IsExpressibleAsConstantInitializer : 1;
++  };
++
+   class ObjCIndirectCopyRestoreExprBitfields {
+     friend class ObjCIndirectCopyRestoreExpr;
+ 
+@@ -1456,6 +1464,7 @@ protected:
+     CoawaitExprBitfields CoawaitBits;
+ 
+     // Obj-C Expressions
++    ObjCObjectLiteralBitfields ObjCObjectLiteralBits;
+     ObjCIndirectCopyRestoreExprBitfields ObjCIndirectCopyRestoreExprBits;
+     ObjCAvailabilityCheckExprBitfields ObjCAvailabilityCheckExprBits;
+ 
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index 2976378f..a77f381c 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3605,6 +3605,12 @@ def err_invalid_collection_element : Error<
+ def err_box_literal_collection : Error<
+   "%select{string|character|boolean|numeric}0 literal must be prefixed by '@' "
+   "in a collection">;
++def err_objc_literal_nonconstant_at_file_scope : Error<
++  "%select{an array|a dictionary|a numeric literal|a boxed expression|}0 "
++  "literal can only be used at file scope if %select{its contents are all "
++  "also constant literals|its contents are all also constant literals and "
++  "its keys are string literals|constant|constant}0">;
++
+ def warn_objc_literal_comparison : Warning<
+   "direct comparison of %select{an array literal|a dictionary literal|"
+   "a numeric literal|a boxed expression|}0 has undefined behavior">,
+diff --git a/clang/include/clang/Basic/Features.def b/clang/include/clang/Basic/Features.def
+index ed456bec..9158126b 100644
+--- a/clang/include/clang/Basic/Features.def
++++ b/clang/include/clang/Basic/Features.def
+@@ -203,6 +203,7 @@ FEATURE(objc_array_literals, LangOpts.ObjC)
+ FEATURE(objc_dictionary_literals, LangOpts.ObjC)
+ FEATURE(objc_boxed_expressions, LangOpts.ObjC)
+ FEATURE(objc_boxed_nsvalue_expressions, LangOpts.ObjC)
++FEATURE(objc_constant_literals, LangOpts.ObjC && LangOpts.ObjCConstantLiterals)
+ FEATURE(arc_cf_code_audited, true)
+ FEATURE(objc_bridge_id, true)
+ FEATURE(objc_bridge_id_on_typedefs, true)
+diff --git a/clang/include/clang/Basic/LangOptions.def b/clang/include/clang/Basic/LangOptions.def
+index da6c44b9..0a9ff54e 100644
+--- a/clang/include/clang/Basic/LangOptions.def
++++ b/clang/include/clang/Basic/LangOptions.def
+@@ -292,6 +292,10 @@ LANGOPT(DumpRecordLayoutsCanonical , 1, 0, Benign, "dumping the AST layout of re
+ LANGOPT(DumpRecordLayoutsComplete , 1, 0, Benign, "dumping the AST layout of all complete records")
+ LANGOPT(DumpVTableLayouts , 1, 0, Benign, "dumping the layouts of emitted vtables")
+ LANGOPT(NoConstantCFStrings , 1, 0, NotCompatible, "no constant CoreFoundation strings")
++LANGOPT(ObjCConstantLiterals , 1, 0, NotCompatible, "constant Objective-C literals")
++LANGOPT(ConstantNSNumberLiterals , 1, 0, NotCompatible, "constant number literals")
++LANGOPT(ConstantNSArrayLiterals , 1, 0, NotCompatible, "constant array literals")
++LANGOPT(ConstantNSDictionaryLiterals , 1, 0, NotCompatible, "constant dictionary literals")
+ LANGOPT(InlineVisibilityHidden , 1, 0, Benign, "hidden visibility for inline C++ methods")
+ ENUM_LANGOPT(DefaultVisibilityExportMapping, DefaultVisiblityExportMapping, 2, DefaultVisiblityExportMapping::None, Benign, "controls mapping of default visibility to dllexport")
+ LANGOPT(IgnoreXCOFFVisibility, 1, 0, Benign, "All the visibility attributes that are specified in the source code are ignored in aix XCOFF.")
+diff --git a/clang/include/clang/Basic/LangOptions.h b/clang/include/clang/Basic/LangOptions.h
+index c4f3c17a..1fa7aa21 100644
+--- a/clang/include/clang/Basic/LangOptions.h
++++ b/clang/include/clang/Basic/LangOptions.h
+@@ -588,6 +588,11 @@ public:
+   CoreFoundationABI CFRuntime = CoreFoundationABI::Unspecified;
+ 
+   std::string ObjCConstantStringClass;
++  std::string ObjCConstantArrayClass;
++  std::string ObjCConstantDictionaryClass;
++  std::string ObjCConstantIntegerNumberClass;
++  std::string ObjCConstantFloatNumberClass;
++  std::string ObjCConstantDoubleNumberClass;
+ 
+   /// The name of the handler function to be called when -ftrapv is
+   /// specified.
+diff --git a/clang/include/clang/Basic/ObjCRuntime.h b/clang/include/clang/Basic/ObjCRuntime.h
+index df42b438..bfe84476 100644
+--- a/clang/include/clang/Basic/ObjCRuntime.h
++++ b/clang/include/clang/Basic/ObjCRuntime.h
+@@ -295,6 +295,24 @@ public:
+     }
+   }
+ 
++  /// Are Foundation backed constant literal classes supported?
++  bool hasConstantLiteralClasses() const {
++    switch (getKind()) {
++    case MacOSX:
++      return getVersion() >= VersionTuple(11);
++    case iOS:
++      return getVersion() >= VersionTuple(14);
++    case WatchOS:
++      return getVersion() >= VersionTuple(7);
++    default:
++      return false;
++    }
++  }
++  bool hasConstantCFBooleans() const { return hasConstantLiteralClasses(); }
++  bool hasConstantEmptyCollections() const {
++    return hasConstantLiteralClasses();
++  }
++
+   /// Does this runtime allow the use of __weak?
+   bool allowsWeak() const {
+     return hasNativeWeak();
+diff --git a/clang/include/clang/Basic/StmtNodes.td b/clang/include/clang/Basic/StmtNodes.td
+index 359a9671..8d4e0f7c 100644
+--- a/clang/include/clang/Basic/StmtNodes.td
++++ b/clang/include/clang/Basic/StmtNodes.td
+@@ -175,10 +175,11 @@ def ConceptSpecializationExpr : StmtNode<Expr>;
+ def RequiresExpr : StmtNode<Expr>;
+ 
+ // Obj-C Expressions.
+-def ObjCStringLiteral : StmtNode<Expr>;
+-def ObjCBoxedExpr : StmtNode<Expr>;
+-def ObjCArrayLiteral : StmtNode<Expr>;
+-def ObjCDictionaryLiteral : StmtNode<Expr>;
++def ObjCObjectLiteral : StmtNode<Expr, 1>;
++def ObjCStringLiteral : StmtNode<ObjCObjectLiteral>;
++def ObjCBoxedExpr : StmtNode<ObjCObjectLiteral>;
++def ObjCArrayLiteral : StmtNode<ObjCObjectLiteral>;
++def ObjCDictionaryLiteral : StmtNode<ObjCObjectLiteral>;
+ def ObjCEncodeExpr : StmtNode<Expr>;
+ def ObjCMessageExpr : StmtNode<Expr>;
+ def ObjCSelectorExpr : StmtNode<Expr>;
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index 5b75a252..f4be813a 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -2215,6 +2215,26 @@ defm constant_cfstrings : BoolFOption<"constant-cfstrings",
+           "Disable creation of CodeFoundation-type constant strings">,
+   PosFlag<SetFalse>>;
+ def fconstant_string_class_EQ : Joined<["-"], "fconstant-string-class=">, Group<f_Group>;
++defm objc_constant_literals : BoolFOption<"objc-constant-literals",
++  LangOpts<"ObjCConstantLiterals">, DefaultFalse,
++  PosFlag<SetTrue, [], [CC1Option], "Enable">,
++  NegFlag<SetFalse, [], [], "Disable">,
++  BothFlags<[], [ClangOption], " compile-time constant ObjC literals">>;
++def fconstant_array_class_EQ : Joined<["-"], "fconstant-array-class=">, Group<f_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  MarshallingInfoString<LangOpts<"ObjCConstantArrayClass">>;
++def fconstant_dictionary_class_EQ : Joined<["-"], "fconstant-dictionary-class=">, Group<f_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  MarshallingInfoString<LangOpts<"ObjCConstantDictionaryClass">>;
++def fconstant_integer_number_class_EQ : Joined<["-"], "fconstant-integer-number-class=">, Group<f_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  MarshallingInfoString<LangOpts<"ObjCConstantIntegerNumberClass">>;
++def fconstant_float_number_class_EQ : Joined<["-"], "fconstant-float-number-class=">, Group<f_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  MarshallingInfoString<LangOpts<"ObjCConstantFloatNumberClass">>;
++def fconstant_double_number_class_EQ : Joined<["-"], "fconstant-double-number-class=">, Group<f_Group>,
++  Visibility<[ClangOption, CC1Option]>,
++  MarshallingInfoString<LangOpts<"ObjCConstantDoubleNumberClass">>;
+ def fconstexpr_depth_EQ : Joined<["-"], "fconstexpr-depth=">, Group<f_Group>,
+   Visibility<[ClangOption, CC1Option]>,
+   HelpText<"Set the maximum depth of recursive constexpr function calls">,
+@@ -3727,6 +3747,21 @@ def ffeature_availability_EQ : Joined<["-"], "ffeature-availability=">, Group<f_
+   Visibility<[CC1Option]>,
+   HelpText<"feature availability">,
+   MarshallingInfoStringVector<LangOpts<"FeatureAvailability">>;
++defm constant_nsnumber_literals : BoolFOption<"constant-nsnumber-literals",
++  LangOpts<"ConstantNSNumberLiterals">, DefaultFalse,
++  PosFlag<SetTrue, [], [CC1Option], "Enable">,
++  NegFlag<SetFalse, [], [], "Disable">,
++  BothFlags<[], [ClangOption], " compile-time constant NSNumber literals">>;
++defm constant_nsarray_literals : BoolFOption<"constant-nsarray-literals",
++  LangOpts<"ConstantNSArrayLiterals">, DefaultFalse,
++  PosFlag<SetTrue, [], [CC1Option], "Enable">,
++  NegFlag<SetFalse, [], [], "Disable">,
++  BothFlags<[], [ClangOption], " compile-time constant NSArray literals">>;
++defm constant_nsdictionary_literals : BoolFOption<"constant-nsdictionary-literals",
++  LangOpts<"ConstantNSDictionaryLiterals">, DefaultFalse,
++  PosFlag<SetTrue, [], [CC1Option], "Enable">,
++  NegFlag<SetFalse, [], [], "Disable">,
++  BothFlags<[], [ClangOption], " compile-time constant NSDictionary literals">>;
+ def fno_common : Flag<["-"], "fno-common">, Group<f_Group>,
+   Visibility<[ClangOption, CC1Option]>,
+     HelpText<"Compile common globals like normal definitions">;
+diff --git a/clang/lib/AST/Expr.cpp b/clang/lib/AST/Expr.cpp
+index 9683eede..528a2508 100644
+--- a/clang/lib/AST/Expr.cpp
++++ b/clang/lib/AST/Expr.cpp
+@@ -3872,6 +3872,24 @@ bool Expr::isConstantInitializer(ASTContext &Ctx, bool IsForRef,
+       return Exp->getSubExpr()->isConstantInitializer(Ctx, false, Culprit);
+     break;
+   }
++  case ObjCBoxedExprClass: {
++    const ObjCBoxedExpr *BE = cast<ObjCBoxedExpr>(this);
++    if (Culprit)
++      *Culprit = this;
++    return BE->isExpressibleAsConstantInitializer();
++  }
++  case ObjCArrayLiteralClass: {
++    const ObjCArrayLiteral *ALE = cast<ObjCArrayLiteral>(this);
++    if (Culprit)
++      *Culprit = this;
++    return ALE->isExpressibleAsConstantInitializer();
++  }
++  case ObjCDictionaryLiteralClass: {
++    const ObjCDictionaryLiteral *DLE = cast<ObjCDictionaryLiteral>(this);
++    if (Culprit)
++      *Culprit = this;
++    return DLE->isExpressibleAsConstantInitializer();
++  }
+   case PackIndexingExprClass: {
+     return cast<PackIndexingExpr>(this)
+         ->getSelectedExpr()
+diff --git a/clang/lib/AST/ExprConstant.cpp b/clang/lib/AST/ExprConstant.cpp
+index 790c7bf1..79e9b2b0 100644
+--- a/clang/lib/AST/ExprConstant.cpp
++++ b/clang/lib/AST/ExprConstant.cpp
+@@ -2310,7 +2310,9 @@ static bool IsGlobalLValue(APValue::LValueBase B) {
+   case Expr::ObjCEncodeExprClass:
+     return true;
+   case Expr::ObjCBoxedExprClass:
+-    return cast<ObjCBoxedExpr>(E)->isExpressibleAsConstantInitializer();
++  case Expr::ObjCArrayLiteralClass:
++  case Expr::ObjCDictionaryLiteralClass:
++    return cast<ObjCObjectLiteral>(E)->isExpressibleAsConstantInitializer();
+   case Expr::CallExprClass:
+     return IsOpaqueConstantCall(cast<CallExpr>(E));
+   // For GCC compatibility, &&label has static storage duration.
+@@ -9749,6 +9751,12 @@ public:
+       EvaluateIgnoredValue(Info, E->getSubExpr());
+     return Error(E);
+   }
++  bool VisitObjCArrayLiteral(const ObjCArrayLiteral *E) {
++    return E->isExpressibleAsConstantInitializer() ? Success(E) : Error(E);
++  }
++  bool VisitObjCDictionaryLiteral(const ObjCDictionaryLiteral *E) {
++    return E->isExpressibleAsConstantInitializer() ? Success(E) : Error(E);
++  }
+   bool VisitAddrLabelExpr(const AddrLabelExpr *E)
+       { return Success(E); }
+   bool VisitCallExpr(const CallExpr *E);
+diff --git a/clang/lib/AST/ExprObjC.cpp b/clang/lib/AST/ExprObjC.cpp
+index 8e026646..abeb6c31 100644
+--- a/clang/lib/AST/ExprObjC.cpp
++++ b/clang/lib/AST/ExprObjC.cpp
+@@ -24,8 +24,12 @@
+ using namespace clang;
+ 
+ ObjCArrayLiteral::ObjCArrayLiteral(ArrayRef<Expr *> Elements, QualType T,
+-                                   ObjCMethodDecl *Method, SourceRange SR)
+-    : Expr(ObjCArrayLiteralClass, T, VK_PRValue, OK_Ordinary),
++                                   ObjCMethodDecl *Method,
++                                   bool ExpressibleAsConstantInitializer,
++                                   SourceRange SR)
++    : ObjCObjectLiteral(ObjCArrayLiteralClass, T,
++                        ExpressibleAsConstantInitializer, VK_PRValue,
++                        OK_Ordinary),
+       NumElements(Elements.size()), Range(SR), ArrayWithObjectsMethod(Method) {
+   Expr **SaveElements = getElements();
+   for (unsigned I = 0, N = Elements.size(); I != N; ++I)
+@@ -34,27 +38,33 @@ ObjCArrayLiteral::ObjCArrayLiteral(ArrayRef<Expr *> Elements, QualType T,
+   setDependence(computeDependence(this));
+ }
+ 
+-ObjCArrayLiteral *ObjCArrayLiteral::Create(const ASTContext &C,
+-                                           ArrayRef<Expr *> Elements,
+-                                           QualType T, ObjCMethodDecl *Method,
+-                                           SourceRange SR) {
++ObjCArrayLiteral *
++ObjCArrayLiteral::Create(const ASTContext &C, ArrayRef<Expr *> Elements,
++                         QualType T, ObjCMethodDecl *Method,
++                         bool ExpressibleAsConstantInitializer,
++                         SourceRange SR) {
+   void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(Elements.size()));
+-  return new (Mem) ObjCArrayLiteral(Elements, T, Method, SR);
++  return new (Mem) ObjCArrayLiteral(Elements, T, Method,
++                                    ExpressibleAsConstantInitializer, SR);
+ }
+ 
+ ObjCArrayLiteral *ObjCArrayLiteral::CreateEmpty(const ASTContext &C,
+                                                 unsigned NumElements) {
+   void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(NumElements));
+-  return new (Mem) ObjCArrayLiteral(EmptyShell(), NumElements);
++  auto *ALE = new (Mem) ObjCArrayLiteral(EmptyShell(), NumElements);
++  ALE->setExpressibleAsConstantInitializer(NumElements == 0);
++  return ALE;
+ }
+ 
+-ObjCDictionaryLiteral::ObjCDictionaryLiteral(ArrayRef<ObjCDictionaryElement> VK,
+-                                             bool HasPackExpansions, QualType T,
+-                                             ObjCMethodDecl *method,
+-                                             SourceRange SR)
+-    : Expr(ObjCDictionaryLiteralClass, T, VK_PRValue, OK_Ordinary),
++ObjCDictionaryLiteral::ObjCDictionaryLiteral(
++    ArrayRef<ObjCDictionaryElement> VK, bool HasPackExpansions, QualType T,
++    ObjCMethodDecl *Method, bool ExpressibleAsConstantInitializer,
++    SourceRange SR)
++    : ObjCObjectLiteral(ObjCDictionaryLiteralClass, T,
++                        ExpressibleAsConstantInitializer, VK_PRValue,
++                        OK_Ordinary),
+       NumElements(VK.size()), HasPackExpansions(HasPackExpansions), Range(SR),
+-      DictWithObjectsMethod(method) {
++      DictWithObjectsMethod(Method) {
+   KeyValuePair *KeyValues = getTrailingObjects<KeyValuePair>();
+   ExpansionData *Expansions =
+       HasPackExpansions ? getTrailingObjects<ExpansionData>() : nullptr;
+@@ -72,14 +82,14 @@ ObjCDictionaryLiteral::ObjCDictionaryLiteral(ArrayRef<ObjCDictionaryElement> VK,
+   setDependence(computeDependence(this));
+ }
+ 
+-ObjCDictionaryLiteral *
+-ObjCDictionaryLiteral::Create(const ASTContext &C,
+-                              ArrayRef<ObjCDictionaryElement> VK,
+-                              bool HasPackExpansions, QualType T,
+-                              ObjCMethodDecl *method, SourceRange SR) {
++ObjCDictionaryLiteral *ObjCDictionaryLiteral::Create(
++    const ASTContext &C, ArrayRef<ObjCDictionaryElement> VK,
++    bool HasPackExpansions, QualType T, ObjCMethodDecl *Method,
++    bool ExpressibleAsConstantInitializer, SourceRange SR) {
+   void *Mem = C.Allocate(totalSizeToAlloc<KeyValuePair, ExpansionData>(
+       VK.size(), HasPackExpansions ? VK.size() : 0));
+-  return new (Mem) ObjCDictionaryLiteral(VK, HasPackExpansions, T, method, SR);
++  return new (Mem) ObjCDictionaryLiteral(VK, HasPackExpansions, T, Method,
++                                         ExpressibleAsConstantInitializer, SR);
+ }
+ 
+ ObjCDictionaryLiteral *
+@@ -87,8 +97,10 @@ ObjCDictionaryLiteral::CreateEmpty(const ASTContext &C, unsigned NumElements,
+                                    bool HasPackExpansions) {
+   void *Mem = C.Allocate(totalSizeToAlloc<KeyValuePair, ExpansionData>(
+       NumElements, HasPackExpansions ? NumElements : 0));
+-  return new (Mem)
++  auto *DLE = new (Mem)
+       ObjCDictionaryLiteral(EmptyShell(), NumElements, HasPackExpansions);
++  DLE->setExpressibleAsConstantInitializer(NumElements == 0);
++  return DLE;
+ }
+ 
+ QualType ObjCPropertyRefExpr::getReceiverType(const ASTContext &ctx) const {
+diff --git a/clang/lib/AST/StmtProfile.cpp b/clang/lib/AST/StmtProfile.cpp
+index a7399073..f63e728e 100644
+--- a/clang/lib/AST/StmtProfile.cpp
++++ b/clang/lib/AST/StmtProfile.cpp
+@@ -2375,20 +2375,24 @@ void StmtProfiler::VisitEmbedExpr(const EmbedExpr *E) { VisitExpr(E); }
+ 
+ void StmtProfiler::VisitRecoveryExpr(const RecoveryExpr *E) { VisitExpr(E); }
+ 
++void StmtProfiler::VisitObjCObjectLiteral(const ObjCObjectLiteral *E) {
++  VisitExpr(E);
++}
++
+ void StmtProfiler::VisitObjCStringLiteral(const ObjCStringLiteral *S) {
+-  VisitExpr(S);
++  VisitObjCObjectLiteral(S);
+ }
+ 
+ void StmtProfiler::VisitObjCBoxedExpr(const ObjCBoxedExpr *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+ }
+ 
+ void StmtProfiler::VisitObjCArrayLiteral(const ObjCArrayLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+ }
+ 
+ void StmtProfiler::VisitObjCDictionaryLiteral(const ObjCDictionaryLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+ }
+ 
+ void StmtProfiler::VisitObjCEncodeExpr(const ObjCEncodeExpr *S) {
+diff --git a/clang/lib/CodeGen/CGExprConstant.cpp b/clang/lib/CodeGen/CGExprConstant.cpp
+index 00f57975..b47d7b05 100644
+--- a/clang/lib/CodeGen/CGExprConstant.cpp
++++ b/clang/lib/CodeGen/CGExprConstant.cpp
+@@ -21,6 +21,7 @@
+ #include "clang/AST/APValue.h"
+ #include "clang/AST/ASTContext.h"
+ #include "clang/AST/Attr.h"
++#include "clang/AST/NSAPI.h"
+ #include "clang/AST/RecordLayout.h"
+ #include "clang/AST/StmtVisitor.h"
+ #include "clang/Basic/Builtins.h"
+@@ -2196,6 +2197,9 @@ private:
+   ConstantLValue VisitObjCBoxedExpr(const ObjCBoxedExpr *E);
+   ConstantLValue VisitObjCEncodeExpr(const ObjCEncodeExpr *E);
+   ConstantLValue VisitObjCStringLiteral(const ObjCStringLiteral *E);
++  llvm::Constant *VisitObjCCollectionElement(const Expr *E);
++  ConstantLValue VisitObjCArrayLiteral(const ObjCArrayLiteral *E);
++  ConstantLValue VisitObjCDictionaryLiteral(const ObjCDictionaryLiteral *E);
+   ConstantLValue VisitPredefinedExpr(const PredefinedExpr *E);
+   ConstantLValue VisitAddrLabelExpr(const AddrLabelExpr *E);
+   ConstantLValue VisitCallExpr(const CallExpr *E);
+@@ -2555,10 +2559,91 @@ ConstantLValueEmitter::VisitObjCStringLiteral(const ObjCStringLiteral *E) {
+ 
+ ConstantLValue
+ ConstantLValueEmitter::VisitObjCBoxedExpr(const ObjCBoxedExpr *E) {
+-  assert(E->isExpressibleAsConstantInitializer() &&
+-         "this boxed expression can't be emitted as a compile-time constant");
+-  const auto *SL = cast<StringLiteral>(E->getSubExpr()->IgnoreParenCasts());
+-  return emitConstantObjCStringLiteral(SL, E->getType(), CGM);
++  ASTContext &Context = CGM.getContext();
++  CGObjCRuntime &Runtime = CGM.getObjCRuntime();
++  const Expr *SubExpr = E->getSubExpr();
++  const QualType &Ty = SubExpr->IgnoreParens()->getType();
++
++  assert(SubExpr->isEvaluatable(Context) &&
++         "Non const NSNumber is being emitted as a constant");
++
++  if (const auto *SL = dyn_cast<StringLiteral>(SubExpr->IgnoreParenCasts()))
++    return emitConstantObjCStringLiteral(SL, E->getType(), CGM);
++
++  // Note `@YES` `@NO` need to be handled explicitly
++  // to meet existing plist encoding / decoding expectations
++  const bool IsBoolType =
++      (Ty->isBooleanType() || NSAPI(Context).isObjCBOOLType(Ty));
++  bool BoolValue = false;
++  if (IsBoolType && SubExpr->EvaluateAsBooleanCondition(BoolValue, Context)) {
++    ConstantAddress C = Runtime.GenerateConstantNumber(BoolValue, Ty);
++    return C.withElementType(CGM.getTypes().ConvertTypeForMem(E->getType()));
++  }
++
++  Expr::EvalResult IntResult{};
++  if (SubExpr->EvaluateAsInt(IntResult, Context)) {
++    ConstantAddress C =
++        Runtime.GenerateConstantNumber(IntResult.Val.getInt(), Ty);
++    return C.withElementType(CGM.getTypes().ConvertTypeForMem(E->getType()));
++  }
++
++  llvm::APFloat FloatValue(0.0);
++  if (SubExpr->EvaluateAsFloat(FloatValue, Context)) {
++    ConstantAddress C = Runtime.GenerateConstantNumber(FloatValue, Ty);
++    return C.withElementType(CGM.getTypes().ConvertTypeForMem(E->getType()));
++  }
++
++  llvm_unreachable("SubExpr is expected to be evaluated as a numeric type");
++}
++
++llvm::Constant *
++ConstantLValueEmitter::VisitObjCCollectionElement(const Expr *E) {
++  auto CE = cast<CastExpr>(E);
++  const Expr *Elm = CE->getSubExpr();
++  QualType DestTy = CE->getType();
++
++  assert(CE->getCastKind() == CK_BitCast &&
++         "Expected a CK_BitCast type for valid items in constant objc "
++         "collection literals");
++
++  llvm::Type *DstTy = CGM.getTypes().ConvertType(DestTy);
++  ConstantLValue LV = Visit(Elm);
++  llvm::Constant *ConstVal = cast<llvm::Constant>(LV.Value);
++  llvm::Constant *Val = llvm::ConstantExpr::getBitCast(ConstVal, DstTy);
++  return Val;
++}
++
++ConstantLValue
++ConstantLValueEmitter::VisitObjCArrayLiteral(const ObjCArrayLiteral *E) {
++  SmallVector<llvm::Constant *, 16> ObjectExpressions;
++  uint64_t NumElements = E->getNumElements();
++  ObjectExpressions.reserve(NumElements);
++
++  for (uint64_t i = 0; i < NumElements; i++) {
++    llvm::Constant *Val = VisitObjCCollectionElement(E->getElement(i));
++    ObjectExpressions.push_back(Val);
++  }
++  ConstantAddress C =
++      CGM.getObjCRuntime().GenerateConstantArray(ObjectExpressions);
++  return C.withElementType(CGM.getTypes().ConvertTypeForMem(E->getType()));
++}
++
++ConstantLValue ConstantLValueEmitter::VisitObjCDictionaryLiteral(
++    const ObjCDictionaryLiteral *E) {
++  SmallVector<std::pair<llvm::Constant *, llvm::Constant *>, 16> KeysAndObjects;
++  uint64_t NumElements = E->getNumElements();
++  KeysAndObjects.reserve(NumElements);
++
++  for (uint64_t i = 0; i < NumElements; i++) {
++    llvm::Constant *Key =
++        VisitObjCCollectionElement(E->getKeyValueElement(i).Key);
++    llvm::Constant *Val =
++        VisitObjCCollectionElement(E->getKeyValueElement(i).Value);
++    KeysAndObjects.push_back({Key, Val});
++  }
++  ConstantAddress C =
++      CGM.getObjCRuntime().GenerateConstantDictionary(E, KeysAndObjects);
++  return C.withElementType(CGM.getTypes().ConvertTypeForMem(E->getType()));
+ }
+ 
+ ConstantLValue
+diff --git a/clang/lib/CodeGen/CGObjC.cpp b/clang/lib/CodeGen/CGObjC.cpp
+index 81f8583b..ce3e6acc 100644
+--- a/clang/lib/CodeGen/CGObjC.cpp
++++ b/clang/lib/CodeGen/CGObjC.cpp
+@@ -20,6 +20,7 @@
+ #include "clang/AST/ASTContext.h"
+ #include "clang/AST/Attr.h"
+ #include "clang/AST/DeclObjC.h"
++#include "clang/AST/NSAPI.h"
+ #include "clang/AST/StmtObjC.h"
+ #include "clang/Basic/Diagnostic.h"
+ #include "clang/CodeGen/CGFunctionInfo.h"
+@@ -62,6 +63,14 @@ llvm::Value *CodeGenFunction::EmitObjCStringLiteral(const ObjCStringLiteral *E)
+ ///
+ llvm::Value *
+ CodeGenFunction::EmitObjCBoxedExpr(const ObjCBoxedExpr *E) {
++  // If decided in Sema constant initializers are supported by the runtime, not
++  // disabled, and the contents can be emitted as a constant NSNumber subclass;
++  // use the ConstEmitter
++  if (E->isExpressibleAsConstantInitializer()) {
++    ConstantEmitter ConstEmitter(CGM);
++    return ConstEmitter.tryEmitAbstract(E, E->getType());
++  }
++
+   // Generate the correct selector for this literal's concrete type.
+   // Get the method.
+   const ObjCMethodDecl *BoxingMethod = E->getBoxingMethod();
+@@ -128,9 +137,18 @@ llvm::Value *CodeGenFunction::EmitObjCCollectionLiteral(const Expr *E,
+   if (!ALE)
+     DLE = cast<ObjCDictionaryLiteral>(E);
+ 
+-  // Optimize empty collections by referencing constants, when available.
+-  uint64_t NumElements =
+-    ALE ? ALE->getNumElements() : DLE->getNumElements();
++  const bool CanBeExpressedAsConstant =
++      ALE ? ALE->isExpressibleAsConstantInitializer()
++          : DLE->isExpressibleAsConstantInitializer();
++  if (CanBeExpressedAsConstant) {
++    ConstantEmitter ConstEmitter(CGM);
++    return ConstEmitter.tryEmitAbstract(E, E->getType());
++  }
++
++  // Optimize empty collections by referencing constants, when available and
++  // constant initializers aren't supported
++  uint64_t NumElements = ALE ? ALE->getNumElements() : DLE->getNumElements();
++
+   if (NumElements == 0 && CGM.getLangOpts().ObjCRuntime.hasEmptyCollections()) {
+     StringRef ConstantName = ALE ? "__NSArray0__" : "__NSDictionary0__";
+     QualType IdTy(CGM.getContext().getObjCIdType());
+diff --git a/clang/lib/CodeGen/CGObjCGNU.cpp b/clang/lib/CodeGen/CGObjCGNU.cpp
+index d9685e4a..bd217ca0 100644
+--- a/clang/lib/CodeGen/CGObjCGNU.cpp
++++ b/clang/lib/CodeGen/CGObjCGNU.cpp
+@@ -563,7 +563,20 @@ public:
+   CGObjCGNU(CodeGenModule &cgm, unsigned runtimeABIVersion,
+       unsigned protocolClassVersion, unsigned classABI=1);
+ 
+-  ConstantAddress GenerateConstantString(const StringLiteral *) override;
++  ConstantAddress GenerateConstantString(const StringLiteral *SL) override;
++
++  ConstantAddress GenerateConstantNumber(const bool Value,
++                                         const QualType &Ty) override;
++  ConstantAddress GenerateConstantNumber(const llvm::APSInt &Value,
++                                         const QualType &Ty) override;
++  ConstantAddress GenerateConstantNumber(const llvm::APFloat &Value,
++                                         const QualType &Ty) override;
++  ConstantAddress
++  GenerateConstantArray(const ArrayRef<llvm::Constant *> &Objects) override;
++  ConstantAddress GenerateConstantDictionary(
++      const ObjCDictionaryLiteral *E,
++      ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects)
++      override;
+ 
+   RValue
+   GenerateMessageSend(CodeGenFunction &CGF, ReturnValueSlot Return,
+@@ -2724,6 +2737,37 @@ ConstantAddress CGObjCGNU::GenerateConstantString(const StringLiteral *SL) {
+   return ConstantAddress(ObjCStr, Int8Ty, Align);
+ }
+ 
++ConstantAddress CGObjCGNU::GenerateConstantNumber(const bool Value,
++                                                  const QualType &Ty) {
++  llvm_unreachable("Method should not be called, no GNU runtimes provide these "
++                   "or support ObjC number literal constant initializers");
++}
++
++ConstantAddress CGObjCGNU::GenerateConstantNumber(const llvm::APSInt &Value,
++                                                  const QualType &Ty) {
++  llvm_unreachable("Method should not be called, no GNU runtimes provide these "
++                   "or support ObjC number literal constant initializers");
++}
++
++ConstantAddress CGObjCGNU::GenerateConstantNumber(const llvm::APFloat &Value,
++                                                  const QualType &Ty) {
++  llvm_unreachable("Method should not be called, no GNU runtimes provide these "
++                   "or support ObjC number literal constant initializers");
++}
++
++ConstantAddress
++CGObjCGNU::GenerateConstantArray(const ArrayRef<llvm::Constant *> &Objects) {
++  llvm_unreachable("Method should not be called, no GNU runtimes provide these "
++                   "or support ObjC array literal constant initializers");
++}
++
++ConstantAddress CGObjCGNU::GenerateConstantDictionary(
++    const ObjCDictionaryLiteral *E,
++    ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects) {
++  llvm_unreachable("Method should not be called, no GNU runtimes provide these "
++                   "or support ObjC dictionary literal constant initializers");
++}
++
+ ///Generates a message send where the super is the receiver.  This is a message
+ ///send to self with special delivery semantics indicating which class's method
+ ///should be called.
+diff --git a/clang/lib/CodeGen/CGObjCMac.cpp b/clang/lib/CodeGen/CGObjCMac.cpp
+index 70f64526..8adf676c 100644
+--- a/clang/lib/CodeGen/CGObjCMac.cpp
++++ b/clang/lib/CodeGen/CGObjCMac.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include "CGBlocks.h"
+ #include "CGCleanup.h"
++#include "CGObjCMacConstantLiteralUtil.h"
+ #include "CGObjCRuntime.h"
+ #include "CGRecordLayout.h"
+ #include "CodeGenFunction.h"
+@@ -39,6 +40,7 @@
+ #include "llvm/Support/ScopedPrinter.h"
+ #include "llvm/Support/raw_ostream.h"
+ #include <cstdio>
++#include <numeric>
+ 
+ using namespace clang;
+ using namespace CodeGen;
+@@ -733,7 +735,10 @@ enum class ObjCLabelType {
+   LayoutBitMap,
+ };
+ 
++using namespace CGObjCMacConstantLiteralUtil;
++
+ class CGObjCCommonMac : public CodeGen::CGObjCRuntime {
++
+ public:
+   class SKIP_SCAN {
+   public:
+@@ -892,12 +897,36 @@ protected:
+   /// Cached reference to the class for constant strings. This value has type
+   /// int * but is actually an Obj-C class pointer.
+   llvm::WeakTrackingVH ConstantStringClassRef;
++  llvm::WeakTrackingVH ConstantArrayClassRef;
++  llvm::WeakTrackingVH ConstantDictionaryClassRef;
++
++  llvm::WeakTrackingVH ConstantIntegerNumberClassRef;
++  llvm::WeakTrackingVH ConstantFloatNumberClassRef;
++  llvm::WeakTrackingVH ConstantDoubleNumberClassRef;
+ 
+   /// The LLVM type corresponding to NSConstantString.
+   llvm::StructType *NSConstantStringType = nullptr;
++  llvm::StructType *NSConstantArrayType = nullptr;
++  llvm::StructType *NSConstantDictionaryType = nullptr;
++
++  llvm::StructType *NSConstantIntegerNumberType = nullptr;
++  llvm::StructType *NSConstantFloatNumberType = nullptr;
++  llvm::StructType *NSConstantDoubleNumberType = nullptr;
+ 
+   llvm::StringMap<llvm::GlobalVariable *> NSConstantStringMap;
+ 
++  /// Uniqued CF boolean singletons
++  llvm::GlobalVariable *DefinedCFBooleanTrue = nullptr;
++  llvm::GlobalVariable *DefinedCFBooleanFalse = nullptr;
++
++  /// Uniqued `NSNumber`s
++  llvm::DenseMap<NSConstantNumberMapInfo, llvm::GlobalVariable *>
++      NSConstantNumberMap;
++
++  /// Cached empty collection singletons
++  llvm::GlobalVariable *DefinedEmptyNSDictionary = nullptr;
++  llvm::GlobalVariable *DefinedEmptyNSArray = nullptr;
++
+   /// GetMethodVarName - Return a unique constant for the given
+   /// selector's name. The return value has type char *.
+   llvm::Constant *GetMethodVarName(Selector Sel);
+@@ -999,6 +1028,38 @@ protected:
+ 
+   std::string GetSectionName(StringRef Section, StringRef MachOAttributes);
+ 
++  /// Returns the section name to use for NSNumber integer literals.
++  static constexpr llvm::StringLiteral GetNSConstantIntegerNumberSectionName() {
++    return "__DATA,__objc_intobj,regular,no_dead_strip";
++  }
++
++  /// Returns the section name to use for NSNumber float literals.
++  static constexpr llvm::StringLiteral GetNSConstantFloatNumberSectionName() {
++    return "__DATA,__objc_floatobj,regular,no_dead_strip";
++  }
++
++  /// Returns the section name to use for NSNumber double literals.
++  static constexpr llvm::StringLiteral GetNSConstantDoubleNumberSectionName() {
++    return "__DATA,__objc_doubleobj,regular,no_dead_strip";
++  }
++
++  /// Returns the section name used for the internal ID arrays
++  /// used by `NSConstantArray` and `NSConstantDictionary`.
++  static constexpr llvm::StringLiteral
++  GetNSConstantCollectionStorageSectionName() {
++    return "__DATA,__objc_arraydata,regular,no_dead_strip";
++  }
++
++  /// Returns the section name to use for NSArray literals.
++  static constexpr llvm::StringLiteral GetNSConstantArraySectionName() {
++    return "__DATA,__objc_arrayobj,regular,no_dead_strip";
++  }
++
++  /// Returns the section name to use for NSDictionary literals.
++  static constexpr llvm::StringLiteral GetNSConstantDictionarySectionName() {
++    return "__DATA,__objc_dictobj,regular,no_dead_strip";
++  }
++
+ public:
+   /// CreateMetadataVar - Create a global variable with internal
+   /// linkage for use by the Objective-C runtime.
+@@ -1047,8 +1108,93 @@ public:
+ 
+   bool isNonFragileABI() const { return ObjCABI == 2; }
+ 
++  /// Emits, and caches, a reference to the `__kCFBooleanTrue` singleton.
++  llvm::GlobalVariable *EmitConstantCFBooleanTrue() {
++    if (DefinedCFBooleanTrue)
++      return DefinedCFBooleanTrue;
++
++    assert(CGM.getLangOpts().ObjCRuntime.hasConstantCFBooleans() &&
++           "The current ABI doesn't support the constant CFBooleanTrue "
++           "singleton!");
++
++    DefinedCFBooleanTrue = cast<llvm::GlobalVariable>(
++        CGM.CreateRuntimeVariable(CGM.UnqualPtrTy, "__kCFBooleanTrue"));
++    DefinedCFBooleanTrue->addAttribute("objc_arc_inert");
++    return DefinedCFBooleanTrue;
++  }
++
++  /// Emits, and caches, a reference to the `__kCFBooleanFalse` singleton.
++  llvm::GlobalVariable *EmitConstantCFBooleanFalse() {
++    if (DefinedCFBooleanFalse)
++      return DefinedCFBooleanFalse;
++
++    assert(CGM.getLangOpts().ObjCRuntime.hasConstantCFBooleans() &&
++           "The current ABI doesn't support the constant CFBooleanFalse "
++           "singleton!");
++
++    DefinedCFBooleanFalse = cast<llvm::GlobalVariable>(
++        CGM.CreateRuntimeVariable(CGM.UnqualPtrTy, "__kCFBooleanFalse"));
++    DefinedCFBooleanFalse->addAttribute("objc_arc_inert");
++    return DefinedCFBooleanFalse;
++  }
++
++  /// Emits, and caches, a reference to the empty dictionary singleton.
++  llvm::GlobalVariable *EmitEmptyConstantNSDictionary() {
++    if (DefinedEmptyNSDictionary)
++      return DefinedEmptyNSDictionary;
++
++    assert(CGM.getLangOpts().ObjCRuntime.hasConstantEmptyCollections() &&
++           "The current ABI doesn't support an empty constant NSDictionary "
++           "singleton!");
++
++    DefinedEmptyNSDictionary = cast<llvm::GlobalVariable>(
++        CGM.CreateRuntimeVariable(CGM.UnqualPtrTy, "__NSDictionary0__struct"));
++    DefinedEmptyNSDictionary->addAttribute("objc_arc_inert");
++    return DefinedEmptyNSDictionary;
++  }
++
++  /// Emits, and caches, a reference to the empty array singleton.
++  llvm::GlobalVariable *EmitEmptyConstantNSArray() {
++    if (DefinedEmptyNSArray)
++      return DefinedEmptyNSArray;
++
++    assert(
++        CGM.getLangOpts().ObjCRuntime.hasConstantEmptyCollections() &&
++        "The current ABI doesn't support an empty constant NSArray singleton!");
++
++    DefinedEmptyNSArray = cast<llvm::GlobalVariable>(
++        CGM.CreateRuntimeVariable(CGM.UnqualPtrTy, "__NSArray0__struct"));
++    DefinedEmptyNSArray->addAttribute("objc_arc_inert");
++    return DefinedEmptyNSArray;
++  }
++
+   ConstantAddress GenerateConstantString(const StringLiteral *SL) override;
++
++  ConstantAddress GenerateConstantNumber(const bool Value,
++                                         const QualType &Ty) override;
++  ConstantAddress GenerateConstantNumber(const llvm::APSInt &Value,
++                                         const QualType &Ty) override;
++  ConstantAddress GenerateConstantNumber(const llvm::APFloat &Value,
++                                         const QualType &Ty) override;
++  ConstantAddress
++  GenerateConstantArray(const ArrayRef<llvm::Constant *> &Objects) override;
++  ConstantAddress GenerateConstantDictionary(
++      const ObjCDictionaryLiteral *E,
++      ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects)
++      override;
++
+   ConstantAddress GenerateConstantNSString(const StringLiteral *SL);
++  ConstantAddress GenerateConstantNSNumber(const bool Value,
++                                           const QualType &Ty);
++  ConstantAddress GenerateConstantNSNumber(const llvm::APSInt &Value,
++                                           const QualType &Ty);
++  ConstantAddress GenerateConstantNSNumber(const llvm::APFloat &Value,
++                                           const QualType &Ty);
++  ConstantAddress
++  GenerateConstantNSArray(const ArrayRef<llvm::Constant *> &Objects);
++  ConstantAddress GenerateConstantNSDictionary(
++      const ObjCDictionaryLiteral *E,
++      ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects);
+ 
+   llvm::Function *
+   GenerateMethod(const ObjCMethodDecl *OMD,
+@@ -1070,6 +1216,12 @@ public:
+   virtual llvm::Constant *GetOrEmitProtocolRef(const ObjCProtocolDecl *PD) = 0;
+ 
+   virtual llvm::Constant *getNSConstantStringClassRef() = 0;
++  virtual llvm::Constant *getNSConstantArrayClassRef() = 0;
++  virtual llvm::Constant *getNSConstantDictionaryClassRef() = 0;
++
++  virtual llvm::Constant *getNSConstantIntegerNumberClassRef() = 0;
++  virtual llvm::Constant *getNSConstantFloatNumberClassRef() = 0;
++  virtual llvm::Constant *getNSConstantDoubleNumberClassRef() = 0;
+ 
+   llvm::Constant *BuildGCBlockLayout(CodeGen::CodeGenModule &CGM,
+                                      const CGBlockInfo &blockInfo) override;
+@@ -1083,6 +1235,8 @@ public:
+ 
+ private:
+   void fillRunSkipBlockVars(CodeGenModule &CGM, const CGBlockInfo &blockInfo);
++  llvm::GlobalVariable *EmitNSConstantCollectionLiteralArrayStorage(
++      const ArrayRef<llvm::Constant *> &Elements);
+ };
+ 
+ namespace {
+@@ -1269,6 +1423,12 @@ public:
+   CGObjCMac(CodeGen::CodeGenModule &cgm);
+ 
+   llvm::Constant *getNSConstantStringClassRef() override;
++  llvm::Constant *getNSConstantArrayClassRef() override;
++  llvm::Constant *getNSConstantDictionaryClassRef() override;
++
++  llvm::Constant *getNSConstantIntegerNumberClassRef() override;
++  llvm::Constant *getNSConstantFloatNumberClassRef() override;
++  llvm::Constant *getNSConstantDoubleNumberClassRef() override;
+ 
+   llvm::Function *ModuleInitFunction() override;
+ 
+@@ -1551,6 +1711,12 @@ public:
+   CGObjCNonFragileABIMac(CodeGen::CodeGenModule &cgm);
+ 
+   llvm::Constant *getNSConstantStringClassRef() override;
++  llvm::Constant *getNSConstantArrayClassRef() override;
++  llvm::Constant *getNSConstantDictionaryClassRef() override;
++
++  llvm::Constant *getNSConstantIntegerNumberClassRef() override;
++  llvm::Constant *getNSConstantFloatNumberClassRef() override;
++  llvm::Constant *getNSConstantDoubleNumberClassRef() override;
+ 
+   llvm::Function *ModuleInitFunction() override;
+ 
+@@ -1881,6 +2047,34 @@ CGObjCCommonMac::GenerateConstantString(const StringLiteral *SL) {
+               : GenerateConstantNSString(SL));
+ }
+ 
++ConstantAddress CGObjCCommonMac::GenerateConstantNumber(const bool Value,
++                                                        const QualType &Ty) {
++  return GenerateConstantNSNumber(Value, Ty);
++}
++
++ConstantAddress
++CGObjCCommonMac::GenerateConstantNumber(const llvm::APSInt &Value,
++                                        const QualType &Ty) {
++  return GenerateConstantNSNumber(Value, Ty);
++}
++
++ConstantAddress
++CGObjCCommonMac::GenerateConstantNumber(const llvm::APFloat &Value,
++                                        const QualType &Ty) {
++  return GenerateConstantNSNumber(Value, Ty);
++}
++
++ConstantAddress CGObjCCommonMac::GenerateConstantArray(
++    const ArrayRef<llvm::Constant *> &Objects) {
++  return GenerateConstantNSArray(Objects);
++}
++
++ConstantAddress CGObjCCommonMac::GenerateConstantDictionary(
++    const ObjCDictionaryLiteral *E,
++    ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects) {
++  return GenerateConstantNSDictionary(E, KeysAndObjects);
++}
++
+ static llvm::StringMapEntry<llvm::GlobalVariable *> &
+ GetConstantStringEntry(llvm::StringMap<llvm::GlobalVariable *> &Map,
+                        const StringLiteral *Literal, unsigned &StringLength) {
+@@ -1903,6 +2097,27 @@ llvm::Constant *CGObjCMac::getNSConstantStringClassRef() {
+   return GV;
+ }
+ 
++llvm::Constant *CGObjCMac::getNSConstantArrayClassRef() {
++  llvm_unreachable("constant array literals not supported for fragile ABI");
++}
++
++llvm::Constant *CGObjCMac::getNSConstantDictionaryClassRef() {
++  llvm_unreachable("constant dictionary literals not supported for fragile "
++                   "ABI");
++}
++
++llvm::Constant *CGObjCMac::getNSConstantIntegerNumberClassRef() {
++  llvm_unreachable("constant number literals not supported for fragile ABI");
++}
++
++llvm::Constant *CGObjCMac::getNSConstantFloatNumberClassRef() {
++  llvm_unreachable("constant number literals not supported for fragile ABI");
++}
++
++llvm::Constant *CGObjCMac::getNSConstantDoubleNumberClassRef() {
++  llvm_unreachable("constant number literals not supported for fragile ABI");
++}
++
+ llvm::Constant *CGObjCNonFragileABIMac::getNSConstantStringClassRef() {
+   if (llvm::Value *V = ConstantStringClassRef)
+     return cast<llvm::Constant>(V);
+@@ -1915,6 +2130,76 @@ llvm::Constant *CGObjCNonFragileABIMac::getNSConstantStringClassRef() {
+   return GV;
+ }
+ 
++llvm::Constant *CGObjCNonFragileABIMac::getNSConstantArrayClassRef() {
++  if (llvm::Value *V = ConstantArrayClassRef)
++    return cast<llvm::Constant>(V);
++
++  const std::string &ArrayClass = CGM.getLangOpts().ObjCConstantArrayClass;
++  std::string Str = ArrayClass.empty() ? "OBJC_CLASS_$_NSConstantArray"
++                                       : "OBJC_CLASS_$_" + ArrayClass;
++  llvm::Constant *GV = GetClassGlobal(Str, NotForDefinition);
++
++  ConstantArrayClassRef = GV;
++  return GV;
++}
++
++llvm::Constant *CGObjCNonFragileABIMac::getNSConstantDictionaryClassRef() {
++  if (llvm::Value *V = ConstantDictionaryClassRef)
++    return cast<llvm::Constant>(V);
++
++  const std::string &DictionaryClass =
++      CGM.getLangOpts().ObjCConstantDictionaryClass;
++  std::string Str = DictionaryClass.empty()
++                        ? "OBJC_CLASS_$_NSConstantDictionary"
++                        : "OBJC_CLASS_$_" + DictionaryClass;
++  llvm::Constant *GV = GetClassGlobal(Str, NotForDefinition);
++
++  ConstantDictionaryClassRef = GV;
++  return GV;
++}
++
++llvm::Constant *CGObjCNonFragileABIMac::getNSConstantIntegerNumberClassRef() {
++  if (llvm::Value *V = ConstantIntegerNumberClassRef)
++    return cast<llvm::Constant>(V);
++
++  const std::string &NumberClass =
++      CGM.getLangOpts().ObjCConstantIntegerNumberClass;
++  std::string Str = NumberClass.empty() ? "OBJC_CLASS_$_NSConstantIntegerNumber"
++                                        : "OBJC_CLASS_$_" + NumberClass;
++  llvm::Constant *GV = GetClassGlobal(Str, NotForDefinition);
++
++  ConstantIntegerNumberClassRef = GV;
++  return GV;
++}
++
++llvm::Constant *CGObjCNonFragileABIMac::getNSConstantFloatNumberClassRef() {
++  if (llvm::Value *V = ConstantFloatNumberClassRef)
++    return cast<llvm::Constant>(V);
++
++  const std::string &NumberClass =
++      CGM.getLangOpts().ObjCConstantFloatNumberClass;
++  std::string Str = NumberClass.empty() ? "OBJC_CLASS_$_NSConstantFloatNumber"
++                                        : "OBJC_CLASS_$_" + NumberClass;
++  llvm::Constant *GV = GetClassGlobal(Str, NotForDefinition);
++
++  ConstantFloatNumberClassRef = GV;
++  return GV;
++}
++
++llvm::Constant *CGObjCNonFragileABIMac::getNSConstantDoubleNumberClassRef() {
++  if (llvm::Value *V = ConstantDoubleNumberClassRef)
++    return cast<llvm::Constant>(V);
++
++  const std::string &NumberClass =
++      CGM.getLangOpts().ObjCConstantDoubleNumberClass;
++  std::string Str = NumberClass.empty() ? "OBJC_CLASS_$_NSConstantDoubleNumber"
++                                        : "OBJC_CLASS_$_" + NumberClass;
++  llvm::Constant *GV = GetClassGlobal(Str, NotForDefinition);
++
++  ConstantDoubleNumberClassRef = GV;
++  return GV;
++}
++
+ ConstantAddress
+ CGObjCCommonMac::GenerateConstantNSString(const StringLiteral *Literal) {
+   unsigned StringLength = 0;
+@@ -1930,6 +2215,9 @@ CGObjCCommonMac::GenerateConstantNSString(const StringLiteral *Literal) {
+ 
+   // If we don't already have it, construct the type for a constant NSString.
+   if (!NSConstantStringType) {
++    // NOTE: The existing implementation used a pointer to a Int32Ty not a
++    // struct pointer as the ISA type when emitting constant strings so this is
++    // maintained for now
+     NSConstantStringType =
+         llvm::StructType::create({CGM.UnqualPtrTy, CGM.Int8PtrTy, CGM.IntTy},
+                                  "struct.__builtin_NSString");
+@@ -1978,6 +2266,354 @@ CGObjCCommonMac::GenerateConstantNSString(const StringLiteral *Literal) {
+   return ConstantAddress(GV, GV->getValueType(), Alignment);
+ }
+ 
++/// Emit the boolean singletons for BOOL literals @YES @NO
++ConstantAddress CGObjCCommonMac::GenerateConstantNSNumber(const bool Value,
++                                                          const QualType &Ty) {
++  llvm::GlobalVariable *Val =
++      Value ? EmitConstantCFBooleanTrue() : EmitConstantCFBooleanFalse();
++  return ConstantAddress(Val, Val->getValueType(), CGM.getPointerAlign());
++}
++
++/// Generate a constant NSConstantIntegerNumber from an ObjC integer literal
++/*
++  struct __builtin_NSConstantIntegerNumber {
++    struct._class_t *isa; // point to _NSConstantIntegerNumberClassReference
++    char const *const _encoding;
++    long long const _value;
++  };
++*/
++ConstantAddress
++CGObjCCommonMac::GenerateConstantNSNumber(const llvm::APSInt &Value,
++                                          const QualType &Ty) {
++  CharUnits Alignment = CGM.getPointerAlign();
++
++  // check if we've already emitted, if so emit a reference to it
++  llvm::GlobalVariable *&Entry =
++      NSConstantNumberMap[{CGM.getContext().getCanonicalType(Ty), Value}];
++  if (Entry) {
++    return ConstantAddress(Entry, Entry->getValueType(), Alignment);
++  }
++
++  // The encoding type
++  std::string ObjCEncodingType;
++  CodeGenFunction(CGM).getContext().getObjCEncodingForType(Ty,
++                                                           ObjCEncodingType);
++
++  llvm::Constant *const Class = getNSConstantIntegerNumberClassRef();
++
++  if (!NSConstantIntegerNumberType) {
++    NSConstantIntegerNumberType = llvm::StructType::create(
++        {
++            CGM.UnqualPtrTy, // isa
++            CGM.Int8PtrTy,    // _encoding
++            CGM.Int64Ty,      // _value
++        },
++        "struct.__builtin_NSConstantIntegerNumber");
++  }
++
++  ConstantInitBuilder Builder(CGM);
++  auto Fields = Builder.beginStruct(NSConstantIntegerNumberType);
++
++  // Class pointer.
++  Fields.add(Class);
++
++  // add the @encode
++  Fields.add(CGM.GetAddrOfConstantCString(ObjCEncodingType).getPointer());
++
++  // add the value stored.
++  llvm::Constant *IntegerValue =
++      llvm::ConstantInt::get(CGM.Int64Ty, Value.extOrTrunc(64));
++
++  Fields.add(IntegerValue);
++
++  // The struct
++  llvm::GlobalVariable *const GV = Fields.finishAndCreateGlobal(
++      "_unnamed_nsconstantintegernumber_", Alignment,
++      /* constant */ true, llvm::GlobalVariable::PrivateLinkage);
++
++  GV->setSection(GetNSConstantIntegerNumberSectionName());
++  GV->addAttribute("objc_arc_inert");
++
++  Entry = GV;
++
++  return ConstantAddress(GV, GV->getValueType(), Alignment);
++}
++
++/// Generate either a constant NSConstantFloatNumber or NSConstantDoubleNumber
++/*
++  struct __builtin_NSConstantFloatNumber {
++    struct._class_t *isa;
++    float const _value;
++  };
++
++  struct __builtin_NSConstantDoubleNumber {
++    struct._class_t *isa;
++    double const _value;
++  };
++*/
++ConstantAddress
++CGObjCCommonMac::GenerateConstantNSNumber(const llvm::APFloat &Value,
++                                          const QualType &Ty) {
++  CharUnits Alignment = CGM.getPointerAlign();
++
++  // check if we've already emitted, if so emit a reference to it
++  llvm::GlobalVariable *&Entry =
++      NSConstantNumberMap[{CGM.getContext().getCanonicalType(Ty), Value}];
++  if (Entry) {
++    return ConstantAddress(Entry, Entry->getValueType(), Alignment);
++  }
++
++  // @encode type used to pick which class type to use
++  std::string ObjCEncodingType;
++  CodeGenFunction(CGM).getContext().getObjCEncodingForType(Ty,
++                                                           ObjCEncodingType);
++
++  assert((ObjCEncodingType == "d" || ObjCEncodingType == "f") &&
++         "Unexpected or unknown ObjCEncodingType used in constant NSNumber");
++
++  llvm::GlobalValue::LinkageTypes Linkage =
++      llvm::GlobalVariable::PrivateLinkage;
++
++  // Handle floats
++  if (ObjCEncodingType == "f") {
++    llvm::Constant *const Class = getNSConstantFloatNumberClassRef();
++
++    if (!NSConstantFloatNumberType) {
++      NSConstantFloatNumberType = llvm::StructType::create(
++          {
++              CGM.UnqualPtrTy, // isa
++              CGM.FloatTy,      // _value
++          },
++          "struct.__builtin_NSConstantFloatNumber");
++    }
++
++    ConstantInitBuilder Builder(CGM);
++    auto Fields = Builder.beginStruct(NSConstantFloatNumberType);
++
++    // Class pointer.
++    Fields.add(Class);
++
++    // add the value stored.
++    llvm::Constant *FV = llvm::ConstantFP::get(CGM.FloatTy, Value);
++    Fields.add(FV);
++
++    // The struct
++    llvm::GlobalVariable *const GV = Fields.finishAndCreateGlobal(
++        "_unnamed_nsconstantfloatnumber_", Alignment,
++        /*constant*/ true, Linkage);
++
++    GV->setSection(GetNSConstantFloatNumberSectionName());
++    GV->addAttribute("objc_arc_inert");
++
++    Entry = GV;
++
++    return ConstantAddress(GV, GV->getValueType(), Alignment);
++  }
++
++  llvm::Constant *const Class = getNSConstantDoubleNumberClassRef();
++  if (!NSConstantDoubleNumberType) {
++    // NOTE: this will be padded on some 32-bit targets and is expected
++    NSConstantDoubleNumberType = llvm::StructType::create(
++        {
++            CGM.UnqualPtrTy, // isa
++            CGM.DoubleTy,     // _value
++        },
++        "struct.__builtin_NSConstantDoubleNumber");
++  }
++
++  ConstantInitBuilder Builder(CGM);
++  auto Fields = Builder.beginStruct(NSConstantDoubleNumberType);
++
++  // Class pointer.
++  Fields.add(Class);
++
++  // add the value stored.
++  llvm::Constant *DV = llvm::ConstantFP::get(CGM.DoubleTy, Value);
++  Fields.add(DV);
++
++  // The struct
++  llvm::GlobalVariable *const GV = Fields.finishAndCreateGlobal(
++      "_unnamed_nsconstantdoublenumber_", Alignment,
++      /*constant*/ true, Linkage);
++
++  GV->setSection(GetNSConstantDoubleNumberSectionName());
++  GV->addAttribute("objc_arc_inert");
++
++  Entry = GV;
++
++  return ConstantAddress(GV, GV->getValueType(), Alignment);
++}
++
++/// Shared private method to emit the id array storage for constant NSArray and
++/// NSDictionary literals
++llvm::GlobalVariable *
++CGObjCCommonMac::EmitNSConstantCollectionLiteralArrayStorage(
++    const ArrayRef<llvm::Constant *> &Elements) {
++  llvm::Type *ElementsTy = Elements[0]->getType();
++  llvm::ArrayType *ArrayTy = llvm::ArrayType::get(ElementsTy, Elements.size());
++
++  llvm::Constant *const ArrayData = llvm::ConstantArray::get(ArrayTy, Elements);
++
++  llvm::GlobalVariable *ObjectsGV = new llvm::GlobalVariable(
++      CGM.getModule(), ArrayTy, true, llvm::GlobalValue::InternalLinkage,
++      ArrayData, "_unnamed_array_storage");
++
++  ObjectsGV->setAlignment(CGM.getPointerAlign().getAsAlign());
++  ObjectsGV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
++  ObjectsGV->setSection(GetNSConstantCollectionStorageSectionName());
++  return ObjectsGV;
++}
++
++/// Generate a constant NSConstantArray from an ObjC array literal
++/*
++  struct __builtin_NSArray {
++    struct._class_t *isa;
++    NSUInteger const _count;
++    id const *const _objects;
++  };
++*/
++ConstantAddress CGObjCCommonMac::GenerateConstantNSArray(
++    const ArrayRef<llvm::Constant *> &Objects) {
++  CharUnits Alignment = CGM.getPointerAlign();
++
++  if (Objects.size() == 0) {
++    llvm::GlobalVariable *GV = EmitEmptyConstantNSArray();
++    return ConstantAddress(GV, GV->getValueType(), Alignment);
++  }
++
++  ASTContext &Context = CGM.getContext();
++  CodeGenTypes &Types = CGM.getTypes();
++  llvm::Constant *const Class = getNSConstantArrayClassRef();
++  llvm::Type *const NSUIntegerTy =
++      Types.ConvertType(Context.getNSUIntegerType());
++
++  if (!NSConstantArrayType) {
++    NSConstantArrayType = llvm::StructType::create(
++        {
++            CGM.UnqualPtrTy, // isa
++            NSUIntegerTy,     // _count
++            CGM.UnqualPtrTy, // _objects
++        },
++        "struct.__builtin_NSArray");
++  }
++
++  ConstantInitBuilder Builder(CGM);
++  auto Fields = Builder.beginStruct(NSConstantArrayType);
++
++  // Class pointer.
++  Fields.add(Class);
++
++  // count
++  uint64_t ObjectCount = Objects.size();
++  llvm::Constant *Count = llvm::ConstantInt::get(NSUIntegerTy, ObjectCount);
++  Fields.add(Count);
++
++  // objects
++  llvm::GlobalVariable *ObjectsGV =
++      EmitNSConstantCollectionLiteralArrayStorage(Objects);
++  Fields.add(ObjectsGV);
++
++  // The struct
++  llvm::GlobalVariable *GV = Fields.finishAndCreateGlobal(
++      "_unnamed_nsarray_", Alignment,
++      /* constant */ true, llvm::GlobalValue::PrivateLinkage);
++
++  GV->setSection(GetNSConstantArraySectionName());
++  GV->addAttribute("objc_arc_inert");
++
++  return ConstantAddress(GV, GV->getValueType(), Alignment);
++}
++
++/// Generate a constant NSConstantDictionary from an ObjC dictionary literal
++/*
++  struct __builtin_NSDictionary {
++    struct._class_t *isa;
++    NSUInteger const _hashOptions;
++    NSUInteger const _count;
++    id const *const _keys;
++    id const *const _objects;
++  };
++ */
++ConstantAddress CGObjCCommonMac::GenerateConstantNSDictionary(
++    const ObjCDictionaryLiteral *E,
++    ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects) {
++  CharUnits Alignment = CGM.getPointerAlign();
++
++  if (KeysAndObjects.size() == 0) {
++    llvm::GlobalVariable *GV = EmitEmptyConstantNSDictionary();
++    return ConstantAddress(GV, GV->getValueType(), Alignment);
++  }
++
++  ASTContext &Context = CGM.getContext();
++  CodeGenTypes &Types = CGM.getTypes();
++  llvm::Constant *const Class = getNSConstantDictionaryClassRef();
++
++  llvm::Type *const NSUIntegerTy =
++      Types.ConvertType(Context.getNSUIntegerType());
++
++  if (!NSConstantDictionaryType) {
++    NSConstantDictionaryType = llvm::StructType::create(
++        {
++            CGM.UnqualPtrTy, // isa
++            NSUIntegerTy,     // _hashOptions
++            NSUIntegerTy,     // _count
++            CGM.UnqualPtrTy, // _keys
++            CGM.UnqualPtrTy, // _objects
++        },
++        "struct.__builtin_NSDictionary");
++  }
++
++  ConstantInitBuilder Builder(CGM);
++  auto Fields = Builder.beginStruct(NSConstantDictionaryType);
++
++  // Class pointer.
++  Fields.add(Class);
++
++  // Use the hashing helper to manage the keys and sorting
++  auto HashOpts(NSDictionaryBuilder::Options::Sorted);
++  NSDictionaryBuilder DictBuilder(E, KeysAndObjects, HashOpts);
++
++  // Ask `HashBuilder` for the fully sorted keys / values and the count
++  uint64_t const NumElements = DictBuilder.getNumElements();
++
++  llvm::Constant *OptionsConstant = llvm::ConstantInt::get(
++      NSUIntegerTy, static_cast<uint64_t>(DictBuilder.getOptions()));
++  Fields.add(OptionsConstant);
++
++  // count
++  llvm::Constant *Count = llvm::ConstantInt::get(NSUIntegerTy, NumElements);
++  Fields.add(Count);
++
++  // Split sorted pairs into separate keys and objects arrays for storage.
++  SmallVector<llvm::Constant *, 16> SortedKeys, SortedObjects;
++  SortedKeys.reserve(NumElements);
++  SortedObjects.reserve(NumElements);
++  for (auto &[Key, Obj] : DictBuilder.getElements()) {
++    SortedKeys.push_back(Key);
++    SortedObjects.push_back(Obj);
++  }
++
++  // keys
++  llvm::GlobalVariable *KeysGV =
++      EmitNSConstantCollectionLiteralArrayStorage(SortedKeys);
++  Fields.add(KeysGV);
++
++  // objects
++  llvm::GlobalVariable *ObjectsGV =
++      EmitNSConstantCollectionLiteralArrayStorage(SortedObjects);
++  Fields.add(ObjectsGV);
++
++  // The struct
++  llvm::GlobalVariable *GV = Fields.finishAndCreateGlobal(
++      "_unnamed_nsdictionary_", Alignment,
++      /* constant */ true, llvm::GlobalValue::PrivateLinkage);
++
++  GV->setSection(GetNSConstantDictionarySectionName());
++  GV->addAttribute("objc_arc_inert");
++
++  return ConstantAddress(GV, GV->getValueType(), Alignment);
++}
++
+ enum { kCFTaggedObjectID_Integer = (1 << 1) + 1 };
+ 
+ /// Generates a message send where the super is the receiver.  This is
+diff --git a/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h b/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h
+new file mode 100644
+index 00000000..f9eb54be
+--- /dev/null
++++ b/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h
+@@ -0,0 +1,190 @@
++//===-- CodeGen/CGObjCMacConstantLiteralUtil.h - ----------------*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This should be used for things that effect the ABI of
++// Obj-C constant initializer literals (`-fobjc-constant-literals`) to allow
++// future changes without breaking the ABI promises.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef LLVM_CLANG_LIB_CODEGEN_CGOBJCMACCONSTANTLITERALUTIL_H
++#define LLVM_CLANG_LIB_CODEGEN_CGOBJCMACCONSTANTLITERALUTIL_H
++
++#include "CGObjCRuntime.h"
++#include "clang/AST/ExprObjC.h"
++#include "clang/AST/Type.h"
++#include "llvm/ADT/APFloat.h"
++#include "llvm/ADT/APSInt.h"
++#include "llvm/ADT/DenseMapInfo.h"
++#include <numeric>
++
++namespace clang {
++namespace CodeGen {
++namespace CGObjCMacConstantLiteralUtil {
++
++class NSConstantNumberMapInfo {
++
++  enum class MapInfoType {
++    Empty,
++    Tombstone,
++    Int,
++    Float,
++  };
++
++  MapInfoType InfoType;
++  CanQualType QType;
++  llvm::APSInt Int;
++  llvm::APFloat Float;
++
++  /// Default constructor that can create Empty or Tombstone info entries
++  explicit NSConstantNumberMapInfo(MapInfoType I = MapInfoType::Empty)
++      : InfoType(I), QType(), Int(), Float(0.0) {}
++
++  bool isEmptyOrTombstone() const {
++    return InfoType == MapInfoType::Empty || InfoType == MapInfoType::Tombstone;
++  }
++
++public:
++  NSConstantNumberMapInfo(CanQualType QT, const llvm::APSInt &V)
++      : InfoType(MapInfoType::Int), QType(QT), Int(V), Float(0.0) {}
++  NSConstantNumberMapInfo(CanQualType QT, const llvm::APFloat &V)
++      : InfoType(MapInfoType::Float), QType(QT), Int(), Float(V) {}
++
++  unsigned getHashValue() const {
++    assert(!isEmptyOrTombstone() && "Cannot hash empty or tombstone map info!");
++
++    unsigned QTypeHash = llvm::DenseMapInfo<QualType>::getHashValue(
++        llvm::DenseMapInfo<QualType>::getTombstoneKey());
++
++    if (InfoType == MapInfoType::Int)
++      return llvm::detail::combineHashValue((unsigned)Int.getZExtValue(),
++                                            QTypeHash);
++
++    assert(InfoType == MapInfoType::Float);
++    return llvm::detail::combineHashValue(
++        (unsigned)Float.bitcastToAPInt().getZExtValue(), QTypeHash);
++  }
++
++  static inline NSConstantNumberMapInfo getEmptyKey() {
++    return NSConstantNumberMapInfo();
++  }
++
++  static inline NSConstantNumberMapInfo getTombstoneKey() {
++    return NSConstantNumberMapInfo(MapInfoType::Tombstone);
++  }
++
++  bool operator==(const NSConstantNumberMapInfo &RHS) const {
++    if (InfoType != RHS.InfoType || QType != RHS.QType)
++      return false;
++
++    // Handle the empty and tombstone equality
++    if (isEmptyOrTombstone())
++      return true;
++
++    if (InfoType == MapInfoType::Int)
++      return llvm::APSInt::isSameValue(Int, RHS.Int);
++
++    assert(InfoType == MapInfoType::Float);
++
++    // handle -0, NaN, and infinities correctly
++    return Float.bitwiseIsEqual(RHS.Float);
++  }
++};
++
++using std::iota;
++
++class NSDictionaryBuilder {
++  SmallVector<std::pair<llvm::Constant *, llvm::Constant *>, 16> Elements;
++  uint64_t Opts;
++
++public:
++  enum class Options : uint64_t { Sorted = 1 };
++
++  NSDictionaryBuilder(
++      const ObjCDictionaryLiteral *E,
++      ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects,
++      const Options O = Options::Sorted) {
++    Opts = static_cast<uint64_t>(O);
++    uint64_t const NumElements = KeysAndObjects.size();
++
++    // Reserve the capacity for the sorted keys & values
++    Elements.reserve(NumElements);
++
++    // Setup the element indicies 0 ..< NumElements
++    SmallVector<size_t, 16> ElementIndicies(NumElements);
++    std::iota(ElementIndicies.begin(), ElementIndicies.end(), 0);
++
++    // Now perform the sorts and shift the indicies as needed
++    std::stable_sort(
++        ElementIndicies.begin(), ElementIndicies.end(),
++        [E, O](size_t LI, size_t RI) {
++          Expr *const LK = E->getKeyValueElement(LI).Key->IgnoreImpCasts();
++          Expr *const RK = E->getKeyValueElement(RI).Key->IgnoreImpCasts();
++
++          if (!isa<ObjCStringLiteral>(LK) || !isa<ObjCStringLiteral>(RK))
++            llvm_unreachable("Non-constant literals should not be sorted to "
++                             "maintain existing behavior");
++
++          // NOTE: Using the `StringLiteral->getString()` since it checks that
++          //       `chars` are 1 byte
++          StringRef LKS = cast<ObjCStringLiteral>(LK)->getString()->getString();
++          StringRef RKS = cast<ObjCStringLiteral>(RK)->getString()->getString();
++
++          // Do an alpha sort to aid in with de-dupe at link time
++          // `O(log n)` worst case lookup at runtime supported by `Foundation`
++          if (O == Options::Sorted)
++            return LKS < RKS;
++          llvm_unreachable("Unexpected `NSDictionaryBuilder::Options given");
++        });
++
++    // Finally use the sorted indicies to insert into `Elements`.
++    for (auto &Idx : ElementIndicies) {
++      Elements.push_back(KeysAndObjects[Idx]);
++    }
++  }
++
++  SmallVectorImpl<std::pair<llvm::Constant *, llvm::Constant *>> &
++  getElements() {
++    return Elements;
++  }
++
++  Options getOptions() const { return static_cast<Options>(Opts); }
++
++  uint64_t getNumElements() const { return Elements.size(); }
++};
++
++} // namespace CGObjCMacConstantLiteralUtil
++} // namespace CodeGen
++} // namespace clang
++
++namespace llvm {
++
++using namespace clang::CodeGen::CGObjCMacConstantLiteralUtil;
++
++template <> struct DenseMapInfo<NSConstantNumberMapInfo> {
++  static NSConstantNumberMapInfo getEmptyKey() {
++    return NSConstantNumberMapInfo::getEmptyKey();
++  }
++
++  static NSConstantNumberMapInfo getTombstoneKey() {
++    return NSConstantNumberMapInfo::getTombstoneKey();
++  }
++
++  static unsigned getHashValue(const NSConstantNumberMapInfo &S) {
++    return S.getHashValue();
++  }
++
++  static bool isEqual(const NSConstantNumberMapInfo &LHS,
++                      const NSConstantNumberMapInfo &RHS) {
++    return LHS == RHS;
++  }
++};
++
++} // namespace llvm
++
++#endif
+diff --git a/clang/lib/CodeGen/CGObjCRuntime.h b/clang/lib/CodeGen/CGObjCRuntime.h
+index 72997bf6..a71b5375 100644
+--- a/clang/lib/CodeGen/CGObjCRuntime.h
++++ b/clang/lib/CodeGen/CGObjCRuntime.h
+@@ -148,6 +148,18 @@ public:
+ 
+   /// Generate a constant string object.
+   virtual ConstantAddress GenerateConstantString(const StringLiteral *) = 0;
++  virtual ConstantAddress GenerateConstantNumber(const bool Value,
++                                                 const QualType &Ty) = 0;
++  virtual ConstantAddress GenerateConstantNumber(const llvm::APSInt &Value,
++                                                 const QualType &Ty) = 0;
++  virtual ConstantAddress GenerateConstantNumber(const llvm::APFloat &Value,
++                                                 const QualType &Ty) = 0;
++  virtual ConstantAddress
++  GenerateConstantArray(const ArrayRef<llvm::Constant *> &Objects) = 0;
++  virtual ConstantAddress GenerateConstantDictionary(
++      const ObjCDictionaryLiteral *E,
++      ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>>
++          KeysAndObjects) = 0;
+ 
+   /// Generate a category.  A category contains a list of methods (and
+   /// accompanying metadata) and a list of protocols.
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index 060440ef..49ed5715 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -4331,6 +4331,32 @@ static void RenderObjCOptions(const ToolChain &TC, const Driver &D,
+ 
+   if (Args.hasArg(options::OPT_fobjc_disable_direct_methods_for_testing))
+     CmdArgs.push_back("-fobjc-disable-direct-methods-for-testing");
++
++  // Forward constant literal flags to cc1.
++  if (types::isObjC(Input.getType())) {
++    bool EnableConstantLiterals =
++        Args.hasFlag(options::OPT_fobjc_constant_literals,
++                     options::OPT_fno_objc_constant_literals,
++                     /*default=*/true) &&
++        Runtime.hasConstantLiteralClasses();
++    if (EnableConstantLiterals)
++      CmdArgs.push_back("-fobjc-constant-literals");
++    if (Args.hasFlag(options::OPT_fconstant_nsnumber_literals,
++                     options::OPT_fno_constant_nsnumber_literals,
++                     /*default=*/true) &&
++        EnableConstantLiterals)
++      CmdArgs.push_back("-fconstant-nsnumber-literals");
++    if (Args.hasFlag(options::OPT_fconstant_nsarray_literals,
++                     options::OPT_fno_constant_nsarray_literals,
++                     /*default=*/true) &&
++        EnableConstantLiterals)
++      CmdArgs.push_back("-fconstant-nsarray-literals");
++    if (Args.hasFlag(options::OPT_fconstant_nsdictionary_literals,
++                     options::OPT_fno_constant_nsdictionary_literals,
++                     /*default=*/true) &&
++        EnableConstantLiterals)
++      CmdArgs.push_back("-fconstant-nsdictionary-literals");
++  }
+ }
+ 
+ static void RenderDiagnosticsOptions(const Driver &D, const ArgList &Args,
+@@ -6746,6 +6772,28 @@ void Clang::ConstructJob(Compilation &C, const JobAction &Job,
+     CmdArgs.push_back(A->getValue());
+   }
+ 
++  if (Arg *A = Args.getLastArg(options::OPT_fconstant_array_class_EQ)) {
++    CmdArgs.push_back("-fconstant-array-class");
++    CmdArgs.push_back(A->getValue());
++  }
++  if (Arg *A = Args.getLastArg(options::OPT_fconstant_dictionary_class_EQ)) {
++    CmdArgs.push_back("-fconstant-dictionary-class");
++    CmdArgs.push_back(A->getValue());
++  }
++  if (Arg *A =
++          Args.getLastArg(options::OPT_fconstant_integer_number_class_EQ)) {
++    CmdArgs.push_back("-fconstant-integer-number-class");
++    CmdArgs.push_back(A->getValue());
++  }
++  if (Arg *A = Args.getLastArg(options::OPT_fconstant_float_number_class_EQ)) {
++    CmdArgs.push_back("-fconstant-float-number-class");
++    CmdArgs.push_back(A->getValue());
++  }
++  if (Arg *A = Args.getLastArg(options::OPT_fconstant_double_number_class_EQ)) {
++    CmdArgs.push_back("-fconstant-double-number-class");
++    CmdArgs.push_back(A->getValue());
++  }
++
+   if (Arg *A = Args.getLastArg(options::OPT_ftabstop_EQ)) {
+     CmdArgs.push_back("-ftabstop");
+     CmdArgs.push_back(A->getValue());
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index 4c7522d0..47e6708e 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -25,6 +25,7 @@
+ #include "clang/AST/EvaluatedExprVisitor.h"
+ #include "clang/AST/Expr.h"
+ #include "clang/AST/ExprCXX.h"
++#include "clang/AST/ExprObjC.h"
+ #include "clang/AST/MangleNumberingContext.h"
+ #include "clang/AST/NonTrivialTypeVisitor.h"
+ #include "clang/AST/Randstruct.h"
+@@ -13666,6 +13667,51 @@ bool Sema::CheckForConstantInitializer(Expr *Init, unsigned DiagID) {
+   const Expr *Culprit;
+   if (Init->isConstantInitializer(Context, false, &Culprit))
+     return false;
++
++  // Emit ObjC-specific diagnostics for non-constant literals at file scope.
++  if (getLangOpts().ObjCConstantLiterals && isa<ObjCObjectLiteral>(Culprit)) {
++
++    // For collection literals iterate the elements to highlight which one is
++    // the offender.
++    if (auto ALE = dyn_cast<ObjCArrayLiteral>(Init)) {
++      for (auto *Elm : ALE->elements()) {
++        if (!Elm->isConstantInitializer(Context, false, nullptr)) {
++          Diag(Elm->getExprLoc(),
++               diag::err_objc_literal_nonconstant_at_file_scope)
++              << ObjC().CheckLiteralKind(Init) << Elm->getSourceRange();
++          return true;
++        }
++      }
++    }
++
++    if (auto DLE = dyn_cast<ObjCDictionaryLiteral>(Init)) {
++      for (size_t I = 0, N = DLE->getNumElements(); I != N; ++I) {
++        const ObjCDictionaryElement Elm = DLE->getKeyValueElement(I);
++
++        // Check that the key is a string literal and is constant.
++        if (!isa<ObjCStringLiteral>(Elm.Key) ||
++            !Elm.Key->isConstantInitializer(Context, false, nullptr)) {
++          Diag(Elm.Key->getExprLoc(),
++               diag::err_objc_literal_nonconstant_at_file_scope)
++              << ObjC().CheckLiteralKind(Init) << Elm.Key->getSourceRange();
++          return true;
++        }
++
++        if (!Elm.Value->isConstantInitializer(Context, false, nullptr)) {
++          Diag(Elm.Value->getExprLoc(),
++               diag::err_objc_literal_nonconstant_at_file_scope)
++              << ObjC().CheckLiteralKind(Init) << Elm.Value->getSourceRange();
++          return true;
++        }
++      }
++    }
++
++    Diag(Culprit->getExprLoc(),
++         diag::err_objc_literal_nonconstant_at_file_scope)
++        << ObjC().CheckLiteralKind(Init) << Culprit->getSourceRange();
++    return true;
++  }
++
+   Diag(Culprit->getExprLoc(), DiagID) << Culprit->getSourceRange();
+   return true;
+ }
+diff --git a/clang/lib/Sema/SemaExprCXX.cpp b/clang/lib/Sema/SemaExprCXX.cpp
+index ab645a60..50c87cc4 100644
+--- a/clang/lib/Sema/SemaExprCXX.cpp
++++ b/clang/lib/Sema/SemaExprCXX.cpp
+@@ -6589,6 +6589,9 @@ ExprResult Sema::MaybeBindToTemporary(Expr *E) {
+       ObjCMethodDecl *D = nullptr;
+       if (ObjCMessageExpr *Send = dyn_cast<ObjCMessageExpr>(E)) {
+         D = Send->getMethodDecl();
++      } else if (auto *OL = dyn_cast<ObjCObjectLiteral>(E);
++                 OL && OL->isGlobalAllocation()) {
++        return E;
+       } else if (ObjCBoxedExpr *BoxedExpr = dyn_cast<ObjCBoxedExpr>(E)) {
+         D = BoxedExpr->getBoxingMethod();
+       } else if (ObjCArrayLiteral *ArrayLit = dyn_cast<ObjCArrayLiteral>(E)) {
+@@ -6599,8 +6602,8 @@ ExprResult Sema::MaybeBindToTemporary(Expr *E) {
+           return E;
+ 
+         D = ArrayLit->getArrayWithObjectsMethod();
+-      } else if (ObjCDictionaryLiteral *DictLit
+-                                        = dyn_cast<ObjCDictionaryLiteral>(E)) {
++      } else if (ObjCDictionaryLiteral *DictLit =
++                     dyn_cast<ObjCDictionaryLiteral>(E)) {
+         // Don't do reclaims if we're using the zero-element dictionary
+         // constant.
+         if (DictLit->getNumElements() == 0 &&
+diff --git a/clang/lib/Sema/SemaExprObjC.cpp b/clang/lib/Sema/SemaExprObjC.cpp
+index fbd492a1..72b6506e 100644
+--- a/clang/lib/Sema/SemaExprObjC.cpp
++++ b/clang/lib/Sema/SemaExprObjC.cpp
+@@ -32,6 +32,7 @@
+ 
+ using namespace clang;
+ using namespace sema;
++using llvm::APFloat;
+ using llvm::ArrayRef;
+ 
+ ExprResult SemaObjC::ParseObjCStringLiteral(SourceLocation *AtLocs,
+@@ -315,6 +316,66 @@ static ObjCMethodDecl *getNSNumberFactoryMethod(SemaObjC &S, SourceLocation Loc,
+   return Method;
+ }
+ 
++static bool CheckObjCNumberExpressionIsConstant(Sema &S, Expr *Number) {
++  const LangOptions &LangOpts = S.getLangOpts();
++  const ObjCRuntime &Runtime = LangOpts.ObjCRuntime;
++
++  if (!LangOpts.ObjCConstantLiterals)
++    return false;
++
++  const QualType Ty = Number->IgnoreParens()->getType();
++  ASTContext &Context = S.Context;
++
++  if (Number->isValueDependent())
++    return false;
++
++  if (!Number->isEvaluatable(Context))
++    return false;
++
++  // Note `@YES` `@NO` need to be handled explicitly
++  // to meet existing plist encoding / decoding expectations
++  // we can't convert anything that is "bool like" so ensure
++  // we're referring to a `BOOL` typedef or a real `_Bool`
++  // preferring explicit types over the typedefs.
++  //
++  // Also we can emit the constant singleton if supported by the target always.
++  assert(Runtime.hasConstantCFBooleans() &&
++         "The current ABI doesn't support the constant CFBooleanTrue "
++         "singleton!");
++  const bool IsBoolType =
++      (Ty->isBooleanType() || NSAPI(Context).isObjCBOOLType(Ty));
++  if (IsBoolType)
++    return true;
++
++  // If for debug or other reasons an explict opt-out is passed bail.
++  // This doesn't effect `BOOL` singletons similar to collection singletons.
++  if (!LangOpts.ConstantNSNumberLiterals)
++    return false;
++
++  // Note: Other parts of Sema prevent the boxing of types that aren't supported
++  // by `NSNumber`
++  Expr::EvalResult IntResult{};
++  if (Number->EvaluateAsInt(IntResult, Context))
++    return true;
++
++  // Eval the number as an llvm::APFloat and ensure it fits
++  // what NSNumber expects.
++  APFloat FloatValue(0.0);
++  if (Number->EvaluateAsFloat(FloatValue, Context)) {
++    // This asserts that the sema checks for `ObjCBoxedExpr` haven't changed to
++    // allow larger values than NSNumber supports
++    if (&FloatValue.getSemantics() == &APFloat::IEEEsingle())
++      return true;
++    if (&FloatValue.getSemantics() == &APFloat::IEEEdouble())
++      return true;
++
++    llvm_unreachable(
++        "NSNumber only supports `float` or `double` floating-point types.");
++  }
++
++  return false;
++}
++
+ /// BuildObjCNumericLiteral - builds an ObjCBoxedExpr AST node for the
+ /// numeric literal expression. Type of the expression will be "NSNumber *".
+ ExprResult SemaObjC::BuildObjCNumericLiteral(SourceLocation AtLoc,
+@@ -363,9 +424,15 @@ ExprResult SemaObjC::BuildObjCNumericLiteral(SourceLocation AtLoc,
+     return ExprError();
+   Number = ConvertedNumber.get();
+ 
++  const bool IsConstInitLiteral =
++      CheckObjCNumberExpressionIsConstant(SemaRef, Number);
++
++  auto *NumberLiteral = new (Context)
++      ObjCBoxedExpr(Number, NSNumberPointer, Method, IsConstInitLiteral,
++                    SourceRange(AtLoc, NR.getEnd()));
++
+   // Use the effective source range of the literal, including the leading '@'.
+-  return SemaRef.MaybeBindToTemporary(new (Context) ObjCBoxedExpr(
+-      Number, NSNumberPointer, Method, SourceRange(AtLoc, NR.getEnd())));
++  return SemaRef.MaybeBindToTemporary(NumberLiteral);
+ }
+ 
+ ExprResult SemaObjC::ActOnObjCBoolLiteral(SourceLocation AtLoc,
+@@ -507,8 +574,9 @@ static ExprResult CheckObjCCollectionLiteralElement(Sema &S, Expr *Element,
+ ExprResult SemaObjC::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+   ASTContext &Context = getASTContext();
+   if (ValueExpr->isTypeDependent()) {
+-    ObjCBoxedExpr *BoxedExpr =
+-      new (Context) ObjCBoxedExpr(ValueExpr, Context.DependentTy, nullptr, SR);
++    ObjCBoxedExpr *BoxedExpr = new (Context)
++        ObjCBoxedExpr(ValueExpr, Context.DependentTy, nullptr,
++                      /*ExpressibleAsConstantInitializer=*/true, SR);
+     return BoxedExpr;
+   }
+   ObjCMethodDecl *BoxingMethod = nullptr;
+@@ -518,6 +586,10 @@ ExprResult SemaObjC::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+   if (RValue.isInvalid()) {
+     return ExprError();
+   }
++
++  // Check if the runtime supports constant init literals
++  const bool IsConstInitLiteral =
++      CheckObjCNumberExpressionIsConstant(SemaRef, ValueExpr);
+   SourceLocation Loc = SR.getBegin();
+   ValueExpr = RValue.get();
+   QualType ValueType(ValueExpr->getType());
+@@ -550,7 +622,8 @@ ExprResult SemaObjC::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+             if (llvm::isLegalUTF8String(&StrBegin, StrEnd)) {
+               BoxedType = Context.getAttributedType(NullabilityKind::NonNull,
+                   NSStringPointer, NSStringPointer);
+-              return new (Context) ObjCBoxedExpr(CE, BoxedType, nullptr, SR);
++              return new (Context)
++                  ObjCBoxedExpr(CE, BoxedType, nullptr, true, SR);
+             }
+ 
+             Diag(SL->getBeginLoc(), diag::warn_objc_boxing_invalid_utf8_string)
+@@ -633,8 +706,6 @@ ExprResult SemaObjC::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+         break;
+       }
+     }
+-    // FIXME:  Do I need to do anything special with BoolTy expressions?
+-
+     // Look for the appropriate method within NSNumber.
+     BoxingMethod = getNSNumberFactoryMethod(*this, Loc, ValueType);
+     BoxedType = NSNumberPointer;
+@@ -741,22 +812,26 @@ ExprResult SemaObjC::BuildObjCBoxedExpr(SourceRange SR, Expr *ValueExpr) {
+     InitializedEntity IE = InitializedEntity::InitializeTemporary(ValueType);
+     ConvertedValueExpr = SemaRef.PerformCopyInitialization(
+         IE, ValueExpr->getExprLoc(), ValueExpr);
+-  } else {
++    if (ConvertedValueExpr.isInvalid())
++      return ExprError();
++
++    ValueExpr = ConvertedValueExpr.get();
++  } else if (BoxingMethod->parameters().size() > 0) {
+     // Convert the expression to the type that the parameter requires.
+     ParmVarDecl *ParamDecl = BoxingMethod->parameters()[0];
+     InitializedEntity IE = InitializedEntity::InitializeParameter(Context,
+                                                                   ParamDecl);
+     ConvertedValueExpr =
+         SemaRef.PerformCopyInitialization(IE, SourceLocation(), ValueExpr);
++    if (ConvertedValueExpr.isInvalid())
++      return ExprError();
++
++    ValueExpr = ConvertedValueExpr.get();
+   }
+ 
+-  if (ConvertedValueExpr.isInvalid())
+-    return ExprError();
+-  ValueExpr = ConvertedValueExpr.get();
++  ObjCBoxedExpr *BoxedExpr = new (Context)
++      ObjCBoxedExpr(ValueExpr, BoxedType, BoxingMethod, IsConstInitLiteral, SR);
+ 
+-  ObjCBoxedExpr *BoxedExpr =
+-    new (Context) ObjCBoxedExpr(ValueExpr, BoxedType,
+-                                      BoxingMethod, SR);
+   return SemaRef.MaybeBindToTemporary(BoxedExpr);
+ }
+ 
+@@ -876,6 +951,24 @@ ExprResult SemaObjC::BuildObjCArrayLiteral(SourceRange SR,
+   QualType ObjectsType = ArrayWithObjectsMethod->parameters()[0]->getType();
+   QualType RequiredType = ObjectsType->castAs<PointerType>()->getPointeeType();
+ 
++  const LangOptions &LangOpts = getLangOpts();
++
++  bool ExpressibleAsConstantInitLiteral = LangOpts.ConstantNSArrayLiterals;
++
++  // ExpressibleAsConstantInitLiteral isn't meaningful for dependent literals.
++  if (ExpressibleAsConstantInitLiteral &&
++      llvm::any_of(Elements,
++                   [](Expr *Elem) { return Elem->isValueDependent(); }))
++    ExpressibleAsConstantInitLiteral = false;
++
++  // We can stil emit a constant empty array
++  if (LangOpts.ObjCConstantLiterals && Elements.size() == 0) {
++    assert(LangOpts.ObjCRuntime.hasConstantEmptyCollections() &&
++           "The current ABI doesn't support an empty constant NSArray "
++           "singleton!");
++    ExpressibleAsConstantInitLiteral = true;
++  }
++
+   // Check that each of the elements provided is valid in a collection literal,
+   // performing conversions as necessary.
+   Expr **ElementsBuffer = Elements.data();
+@@ -886,14 +979,24 @@ ExprResult SemaObjC::BuildObjCArrayLiteral(SourceRange SR,
+       return ExprError();
+ 
+     ElementsBuffer[I] = Converted.get();
++
++    // Only allow actual literals and not references to other constant literals
++    // to be in constant collections since they *could* be modified / reassigned
++    if (ExpressibleAsConstantInitLiteral &&
++        (!isa<ObjCObjectLiteral>(ElementsBuffer[I]->IgnoreImpCasts()) ||
++         !ElementsBuffer[I]->isConstantInitializer(Context, false)))
++      ExpressibleAsConstantInitLiteral = false;
+   }
+ 
+   QualType Ty
+     = Context.getObjCObjectPointerType(
+                                     Context.getObjCInterfaceType(NSArrayDecl));
+ 
+-  return SemaRef.MaybeBindToTemporary(ObjCArrayLiteral::Create(
+-      Context, Elements, Ty, ArrayWithObjectsMethod, SR));
++  auto *ArrayLiteral =
++      ObjCArrayLiteral::Create(Context, Elements, Ty, ArrayWithObjectsMethod,
++                               ExpressibleAsConstantInitLiteral, SR);
++
++  return SemaRef.MaybeBindToTemporary(ArrayLiteral);
+ }
+ 
+ /// Check for duplicate keys in an ObjC dictionary literal. For instance:
+@@ -1086,6 +1189,28 @@ ExprResult SemaObjC::BuildObjCDictionaryLiteral(
+   // Check that each of the keys and values provided is valid in a collection
+   // literal, performing conversions as necessary.
+   bool HasPackExpansions = false;
++
++  const LangOptions &LangOpts = getLangOpts();
++
++  bool ExpressibleAsConstantInitLiteral = LangOpts.ConstantNSDictionaryLiterals;
++
++  // ExpressibleAsConstantInitLiteral isn't meaningful for dependent dictionary
++  // literals.
++  for (ObjCDictionaryElement &Elem : Elements) {
++    if (!ExpressibleAsConstantInitLiteral)
++      break;
++    if (Elem.Key->isValueDependent() || Elem.Value->isValueDependent())
++      ExpressibleAsConstantInitLiteral = false;
++  }
++
++  // We can stil emit a constant empty dictionary.
++  if (LangOpts.ObjCConstantLiterals && Elements.size() == 0) {
++    assert(LangOpts.ObjCRuntime.hasConstantEmptyCollections() &&
++           "The current ABI doesn't support an empty constant NSDictionary "
++           "singleton!");
++    ExpressibleAsConstantInitLiteral = true;
++  }
++
+   for (ObjCDictionaryElement &Element : Elements) {
+     // Check the key.
+     ExprResult Key =
+@@ -1102,6 +1227,22 @@ ExprResult SemaObjC::BuildObjCDictionaryLiteral(
+     Element.Key = Key.get();
+     Element.Value = Value.get();
+ 
++    if (ExpressibleAsConstantInitLiteral &&
++        !Element.Key->isConstantInitializer(Context, false))
++      ExpressibleAsConstantInitLiteral = false;
++
++    // Only support string keys like plists
++    if (ExpressibleAsConstantInitLiteral &&
++        !isa<ObjCStringLiteral>(Element.Key->IgnoreImpCasts()))
++      ExpressibleAsConstantInitLiteral = false;
++
++    // Only allow actual literals and not references to other constant literals
++    // to be in constant collections since they *could* be modified / reassigned
++    if (ExpressibleAsConstantInitLiteral &&
++        (!isa<ObjCObjectLiteral>(Element.Value->IgnoreImpCasts()) ||
++         !Element.Value->isConstantInitializer(Context, false)))
++      ExpressibleAsConstantInitLiteral = false;
++
+     if (Element.EllipsisLoc.isInvalid())
+       continue;
+ 
+@@ -1120,11 +1261,13 @@ ExprResult SemaObjC::BuildObjCDictionaryLiteral(
+   QualType Ty = Context.getObjCObjectPointerType(
+       Context.getObjCInterfaceType(NSDictionaryDecl));
+ 
+-  auto *Literal =
+-      ObjCDictionaryLiteral::Create(Context, Elements, HasPackExpansions, Ty,
+-                                    DictionaryWithObjectsMethod, SR);
+-  CheckObjCDictionaryLiteralDuplicateKeys(SemaRef, Literal);
+-  return SemaRef.MaybeBindToTemporary(Literal);
++  auto *DictionaryLiteral = ObjCDictionaryLiteral::Create(
++      Context, Elements, HasPackExpansions, Ty, DictionaryWithObjectsMethod,
++      ExpressibleAsConstantInitLiteral, SR);
++
++  CheckObjCDictionaryLiteralDuplicateKeys(SemaRef, DictionaryLiteral);
++
++  return SemaRef.MaybeBindToTemporary(DictionaryLiteral);
+ }
+ 
+ ExprResult SemaObjC::BuildObjCEncodeExpression(SourceLocation AtLoc,
+@@ -3571,15 +3714,32 @@ namespace {
+       return ACC_invalid;
+     }
+ 
+-    /// Objective-C string literals can be safely casted.
+-    ACCResult VisitObjCStringLiteral(ObjCStringLiteral *e) {
++    /// Constant initializer Objective-C literals can be safely casted.
++    ACCResult VisitObjCObjectLiteral(ObjCObjectLiteral *OL) {
+       // If we're casting to any retainable type, go ahead.  Global
+-      // strings are immune to retains, so this is bottom.
+-      if (isAnyRetainable(TargetClass)) return ACC_bottom;
++      // strings and constant literals are immune to retains, so this is bottom.
++      if (OL->isGlobalAllocation() || isAnyRetainable(TargetClass))
++        return ACC_bottom;
+ 
+       return ACC_invalid;
+     }
+ 
++    ACCResult VisitObjCStringLiteral(ObjCStringLiteral *SL) {
++      return VisitObjCObjectLiteral(SL);
++    }
++
++    ACCResult VisitObjCBoxedExpr(ObjCBoxedExpr *OBE) {
++      return VisitObjCObjectLiteral(OBE);
++    }
++
++    ACCResult VisitObjCArrayLiteral(ObjCArrayLiteral *AL) {
++      return VisitObjCObjectLiteral(AL);
++    }
++
++    ACCResult VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *DL) {
++      return VisitObjCObjectLiteral(DL);
++    }
++
+     /// Look through certain implicit and explicit casts.
+     ACCResult VisitCastExpr(CastExpr *e) {
+       switch (e->getCastKind()) {
+diff --git a/clang/lib/Serialization/ASTReaderStmt.cpp b/clang/lib/Serialization/ASTReaderStmt.cpp
+index 5d464cfc..16f7f6dc 100644
+--- a/clang/lib/Serialization/ASTReaderStmt.cpp
++++ b/clang/lib/Serialization/ASTReaderStmt.cpp
+@@ -108,6 +108,10 @@ namespace clang {
+     /// itself.
+     static const unsigned NumExprFields = NumStmtFields + 2;
+ 
++    /// The number of record fields required for the ObjCObjectLiteral class
++    /// itself (Expr fields + isExpressibleAsConstantInitializer).
++    static const unsigned NumObjCObjectLiteralFields = NumExprFields + 1;
++
+     /// The number of bits required for the packing bits for the Expr class.
+     static const unsigned NumExprBits = 10;
+ 
+@@ -1455,14 +1459,19 @@ void ASTStmtReader::VisitAtomicExpr(AtomicExpr *E) {
+ //===----------------------------------------------------------------------===//
+ // Objective-C Expressions and Statements
+ 
+-void ASTStmtReader::VisitObjCStringLiteral(ObjCStringLiteral *E) {
++void ASTStmtReader::VisitObjCObjectLiteral(ObjCObjectLiteral *E) {
+   VisitExpr(E);
++  E->setExpressibleAsConstantInitializer(Record.readInt());
++}
++
++void ASTStmtReader::VisitObjCStringLiteral(ObjCStringLiteral *E) {
++  VisitObjCObjectLiteral(E);
+   E->setString(cast<StringLiteral>(Record.readSubStmt()));
+   E->setAtLoc(readSourceLocation());
+ }
+ 
+ void ASTStmtReader::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   // could be one of several IntegerLiteral, FloatLiteral, etc.
+   E->SubExpr = Record.readSubStmt();
+   E->BoxingMethod = readDeclAs<ObjCMethodDecl>();
+@@ -1470,7 +1479,7 @@ void ASTStmtReader::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+ }
+ 
+ void ASTStmtReader::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   unsigned NumElements = Record.readInt();
+   assert(NumElements == E->getNumElements() && "Wrong number of elements");
+   Expr **Elements = E->getElements();
+@@ -1481,7 +1490,7 @@ void ASTStmtReader::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+ }
+ 
+ void ASTStmtReader::VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   unsigned NumElements = Record.readInt();
+   assert(NumElements == E->getNumElements() && "Wrong number of elements");
+   bool HasPackExpansions = Record.readInt();
+@@ -3529,14 +3538,14 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
+       break;
+ 
+     case EXPR_OBJC_ARRAY_LITERAL:
+-      S = ObjCArrayLiteral::CreateEmpty(Context,
+-                                        Record[ASTStmtReader::NumExprFields]);
++      S = ObjCArrayLiteral::CreateEmpty(
++          Context, Record[ASTStmtReader::NumObjCObjectLiteralFields]);
+       break;
+ 
+     case EXPR_OBJC_DICTIONARY_LITERAL:
+-      S = ObjCDictionaryLiteral::CreateEmpty(Context,
+-            Record[ASTStmtReader::NumExprFields],
+-            Record[ASTStmtReader::NumExprFields + 1]);
++      S = ObjCDictionaryLiteral::CreateEmpty(
++          Context, Record[ASTStmtReader::NumObjCObjectLiteralFields],
++          Record[ASTStmtReader::NumObjCObjectLiteralFields + 1]);
+       break;
+ 
+     case EXPR_OBJC_ENCODE:
+diff --git a/clang/lib/Serialization/ASTWriterStmt.cpp b/clang/lib/Serialization/ASTWriterStmt.cpp
+index ef7762ad..d139468e 100644
+--- a/clang/lib/Serialization/ASTWriterStmt.cpp
++++ b/clang/lib/Serialization/ASTWriterStmt.cpp
+@@ -1409,15 +1409,20 @@ void ASTStmtWriter::VisitAtomicExpr(AtomicExpr *E) {
+ // Objective-C Expressions and Statements.
+ //===----------------------------------------------------------------------===//
+ 
+-void ASTStmtWriter::VisitObjCStringLiteral(ObjCStringLiteral *E) {
++void ASTStmtWriter::VisitObjCObjectLiteral(ObjCObjectLiteral *E) {
+   VisitExpr(E);
++  Record.push_back(E->isExpressibleAsConstantInitializer());
++}
++
++void ASTStmtWriter::VisitObjCStringLiteral(ObjCStringLiteral *E) {
++  VisitObjCObjectLiteral(E);
+   Record.AddStmt(E->getString());
+   Record.AddSourceLocation(E->getAtLoc());
+   Code = serialization::EXPR_OBJC_STRING_LITERAL;
+ }
+ 
+ void ASTStmtWriter::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   Record.AddStmt(E->getSubExpr());
+   Record.AddDeclRef(E->getBoxingMethod());
+   Record.AddSourceRange(E->getSourceRange());
+@@ -1425,7 +1430,7 @@ void ASTStmtWriter::VisitObjCBoxedExpr(ObjCBoxedExpr *E) {
+ }
+ 
+ void ASTStmtWriter::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   Record.push_back(E->getNumElements());
+   for (unsigned i = 0; i < E->getNumElements(); i++)
+     Record.AddStmt(E->getElement(i));
+@@ -1435,7 +1440,7 @@ void ASTStmtWriter::VisitObjCArrayLiteral(ObjCArrayLiteral *E) {
+ }
+ 
+ void ASTStmtWriter::VisitObjCDictionaryLiteral(ObjCDictionaryLiteral *E) {
+-  VisitExpr(E);
++  VisitObjCObjectLiteral(E);
+   Record.push_back(E->getNumElements());
+   Record.push_back(E->HasPackExpansions);
+   for (unsigned i = 0; i < E->getNumElements(); i++) {
+diff --git a/clang/test/CodeGenObjC/Inputs/constant-literal-support.h b/clang/test/CodeGenObjC/Inputs/constant-literal-support.h
+new file mode 100644
+index 00000000..4c9d82d2
+--- /dev/null
++++ b/clang/test/CodeGenObjC/Inputs/constant-literal-support.h
+@@ -0,0 +1,78 @@
++#ifndef OBJC_CONSTANT_LITERAL_SUPPORT_H
++#define OBJC_CONSTANT_LITERAL_SUPPORT_H
++
++typedef unsigned long NSUInteger;
++typedef long NSInteger;
++typedef signed char BOOL;
++
++@protocol NSCopying
++@end
++
++@interface NSNumber <NSCopying>
+++ (NSNumber *)numberWithChar:(char)value;
+++ (NSNumber *)numberWithUnsignedChar:(unsigned char)value;
+++ (NSNumber *)numberWithShort:(short)value;
+++ (NSNumber *)numberWithUnsignedShort:(unsigned short)value;
+++ (NSNumber *)numberWithInt:(int)value;
+++ (NSNumber *)numberWithUnsignedInt:(unsigned int)value;
+++ (NSNumber *)numberWithLong:(long)value;
+++ (NSNumber *)numberWithUnsignedLong:(unsigned long)value;
+++ (NSNumber *)numberWithLongLong:(long long)value;
+++ (NSNumber *)numberWithUnsignedLongLong:(unsigned long long)value;
+++ (NSNumber *)numberWithFloat:(float)value;
+++ (NSNumber *)numberWithDouble:(double)value;
+++ (NSNumber *)numberWithBool:(BOOL)value;
+++ (NSNumber *)numberWithInteger:(NSInteger)value;
+++ (NSNumber *)numberWithUnsignedInteger:(NSUInteger)value;
++@end
++
++@interface NSArray
+++ (id)arrayWithObjects:(const id _Nonnull[_Nonnull])objects
++                 count:(NSUInteger)cnt;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects
++                    forKeys:(const id<NSCopying>[])keys
++                      count:(NSUInteger)cnt;
++@end
++
++@interface NSString <NSCopying>
++@end
++
++@interface NSConstantIntegerNumber : NSNumber {
++@public
++  char const *const _encoding;
++  long long const _value;
++}
++@end
++
++@interface NSConstantFloatNumber : NSNumber {
++@public
++  float const _value;
++}
++@end
++
++@interface NSConstantDoubleNumber : NSNumber {
++@public
++  double const _value;
++}
++@end
++
++@interface NSConstantArray : NSArray {
++@public
++  unsigned long long const _count;
++  id const *const _objects;
++}
++@end
++
++@interface NSConstantDictionary : NSDictionary {
++@public
++  unsigned int const _hashOptions;
++  unsigned int const _count;
++  id const *const _keys;
++  id const *const _objects;
++}
++@end
++
++#endif // OBJC_CONSTANT_LITERAL_SUPPORT_H
+diff --git a/clang/test/CodeGenObjC/arc-constant-literals.m b/clang/test/CodeGenObjC/arc-constant-literals.m
+new file mode 100644
+index 00000000..c679c239
+--- /dev/null
++++ b/clang/test/CodeGenObjC/arc-constant-literals.m
+@@ -0,0 +1,100 @@
++// RUN: %clang_cc1 -I %S/Inputs -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -emit-llvm -fblocks -fobjc-arc -fobjc-runtime-has-weak -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -O2 -disable-llvm-passes -o - %s | FileCheck %s
++
++#include "literal-support.h"
++
++#if __has_feature(objc_constant_literals)
++
++#if __has_feature(objc_bool)
++#define YES __objc_yes
++#define NO __objc_no
++#else
++#define YES ((BOOL)1)
++#define NO ((BOOL)0)
++#endif
++
++// Check that the constant classes were picked and emitted
++// CHECK: %struct.__builtin_NSDictionary = type { ptr, i64, i64, ptr, ptr }
++// CHECK: %struct.__builtin_NSConstantIntegerNumber = type { ptr, ptr, i64 }
++// CHECK: %struct.__builtin_NSArray = type { ptr, i64, ptr }
++// CHECK: %struct.__builtin_NSConstantDoubleNumber = type { ptr, double }
++// CHECK: %struct.__builtin_NSConstantFloatNumber = type { ptr, float }
++
++// Ensure we're able to use literals at global scope
++
++// CHECK: @"OBJC_CLASS_$_NSConstantDictionary" = external global %struct._class_t
++// CHECK: @_unnamed_array_storage = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.3 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_.2], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_ = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 1, ptr @_unnamed_array_storage, ptr @_unnamed_array_storage.3 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8
++// CHECK: @dict = global ptr @_unnamed_nsdictionary_, align 8
++NSDictionary *dict = @{@"fast food" : @"burger"};
++
++// CHECK: @"OBJC_CLASS_$_NSConstantIntegerNumber" = external global %struct._class_t
++// CHECK: @.str.4 = private unnamed_addr constant [2 x i8] c"i\00", align 1
++// CHECK: @_unnamed_nsconstantintegernumber_ = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.4, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++// CHECK: @__kCFBooleanTrue = external global ptr
++// CHECK: @"OBJC_CLASS_$_NSConstantArray" = external global %struct._class_t
++// CHECK: @_unnamed_array_storage.5 = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_nsconstantintegernumber_, ptr @__kCFBooleanTrue], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsarray_ = private constant %struct.__builtin_NSArray { ptr @"OBJC_CLASS_$_NSConstantArray", i64 2, ptr @_unnamed_array_storage.5 }, section "__DATA,__objc_arrayobj,regular,no_dead_strip", align 8
++// CHECK: @arr = global ptr @_unnamed_nsarray_, align 8
++NSArray *arr = @[ @42, @YES ];
++
++// CHECK: @"OBJC_CLASS_$_NSConstantDoubleNumber" = external global %struct._class_t
++// CHECK: @_unnamed_nsconstantdoublenumber_ = private constant %struct.__builtin_NSConstantDoubleNumber { ptr @"OBJC_CLASS_$_NSConstantDoubleNumber", double 6.000000e+00 }, section "__DATA,__objc_doubleobj,regular,no_dead_strip", align 8
++// CHECK: @num = global ptr @_unnamed_nsconstantdoublenumber_, align 8
++NSNumber *num = @(2 + 4.0);
++
++// CHECK: @_unnamed_nsconstantintegernumber_.6 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.4, i64 17 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsconstantintegernumber_.8 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.7, i64 25 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsconstantintegernumber_.10 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.9, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsconstantintegernumber_.12 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.11, i64 97 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++
++// Check globals are emitted for test_array
++// CHECK: @_unnamed_array_storage.15 = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_cfstring_.14, ptr @_unnamed_nsconstantintegernumber_], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsarray_.16 = private constant %struct.__builtin_NSArray { ptr @"OBJC_CLASS_$_NSConstantArray", i64 2, ptr @_unnamed_array_storage.15 }, section "__DATA,__objc_arrayobj,regular,no_dead_strip", align 8
++
++// Check globals are emitted for test_dictionary
++// CHECK: @"OBJC_CLASS_$_NSConstantFloatNumber" = external global %struct._class_t
++// CHECK: @_unnamed_nsconstantfloatnumber_ = private constant %struct.__builtin_NSConstantFloatNumber { ptr @"OBJC_CLASS_$_NSConstantFloatNumber", float 2.200000e+01 }, section "__DATA,__objc_floatobj,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.27 = internal unnamed_addr constant [3 x ptr] [ptr @_unnamed_cfstring_.18, ptr @_unnamed_cfstring_.26, ptr @_unnamed_cfstring_.22], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.28 = internal unnamed_addr constant [3 x ptr] [ptr @_unnamed_cfstring_.20, ptr @_unnamed_nsconstantfloatnumber_, ptr @_unnamed_cfstring_.24], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.29 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 3, ptr @_unnamed_array_storage.27, ptr @_unnamed_array_storage.28 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8
++
++// CHECK: @_unnamed_nsconstantintegernumber_.30 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.9, i64 -1 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.31 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_nsconstantintegernumber_.30], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsarray_.32 = private constant %struct.__builtin_NSArray { ptr @"OBJC_CLASS_$_NSConstantArray", i64 1, ptr @_unnamed_array_storage.31 }, section "__DATA,__objc_arrayobj,regular,no_dead_strip", align 8
++
++// CHECK-LABEL: define void @test_numeric()
++void test_numeric() {
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsconstantintegernumber_.6)
++  id ilit = @17;
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsconstantintegernumber_.8)
++  id ulit = @25u;
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsconstantintegernumber_.10)
++  id ulllit = @42ull;
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsconstantintegernumber_.12)
++  id charlit = @'a';
++}
++
++// CHECK-LABEL: define void @test_array
++void test_array(id a, id b) {
++
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsarray_.16)
++  id arr = @[ @"meaningOfLife", @42 ];
++}
++
++// CHECK-LABEL: define void @test_dictionary
++void test_dictionary(id k1, id o1, id k2, id o2) {
++
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsdictionary_.29)
++  id dict = @{@"fruit" : @"apple",
++              @"vegetable" : @"carrot",
++              @"number" : @22.0f};
++}
++
++// CHECK-LABEL: define void @test_int64array(
++void test_int64array() {
++  // CHECK: call ptr @llvm.objc.retain(ptr @_unnamed_nsarray_.32)
++  id arr = @[@(0xFFFFFFFFFFFFFFFF)];
++}
++
++#endif
+diff --git a/clang/test/CodeGenObjC/no-nsconstant-literals.m b/clang/test/CodeGenObjC/no-nsconstant-literals.m
+new file mode 100644
+index 00000000..8a10869f
+--- /dev/null
++++ b/clang/test/CodeGenObjC/no-nsconstant-literals.m
+@@ -0,0 +1,101 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx10.14.0 -fobjc-runtime=macosx-10.14.0 -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-ALL-DISABLED %s
++
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-ALL-DISABLED-CONST-ON %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-NUMBERS-DISABLED %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-DICT-DISABLED %s
++
++#if __has_feature(objc_bool)
++#define YES __objc_yes
++#define NO __objc_no
++#else
++#define YES ((BOOL)1)
++#define NO ((BOOL)0)
++#endif
++
++#include "constant-literal-support.h"
++
++// CHECK-ALL-DISABLED: @__NSArray0__ = external global ptr
++// CHECK-ALL-DISABLED: @__NSDictionary0__ = external global ptr
++// CHECK-ALL-DISABLED-CONST-ON: @__kCFBooleanTrue = external global ptr
++// CHECK-ALL-DISABLED-CONST-ON: @__NSArray0__struct = external global ptr
++// CHECK-ALL-DISABLED-CONST-ON: @__NSDictionary0__struct = external global ptr
++// CHECK-NUMBERS-DISABLED: @__kCFBooleanTrue = external global ptr
++// CHECK-NUMBERS-DISABLED: @__NSArray0__struct = external global ptr
++// CHECK-NUMBERS-DISABLED: @__NSDictionary0__struct = external global ptr
++// CHECK-DICT-DISABLED: __kCFBooleanTrue = external global ptr
++// CHECK-DICT-DISABLED: __NSArray0__struct = external global ptr
++// CHECK-DICT-DISABLED: __NSDictionary0__struct = external global ptr
++
++int main() {
++
++  // CHECK-ALL-DISABLED: %[[V0:.*]] = getelementptr inbounds [1 x ptr], ptr %keys, i64 0, i64 0
++  // CHECK-ALL-DISABLED: store ptr @_unnamed_cfstring_, ptr %[[V0]], align 8
++  // CHECK-ALL-DISABLED: getelementptr inbounds [1 x ptr], ptr %objects, i64 0, i64 0
++  // CHECK-ALL-DISABLED: load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V0:.*]] = getelementptr inbounds [1 x ptr], ptr %keys, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_, ptr %[[V0]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V1:.*]] = getelementptr inbounds [1 x ptr], ptr %objects, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @__kCFBooleanTrue, ptr %[[V1]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V2:.*]] = load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V3:.*]] = load ptr, ptr @OBJC_SELECTOR_REFERENCES_, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[CALL:.*]] = call ptr @objc_msgSend(ptr %[[V2]], ptr %[[V3]], ptr %objects, ptr %keys, i64 1)
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr %[[CALL]], ptr %wootwootDict1, align 8
++  // CHECK-DICT-DISABLED: __kCFBooleanTrue
++  NSDictionary *const wootwootDict1 = @{@"name" : @(YES)};
++
++
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V4:.*]] = getelementptr inbounds [1 x ptr], ptr %keys2, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_, ptr %[[V4]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V5:.*]] = getelementptr inbounds [1 x ptr], ptr %objects1, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V6:.*]] = load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_.1", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V7:.*]] = load ptr, ptr @OBJC_SELECTOR_REFERENCES_.3, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[CALL3:.*]] = call ptr @objc_msgSend(ptr %[[V6]], ptr %[[V7]], i32 1001)
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr %[[CALL3]], ptr %[[V5]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V8:.*]] = load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V9:.*]] = load ptr, ptr @OBJC_SELECTOR_REFERENCES_, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[CALL4:.*]] = call ptr @objc_msgSend(ptr %[[V8]], ptr %[[V9]], ptr %objects1, ptr %keys2, i64 1)
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr %[[CALL4]], ptr %wootwootDict2, align 8
++  // CHECK-DICT-DISABLED: @_unnamed_nsconstantintegernumber_
++  // CHECK-NUMBERS-DISABLED: @objc_msgSend
++  NSDictionary *wootwootDict2 = @{@"name" : @(1001)};
++
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V10:.*]] = getelementptr inbounds [3 x ptr], ptr %objects5, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_.5, ptr %[[V10]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V11:.*]] = getelementptr inbounds [3 x ptr], ptr %objects5, i64 0, i64 1
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_.7, ptr %[[V11]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V12:.*]] = getelementptr inbounds [3 x ptr], ptr %objects5, i64 0, i64 2
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_.9, ptr %[[V12]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V13:.*]] = load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_.10", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V14:.*]] = load ptr, ptr @OBJC_SELECTOR_REFERENCES_.12, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[CALL6:.*]] = call ptr @objc_msgSend(ptr %[[V13]], ptr %[[V14]], ptr %objects5, i64 3)
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr %[[CALL6]], ptr %hollahollaArray1, align 8
++  // CHECK-NUMBERS-DISABLED: store ptr @_unnamed_nsarray_, ptr %hollahollaArray1, align 8
++  NSArray *const hollahollaArray1 = @[ @"At", @"Your", @"Boy" ];
++
++  // CHECK-DICT-DISABLED: store ptr @_unnamed_nsarray_.9, ptr %hollahollaArray2, align 8
++  // CHECK-NUMBERS-DISABLED: store ptr @_unnamed_nsarray_.13, ptr %hollahollaArray2, align 8
++  NSArray *hollahollaArray2 = @[ @"At", @"Your", @"Boy" ];
++
++  // We still expect the empty collection singletons to be used so long as the target supports them but not if disabled
++  // CHECK-ALL-DISABLED: load ptr, ptr @__NSArray0__, align 8
++  // CHECK-ALL-DISABLED: store ptr %{{.*}}, ptr %emptyArray1, align 8
++  // CHECK-ALL-DISABLED: load ptr, ptr @__NSDictionary0__, align 8
++  // CHECK-ALL-DISABLED: store ptr %{{.*}}, ptr %emptyDictionary1, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @__NSArray0__struct, ptr %emptyArray1, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @__NSDictionary0__struct, ptr %emptyDictionary1, align 8
++  NSArray *emptyArray1 = @[];
++  NSDictionary *emptyDictionary1 = @{};
++
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V20:.*]] = getelementptr inbounds [1 x ptr], ptr %keys10, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @__kCFBooleanTrue, ptr %[[V20]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V21:.*]] = getelementptr inbounds [1 x ptr], ptr %objects9, i64 0, i64 0
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr @_unnamed_cfstring_.14, ptr %[[V21]], align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V22:.*]] = load ptr, ptr @"OBJC_CLASSLIST_REFERENCES_$_", align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[V23:.*]] = load ptr, ptr @OBJC_SELECTOR_REFERENCES_, align 8
++  // CHECK-ALL-DISABLED-CONST-ON: %[[CALL11:.*]] = call ptr @objc_msgSend(ptr %[[V22]], ptr %[[V23]], ptr %objects9, ptr %keys10, i64 1)
++  // CHECK-ALL-DISABLED-CONST-ON: store ptr %[[CALL11]], ptr %nonPlistTypeDict, align 8
++  // CHECK-DICT-DISABLED: __kCFBooleanTrue
++  NSDictionary *const nonPlistTypeDict = @{@YES : @"no"};
++
++  return 0;
++}
+diff --git a/clang/test/CodeGenObjC/objc2-constant-collection-literals.m b/clang/test/CodeGenObjC/objc2-constant-collection-literals.m
+new file mode 100644
+index 00000000..acc9004f
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc2-constant-collection-literals.m
+@@ -0,0 +1,122 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -x objective-c++ -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++
++#if __has_feature(objc_constant_literals)
++
++#if __has_feature(objc_bool)
++#define YES __objc_yes
++#define NO __objc_no
++#else
++#define YES ((BOOL)1)
++#define NO ((BOOL)0)
++#endif
++
++#include "constant-literal-support.h"
++
++// CHECK: %struct.__builtin_NSDictionary = type { ptr, i64, i64, ptr, ptr }
++// CHECK: %struct.__builtin_NSArray = type { ptr, i64, ptr }
++
++/// This is only for reference if the sorting changes... (see the dictionary checks below)
++// CHECK: @.str = private unnamed_addr constant [6 x i8] c"zebra\00", section "__TEXT,__cstring,cstring_literals", align 1
++// CHECK: @_unnamed_cfstring_ = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 1992, ptr @.str, i64 5 }, section "__DATA,__cfstring", align 8 #[[ATTR0:[0-9+]]]
++// CHECK: @.str.2 = private unnamed_addr constant [6 x i8] c"horse\00", section "__TEXT,__cstring,cstring_literals", align 1
++// CHECK: @_unnamed_cfstring_.3 = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 1992, ptr @.str.2, i64 5 }, section "__DATA,__cfstring", align 8 #[[ATTR0]]
++// CHECK: @.str.5 = private unnamed_addr constant [5 x i8] c"bear\00", section "__TEXT,__cstring,cstring_literals", align 1
++// CHECK: @_unnamed_cfstring_.6 = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 1992, ptr @.str.5, i64 4 }, section "__DATA,__cfstring", align 8 #[[ATTR0]]
++// CHECK: @.str.8 = private unnamed_addr constant [6 x i8] c"apple\00", section "__TEXT,__cstring,cstring_literals", align 1
++// CHECK: @_unnamed_cfstring_.9 = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 1992, ptr @.str.8, i64 5 }, section "__DATA,__cfstring", align 8 #[[ATTR0]]
++// CHECK: @"OBJC_CLASS_$_NSConstantDictionary" = external global %struct._class_t
++
++/// This checks that we're sorting things as expected with one not sorted (first check) and the other pre-sorted (second check)
++// CHECK: @_unnamed_array_storage = internal unnamed_addr constant [4 x ptr] [ptr @_unnamed_cfstring_.9, ptr @_unnamed_cfstring_.6, ptr @_unnamed_cfstring_.3, ptr @_unnamed_cfstring_], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_ = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 4, ptr @_unnamed_array_storage, ptr @_unnamed_array_storage.11 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_array_storage.12 = internal unnamed_addr constant [4 x ptr] [ptr @_unnamed_cfstring_.9, ptr @_unnamed_cfstring_.6, ptr @_unnamed_cfstring_.3, ptr @_unnamed_cfstring_], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.14 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 4, ptr @_unnamed_array_storage.12, ptr @_unnamed_array_storage.13 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++
++// CHECK: @_unnamed_array_storage.18 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_.16], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.19 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_nsconstantintegernumber_.17], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.20 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 1, ptr @_unnamed_array_storage.18, ptr @_unnamed_array_storage.19 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_array_storage.21 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_.16], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.22 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_nsconstantintegernumber_.17], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.23 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 1, ptr @_unnamed_array_storage.21, ptr @_unnamed_array_storage.22 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_array_storage.24 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_.16], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.25 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_nsconstantintegernumber_.17], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.26 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 1, ptr @_unnamed_array_storage.24, ptr @_unnamed_array_storage.25 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_array_storage.27 = internal unnamed_addr constant [1 x ptr] [ptr @_unnamed_cfstring_.16], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_array_storage.28 = internal unnamed_addr constant [1 x ptr] [ptr @__kCFBooleanTrue], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsdictionary_.29 = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 1, ptr @_unnamed_array_storage.27, ptr @_unnamed_array_storage.28 }, section "__DATA,__objc_dictobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++
++// CHECK: @"OBJC_CLASS_$_NSConstantArray" = external global %struct._class_t
++// CHECK: @_unnamed_array_storage.36 = internal unnamed_addr constant [3 x ptr] [ptr @_unnamed_cfstring_.31, ptr @_unnamed_cfstring_.33, ptr @_unnamed_cfstring_.35], section "__DATA,__objc_arraydata,regular,no_dead_strip", align 8
++// CHECK: @_unnamed_nsarray_ = private constant %struct.__builtin_NSArray { ptr @"OBJC_CLASS_$_NSConstantArray", i64 3, ptr @_unnamed_array_storage.36 }, section "__DATA,__objc_arrayobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @__NSArray0__struct = external global ptr #[[ATTR0]]
++// CHECK: @__NSDictionary0__struct = external global ptr #[[ATTR0]]
++
++// Ensure we're still promoting constant literals even when the collection is downgraded, e.g `@{@NO : @"no"}`
++// CHECK: @__kCFBooleanFalse = external global ptr #[[ATTR0]]
++
++// Ensure we're falling back on the non-plist like dictionary case
++// CHECK: @"OBJC_CLASS_$_NSDictionary" = external global %struct._class_t
++
++/// Dictionary and Array literals now allowed at global scope
++static NSDictionary *const wootwootDict = @{@"name" : @YES, @"apple" : @NO};
++static NSArray *const hollahollaArray = @[ @"At", @"Your", @"Boy" ];
++
++/// Empty Dictionary and Array literals map to global constants
++static NSArray *const emptyArray = @[];
++static NSDictionary *const emptyDictionary = @{};
++
++static NSString *const someStringConstantVar = @"foo";
++static NSNumber *const someNumberConstantVar = @2;
++
++int main() {
++
++  /// Make sure that we're sorting before emitting is sorting string keys as expected.
++  // CHECK: store ptr @_unnamed_nsdictionary_, ptr %alphaSortTestDict, align 8
++  NSDictionary *alphaSortTestDict = @{@"zebra" : @26,
++                                      @"horse" : @8,
++                                      @"bear" : @2,
++                                      @"apple" : @1};
++  // CHECK: store ptr @_unnamed_nsdictionary_.14, ptr %alphaSortTestDict2, align 8
++  NSDictionary *alphaSortTestDict2 = @{@"bear" : @2,
++                                       @"apple" : @1,
++                                       @"horse" : @8,
++                                       @"zebra" : @26};
++
++  // CHECK: store ptr @_unnamed_nsdictionary_.20, ptr %dict, align 8
++  NSDictionary *const dict = @{@"name" : @666};
++  // CHECK: store ptr @_unnamed_nsdictionary_.23, ptr %dict1, align 8
++  NSDictionary *dict1 = @{@"name" : @666};
++  // CHECK: store ptr @_unnamed_nsdictionary_.26, ptr %dict2, align 8
++  NSDictionary *const dict2 = @{@"name" : @666};
++
++  // CHECK: store ptr @_unnamed_nsdictionary_.29, ptr %wootwootDict1, align 8
++  NSDictionary *const wootwootDict1 = @{@"name" : @YES};
++  // CHECK: store ptr @_unnamed_nsarray_, ptr %hollahollaArray1, align 8
++  NSArray *const hollahollaArray1 = @[ @"At", @"Your", @"Boy" ];
++
++  // CHECK: store ptr @__NSArray0__struct, ptr %emptyArray1, align 8
++  NSArray *emptyArray1 = @[];
++  // CHECK: store ptr @__NSDictionary0__struct, ptr %emptyDictionary1, align 8
++  NSDictionary *emptyDictionary1 = @{};
++
++  /// Non String dictionaries should be downgraded to normal types that have an objc_msgSend
++  // CHECK: @objc_msgSend
++  NSDictionary *const nonPlistTypeDict = @{@NO : @"no"};
++
++  /// For now we only support raw literals in collections not references to other varibles that *could* be modified
++  /// so ensure this get's downgraded to a normal runtime literal
++
++  // CHECK: @objc_msgSend
++  NSArray *const nonConstDueToVarReferenceArray = @[ @"baz", someStringConstantVar, someNumberConstantVar ];
++
++  // CHECK: @objc_msgSend
++  NSDictionary *const nonConstDueToVarReferenceDictionary = @{@"baz" : someStringConstantVar, @"blah" : someNumberConstantVar};
++
++  return 0;
++}
++
++// CHECK: attributes #[[ATTR0]] = { "objc_arc_inert" }
++
++#endif
+diff --git a/clang/test/CodeGenObjC/objc2-constant-literal-custom-class.m b/clang/test/CodeGenObjC/objc2-constant-literal-custom-class.m
+new file mode 100644
+index 00000000..f46edf33
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc2-constant-literal-custom-class.m
+@@ -0,0 +1,42 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 \
++// RUN:   -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals \
++// RUN:   -fconstant-nsnumber-literals -fconstant-nsarray-literals \
++// RUN:   -fconstant-nsdictionary-literals \
++// RUN:   -fconstant-integer-number-class=MyIntegerNumber \
++// RUN:   -fconstant-float-number-class=MyFloatNumber \
++// RUN:   -fconstant-double-number-class=MyDoubleNumber \
++// RUN:   -fconstant-array-class=MyArray \
++// RUN:   -fconstant-dictionary-class=MyDictionary \
++// RUN:   -I %S/Inputs -emit-llvm -o - %s | FileCheck %s
++
++#if __has_feature(objc_constant_literals)
++
++#include "constant-literal-support.h"
++
++@interface MyIntegerNumber : NSConstantIntegerNumber
++@end
++@interface MyFloatNumber : NSConstantFloatNumber
++@end
++@interface MyDoubleNumber : NSConstantDoubleNumber
++@end
++@interface MyArray : NSConstantArray
++@end
++@interface MyDictionary : NSConstantDictionary
++@end
++
++// CHECK: @"OBJC_CLASS_$_MyIntegerNumber" = external global %struct._class_t
++// CHECK: @"OBJC_CLASS_$_MyFloatNumber" = external global %struct._class_t
++// CHECK: @"OBJC_CLASS_$_MyDoubleNumber" = external global %struct._class_t
++// CHECK: @"OBJC_CLASS_$_MyArray" = external global %struct._class_t
++// CHECK: @"OBJC_CLASS_$_MyDictionary" = external global %struct._class_t
++
++int main() {
++  NSNumber *i = @42;
++  NSNumber *f = @1.5f;
++  NSNumber *d = @3.14;
++  NSArray *a = @[ @"hello" ];
++  NSDictionary *dict = @{ @"key" : @"value" };
++  return 0;
++}
++
++#endif
+diff --git a/clang/test/CodeGenObjC/objc2-constant-number-literal.m b/clang/test/CodeGenObjC/objc2-constant-number-literal.m
+new file mode 100644
+index 00000000..34736cc1
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc2-constant-number-literal.m
+@@ -0,0 +1,150 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -x objective-c++ -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
++
++#if __has_feature(objc_constant_literals)
++
++#if __has_feature(objc_bool)
++#define YES __objc_yes
++#define NO __objc_no
++#else
++#define YES ((BOOL)1)
++#define NO ((BOOL)0)
++#endif
++
++#include <stdbool.h>
++#define CTrue ((bool)1)
++#define CFalse ((bool)0)
++
++#define NAN __builtin_nanf("0x7fc00000")
++#define INFINITY __builtin_huge_valf()
++
++#include "constant-literal-support.h"
++
++// CHECK: %struct.__builtin_NSConstantIntegerNumber = type { ptr, ptr, i64 }
++// CHECK: %struct.__builtin_NSConstantFloatNumber = type { ptr, float }
++// CHECK: %struct.__builtin_NSConstantDoubleNumber = type { ptr, double }
++
++// CHECK: @_unnamed_nsconstantintegernumber_ = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str, i64 97 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0:[0-9+]]]
++// CHECK: @_unnamed_nsconstantintegernumber_.2 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.1, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_nsconstantintegernumber_.3 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.1, i64 -42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_nsconstantintegernumber_.5 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.4, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_nsconstantintegernumber_.7 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.6, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @_unnamed_nsconstantintegernumber_.8 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.6, i64 42 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @"OBJC_CLASS_$_NSConstantFloatNumber" = external global %struct._class_t
++// CHECK: @_unnamed_nsconstantfloatnumber_ = private constant %struct.__builtin_NSConstantFloatNumber { ptr @"OBJC_CLASS_$_NSConstantFloatNumber", float 0x400921FB60000000 }, section "__DATA,__objc_floatobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @"OBJC_CLASS_$_NSConstantDoubleNumber" = external global %struct._class_t
++// CHECK: @_unnamed_nsconstantdoublenumber_ = private constant %struct.__builtin_NSConstantDoubleNumber { ptr @"OBJC_CLASS_$_NSConstantDoubleNumber", double 0x400921FB54411744 }, section "__DATA,__objc_doubleobj,regular,no_dead_strip", align 8 #[[ATTR0]]
++// CHECK: @__kCFBooleanTrue = external global ptr #0
++// CHECK: @__kCFBooleanFalse = external global ptr #0
++// CHECK: @_unnamed_nsconstantintegernumber_.9 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.1, i64 1 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #0
++// CHECK: @_unnamed_nsconstantintegernumber_.10 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.1, i64 0 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #0
++// CHECK: @_unnamed_nsconstantfloatnumber_.11 = private constant %struct.__builtin_NSConstantFloatNumber { ptr @"OBJC_CLASS_$_NSConstantFloatNumber", float 0x7FF8000000000000 }, section "__DATA,__objc_floatobj,regular,no_dead_strip", align 8 #0
++// CHECK: @_unnamed_nsconstantfloatnumber_.12 = private constant %struct.__builtin_NSConstantFloatNumber { ptr @"OBJC_CLASS_$_NSConstantFloatNumber", float 0x7FF0000000000000 }, section "__DATA,__objc_floatobj,regular,no_dead_strip", align 8 #0
++// CHECK: @_unnamed_nsconstantfloatnumber_.13 = private constant %struct.__builtin_NSConstantFloatNumber { ptr @"OBJC_CLASS_$_NSConstantFloatNumber", float 0xFFF0000000000000 }, section "__DATA,__objc_floatobj,regular,no_dead_strip", align 8 #0
++// NOTE: We expect `@((NSUInteger)2046)` to have an encoding of "Q" or `kCFNumberSInt128Type` on 64bit platforms. Since that isn't a public type `CFNumberType` will detect that and return
++// CHECK: @.str.14 = private unnamed_addr constant [2 x i8] c"Q\00", align 1
++// CHECK: @_unnamed_nsconstantintegernumber_.15 = private constant %struct.__builtin_NSConstantIntegerNumber { ptr @"OBJC_CLASS_$_NSConstantIntegerNumber", ptr @.str.14, i64 2049 }, section "__DATA,__objc_intobj,regular,no_dead_strip", align 8 #0
++// CHECK: @_unnamed_nsconstantdoublenumber_.16 = private constant %struct.__builtin_NSConstantDoubleNumber { ptr @"OBJC_CLASS_$_NSConstantDoubleNumber", double -0.000000e+00 }, section "__DATA,__objc_doubleobj,regular,no_dead_strip", align 8 #0
++
++int main() {
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_, ptr %aNumber, align 8
++  NSNumber *aNumber = @'a';
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_, ptr %aNumber2, align 8
++  NSNumber *aNumber2 = @'a';
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.2, ptr %fortyTwo, align 8
++  NSNumber *fortyTwo = @42;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.3, ptr %negativeFortyTwo, align 8
++  NSNumber *negativeFortyTwo = @-42;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.2, ptr %positiveFortyTwo, align 8
++  NSNumber *positiveFortyTwo = @+42;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.5, ptr %fortyTwoUnsigned, align 8
++  NSNumber *fortyTwoUnsigned = @42u;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.7, ptr %fortyTwoLong, align 8
++  NSNumber *fortyTwoLong = @42l;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.7, ptr %fortyTwoLong2, align 8
++  NSNumber *fortyTwoLong2 = @42l;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.8, ptr %fortyTwoLongLong, align 8
++  NSNumber *fortyTwoLongLong = @42ll;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.8, ptr %fortyTwoLongLong2, align 8
++  NSNumber *fortyTwoLongLong2 = @42ll;
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_, ptr %piFloat, align 8
++  NSNumber *piFloat = @3.141592654f;
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_, ptr %piFloat2, align 8
++  NSNumber *piFloat2 = @3.141592654f;
++
++  // CHECK: store ptr @_unnamed_nsconstantdoublenumber_, ptr %piDouble, align 8
++  NSNumber *piDouble = @3.1415926535;
++
++  // CHECK: store ptr @_unnamed_nsconstantdoublenumber_, ptr %piDouble2, align 8
++  NSNumber *piDouble2 = @3.1415926535;
++
++  // CHECK: store ptr @__kCFBooleanTrue, ptr %yesNumber, align 8
++  NSNumber *yesNumber = @(YES);
++
++  // CHECK: store ptr @__kCFBooleanFalse, ptr %noNumber, align 8
++  NSNumber *noNumber = @(NO);
++
++  // CHECK: store ptr @__kCFBooleanTrue, ptr %yesNumber1, align 8
++  NSNumber *yesNumber1 = @(__objc_yes);
++
++  // CHECK: store ptr @__kCFBooleanFalse, ptr %noNumber1, align 8
++  NSNumber *noNumber1 = @(__objc_no);
++
++  // CHECK: store ptr @__kCFBooleanTrue, ptr %c99BoolNumberTrue, align 8
++  NSNumber *c99BoolNumberTrue = @CTrue;
++
++  // CHECK: store ptr @__kCFBooleanFalse, ptr %c99BoolNumberFalse, align 8
++  NSNumber *c99BoolNumberFalse = @CFalse;
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.9, ptr %trueLikeBoolNumber, align 8
++  NSNumber *trueLikeBoolNumber = @(1);
++
++  // CHECK: store ptr @_unnamed_nsconstantintegernumber_.10, ptr %falseLikeBoolNumber, align 8
++  NSNumber *falseLikeBoolNumber = @(0);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.11, ptr %nanNumber, align 8
++  NSNumber *nanNumber = @(NAN);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.11, ptr %nanNumber2, align 8
++  NSNumber *nanNumber2 = @(NAN);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.12, ptr %infNumber, align 8
++  NSNumber *infNumber = @(INFINITY);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.12, ptr %infNumber2, align 8
++  NSNumber *infNumber2 = @(INFINITY);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.13, ptr %negInfNumber, align 8
++  NSNumber *negInfNumber = @(-INFINITY);
++
++  // CHECK: store ptr @_unnamed_nsconstantfloatnumber_.13, ptr %negInfNumber2, align 8
++  NSNumber *negInfNumber2 = @(-INFINITY);
++
++  // CHECK: @_unnamed_nsconstantintegernumber_.15, ptr %unsginedLongLongQEncoded, align 8
++  NSNumber *unsginedLongLongQEncoded = @((NSUInteger)2049); // NOTE: On 64bit platforms we expect this to have a "Q" encoding, on 32bit we expect this to have a "q" encoding.
++
++  // CHECK: store ptr @_unnamed_nsconstantdoublenumber_.16, ptr %negZero, align 8
++  NSNumber *negZero = @(-0.0);
++
++  // CHECK: store ptr @_unnamed_nsconstantdoublenumber_.16, ptr %negZero2, align 8
++  NSNumber *negZero2 = @(-0.0);
++
++  return 0;
++}
++
++// CHECK: attributes #[[ATTR0]] = { "objc_arc_inert" }
++
++#endif
+diff --git a/clang/test/PCH/objc2_constant_literals.m b/clang/test/PCH/objc2_constant_literals.m
+new file mode 100644
+index 00000000..4337496b
+--- /dev/null
++++ b/clang/test/PCH/objc2_constant_literals.m
+@@ -0,0 +1,71 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -emit-pch -o %t %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -include-pch %t -verify %s
++
++// expected-no-diagnostics
++
++#if __has_feature(objc_constant_literals)
++
++#ifndef HEADER
++#define HEADER
++
++typedef unsigned char BOOL;
++
++@interface NSNumber
++@end
++
++@interface NSNumber (NSNumberCreation)
+++ (NSNumber *)numberWithChar:(char)value;
+++ (NSNumber *)numberWithUnsignedChar:(unsigned char)value;
+++ (NSNumber *)numberWithShort:(short)value;
+++ (NSNumber *)numberWithUnsignedShort:(unsigned short)value;
+++ (NSNumber *)numberWithInt:(int)value;
+++ (NSNumber *)numberWithUnsignedInt:(unsigned int)value;
+++ (NSNumber *)numberWithLong:(long)value;
+++ (NSNumber *)numberWithUnsignedLong:(unsigned long)value;
+++ (NSNumber *)numberWithLongLong:(long long)value;
+++ (NSNumber *)numberWithUnsignedLongLong:(unsigned long long)value;
+++ (NSNumber *)numberWithFloat:(float)value;
+++ (NSNumber *)numberWithDouble:(double)value;
+++ (NSNumber *)numberWithBool:(BOOL)value;
++@end
++
++@interface NSArray
++@end
++
++@interface NSArray (NSArrayCreation)
+++ (id)arrayWithObjects:(const id[])objects count:(unsigned long)cnt;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(unsigned long)cnt;
++@end
++
++static NSNumber *const intlit = @17;
++static NSNumber *const floatlit = @17.45f;
++static NSNumber *const doublelit = @17.45;
++
++static NSDictionary *const dictlit = @{@"hello" : @17,
++                                       @"world" : @17.45};
++static NSDictionary *const dictlitIdentical = @{@"hello" : @17,
++                                                @"world" : @17.45};
++
++static NSArray *const arraylit = @[ @17, @17.45, @17.45f ];
++static NSArray *const arraylitIdentical = @[ @17, @17.45, @17.45f ];
++static NSArray *const arrayWithDictKeys = @[ @"hello", @"world" ];
++
++#else
++void test_all() {
++  NSNumber *a = intlit;
++  NSNumber *b = floatlit;
++  NSNumber *c = doublelit;
++  NSDictionary *d = dictlit;
++  NSDictionary *e = dictlitIdentical;
++  NSArray *f = arraylit;
++  NSArray *g = arraylitIdentical;
++  NSArray *h = arrayWithDictKeys;
++}
++#endif /* ! HEADER */
++
++#else
++#error
++#endif /* ! __has_feature(objc_constant_literals) */
+\ No newline at end of file
+diff --git a/clang/test/SemaObjC/objc-constant-literal-collections.m b/clang/test/SemaObjC/objc-constant-literal-collections.m
+new file mode 100644
+index 00000000..3cc511ac
+--- /dev/null
++++ b/clang/test/SemaObjC/objc-constant-literal-collections.m
+@@ -0,0 +1,41 @@
++// RUN: %clang_cc1  -fsyntax-only -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -verify %s
++
++#if __LP64__ || (TARGET_OS_EMBEDDED && !TARGET_OS_IPHONE) || TARGET_OS_WIN32 || NS_BUILD_32_LIKE_64
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++@class NSString;
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
++@end
++
++@interface NSArray
+++ (id)arrayWithObjects:(const id[])objects count:(NSUInteger)cnt;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++static NSArray *const array = @[ @"Hello", @"There", @"How Are You", [NSNumber numberWithInt:42] ]; // expected-error {{an array literal can only be used at file scope if its contents are all also constant literals}}
++static NSArray *const array1 = @[ @"Hello", @"There", @"How Are You", @42 ];
++static NSDictionary *const dictionary = @{@"Hello" : @"There", @"How Are You" : [NSNumber numberWithInt:42]}; // expected-error {{a dictionary literal can only be used at file scope if its contents are all also constant literals and its keys are string literals}}
++static NSDictionary *const dictionary1 = @{@"Hello" : @"There", @"How Are You" : @42};
++static NSDictionary *const dictionary2 = @{@2 : @"Foo"}; // expected-error {{a dictionary literal can only be used at file scope if its contents are all also constant literals and its keys are string literals}}
++
++/// For now we only support raw literals in collections not references to other varibles that *could* be modified
++/// so ensure this get's downgraded to a normal runtime literal and warns even at the global scope
++static NSString *const someStringConstantVar = @"foo";
++static NSNumber *const someNumberConstantVar = @2;
++static NSArray *const containsConstantVarReferencesArray = @[ someStringConstantVar, someNumberConstantVar ];          // expected-error {{an array literal can only be used at file scope if its contents are all also constant literals}}
++static NSDictionary *const containsConstantVarReferencesDictionary = @{someStringConstantVar : someNumberConstantVar}; // expected-error {{a dictionary literal can only be used at file scope if its contents are all also constant literals and its keys are string literals}}
++static NSDictionary *const containsConstantVarReferencesDictionary2 = @{@"Foo" : someNumberConstantVar};               // expected-error {{a dictionary literal can only be used at file scope if its contents are all also constant literals and its keys are string literals}}
++
++int fooNum() {
++  return 2;
++}
++
++NSNumber *foo = @(2 + fooNum()); // expected-error{{a boxed expression literal can only be used at file scope if constant}}
+diff --git a/clang/test/SemaObjCXX/crash-dict-literal-template.mm b/clang/test/SemaObjCXX/crash-dict-literal-template.mm
+new file mode 100644
+index 00000000..6dde1bb0
+--- /dev/null
++++ b/clang/test/SemaObjCXX/crash-dict-literal-template.mm
+@@ -0,0 +1,29 @@
++// RUN: %clang_cc1 -x objective-c++ -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-12.0.0 -verify %s
++
++// expected-no-diagnostics
++
++typedef unsigned int NSUInteger;
++@interface NSObject
++@end
++@interface NSNumber
+++ numberWithUnsignedLongLong:(unsigned long long)value;
++@end
++@interface NSDictionary<KeyType, ObjectType> : NSObject
+++ dictionaryWithObjects:(ObjectType[_Nullable])objects
++                forKeys:(KeyType[_Nullable])keys
++                  count:(NSUInteger)cnt;
++@end
++
++template <typename T> class C {
++  C() {
++    @{
++      // The GNU statement-expression in a dependent context is always
++      // value-dependent and instantiation-dependent. This produces a
++      // somewhat unusual situation where the NSDictionary key isn't dependent
++      // but the value is.
++      @"key" : @(
++        (({}), ((1ULL))) / 1024 // no-crash
++      )
++    };
++  }
++};

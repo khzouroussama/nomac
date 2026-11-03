@@ -1,0 +1,18 @@
+--- a/cctools/misc/strip.c
++++ b/cctools/misc/strip.c
+@@ -779,7 +779,6 @@
+ 		     toc64flag,
+ #endif
+ 		     FALSE, deterministic_archives, NULL);
+-	    FAKE_SIGN_ARM_BINARY(archs, narchs, output_file); /* cctools-port */
+ 	}
+ 	else{
+ 	    unix_standard_mode = get_unix_standard_mode();
+@@ -838,7 +837,6 @@
+ 		     toc64flag,
+ #endif
+ 		     FALSE, deterministic_archives, NULL);
+-	    FAKE_SIGN_ARM_BINARY(archs, narchs, output_file); /* cctools-port */
+ 	    if(rename_file != NULL){
+ 		if(rename(output_file, rename_file) == -1)
+ 		    system_error("can't move temporary file: %s to file: %s",

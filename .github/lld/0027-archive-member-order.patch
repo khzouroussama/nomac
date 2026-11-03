@@ -1,0 +1,68 @@
+Archive members laid out where Xcode 27.0's ld lays them out (B-193, docs/formats/build.md "Objective-C references,
+archive members and hints in the linked image"): at the archive's place on the command line, in the archive's order,
+whatever order they were loaded in. lld laid them out after every object file, in load order, so the profile runtime's
+__cstring came after __const and its __common before __bss.
+--- a/lld/MachO/InputFiles.h
++++ b/lld/MachO/InputFiles.h
+@@ -128,6 +128,10 @@
+   // If not empty, this stores the name of the archive containing this file.
+   // We use this string for creating error messages.
+   std::string archiveName;
++
++  // The archive this file is a member of, and the member's offset in it.
++  const InputFile *archive = nullptr;
++  uint64_t archiveOffset = 0;
+ 
+   // Provides an easy way to sort InputFiles deterministically.
+   const int id;
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -2363,8 +2363,14 @@
+   if (!modTime)
+     return modTime.takeError();
+ 
+-  return loadArchiveMember(*mb, toTimeT(*modTime), getName(),
+-                           c.getChildOffset(), forceHidden, compatArch, lazy);
++  Expected<InputFile *> member =
++      loadArchiveMember(*mb, toTimeT(*modTime), getName(), c.getChildOffset(),
++                        forceHidden, compatArch, lazy);
++  if (member && *member) {
++    (*member)->archive = this;
++    (*member)->archiveOffset = c.getChildOffset();
++  }
++  return member;
+ }
+ 
+ static macho::Symbol *createBitcodeSymbol(const lto::InputFile::Symbol &objSym,
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1478,9 +1478,28 @@
+   }
+ }
+ 
++// The files in the order Xcode 27.0's ld lays out their sections: in the order
++// of the command line, the members of an archive at the archive's place, in
++// the archive's order, whatever order they were loaded in.
++static std::vector<const InputFile *> filesInLayoutOrder() {
++  DenseMap<const InputFile *, size_t> position;
++  for (const InputFile *file : inputFiles)
++    position.try_emplace(file, position.size());
++  std::vector<const InputFile *> files(inputFiles.begin(), inputFiles.end());
++  auto key = [&](const InputFile *file) {
++    if (file->archive && position.count(file->archive))
++      return std::make_tuple(position[file->archive], true, file->archiveOffset);
++    return std::make_tuple(position[file], false, uint64_t(0));
++  };
++  llvm::stable_sort(files, [&](const InputFile *a, const InputFile *b) {
++    return key(a) < key(b);
++  });
++  return files;
++}
++
+ static void gatherInputSections() {
+   TimeTraceScope timeScope("Gathering input sections");
+-  for (const InputFile *file : inputFiles) {
++  for (const InputFile *file : filesInLayoutOrder()) {
+     for (const Section *section : file->sections) {
+       // Compact unwind entries require special handling elsewhere. (In
+       // contrast, EH frames are handled like regular ConcatInputSections.)

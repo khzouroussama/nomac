@@ -1,0 +1,30 @@
+# docs/INSTALL.md's "Building from source", as written, on a fresh Ubuntu 24.04 for x86_64 and arm64: system packages,
+# both Swift releases, `swift build -c release` fetching every package, `nomac --version`, and the
+# Quick start's sample clone (install_from_source_test.sh). The Quick start's other steps need the
+# user's Xcode, which no runner has; they were run on a clean container (docs/state/release.md).
+name: quickstart
+
+on:
+  push:
+    paths:
+      - docs/INSTALL.md
+      - .github/workflows/quickstart.yml
+      - .github/scripts/install_from_source_test.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Building from source, as docs/INSTALL.md says
+        run: .github/scripts/install_from_source_test.sh

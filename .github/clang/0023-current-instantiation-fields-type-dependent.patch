@@ -1,0 +1,35 @@
+For Apple targets, a member expression naming a field of the current instantiation keeps the type dependence of its
+base, as with Xcode 27.0's clang (vendor feature disableNonDependentMemberExprInCurrentInstantiation): operators on
+such a field in a template are checked when the template is instantiated, not at its definition (B-170,
+docs/formats/build.md "Clang's driver").
+--- a/clang/lib/AST/ComputeDependence.cpp
++++ b/clang/lib/AST/ComputeDependence.cpp
+@@ -7,6 +7,7 @@
+ //===----------------------------------------------------------------------===//
+ 
+ #include "clang/AST/ComputeDependence.h"
++#include "clang/AST/ASTContext.h"
+ #include "clang/AST/Attr.h"
+ #include "clang/AST/DeclCXX.h"
+ #include "clang/AST/DeclarationName.h"
+@@ -17,6 +18,7 @@
+ #include "clang/AST/ExprObjC.h"
+ #include "clang/AST/ExprOpenMP.h"
+ #include "clang/Basic/ExceptionSpecificationType.h"
++#include "clang/Basic/TargetInfo.h"
+ #include "llvm/ADT/ArrayRef.h"
+ 
+ using namespace clang;
+@@ -700,7 +702,11 @@
+     // dyn_cast_or_null is used to handle objC variables which do not
+     // have a declaration context.
+     CXXRecordDecl *RD = dyn_cast_or_null<CXXRecordDecl>(DC);
+-    if (RD && RD->isDependentContext() && RD->isCurrentInstantiation(DC)) {
++    // For Apple targets, a field of the current instantiation keeps the base's
++    // type dependence, as with Xcode 27.0's clang: expressions using it are
++    // checked when the template is instantiated.
++    if (RD && RD->isDependentContext() && RD->isCurrentInstantiation(DC) &&
++        !MemberDecl->getASTContext().getTargetInfo().getTriple().isOSDarwin()) {
+       if (!E->getType()->isDependentType())
+         D &= ~ExprDependence::Type;
+     }

@@ -1,0 +1,142 @@
+objc_opt_class, objc_opt_self, objc_opt_new, objc_opt_isKindOfClass and objc_opt_respondsToSelector in place of
+those messages, as Xcode 27.0's clang calls them (B-170, docs/formats/build.md "Objective-C literals, runtime
+entrypoints and `this`"). Written from Xcode's observed output (.github/scripts/clang_objc_experiments.py); no open-source
+clang has these calls.
+
+diff --git a/clang/include/clang/Basic/ObjCRuntime.h b/clang/include/clang/Basic/ObjCRuntime.h
+index bfe84476..e97049d7 100644
+--- a/clang/include/clang/Basic/ObjCRuntime.h
++++ b/clang/include/clang/Basic/ObjCRuntime.h
+@@ -279,6 +279,22 @@ public:
+     }
+   }
+ 
++  /// Does this runtime have objc_opt_class, objc_opt_self, objc_opt_new,
++  /// objc_opt_isKindOfClass and objc_opt_respondsToSelector, which Xcode 27.0's
++  /// clang calls instead of those messages from macOS 10.15, iOS 13 and watchOS 6?
++  bool shouldUseOptimizedMessageEntrypoints() const {
++    switch (getKind()) {
++    case MacOSX:
++      return getVersion() >= VersionTuple(10, 15);
++    case iOS:
++      return getVersion() >= VersionTuple(13);
++    case WatchOS:
++      return getVersion() >= VersionTuple(6);
++    default:
++      return false;
++    }
++  }
++
+   /// Does this runtime supports optimized setter entrypoints?
+   bool hasOptimizedSetter() const {
+     switch (getKind()) {
+diff --git a/clang/lib/CodeGen/CGObjC.cpp b/clang/lib/CodeGen/CGObjC.cpp
+index ce3e6acc..d0a42e06 100644
+--- a/clang/lib/CodeGen/CGObjC.cpp
++++ b/clang/lib/CodeGen/CGObjC.cpp
+@@ -392,6 +392,72 @@ static const Expr *findWeakLValue(const Expr *E) {
+ /// If the runtime does support a required entrypoint, then this method will
+ /// generate a call and return the resulting value.  Otherwise it will return
+ /// std::nullopt and the caller can generate a msgSend instead.
++/// Calls an objc_opt_ entrypoint in place of a message: with the receiver alone
++/// it returns an object, with the receiver and the argument a bool. A null
++/// receiver gets the call too, as with Xcode's clang.
++static llvm::Value *emitObjCOptEntrypoint(CodeGenFunction &CGF,
++                                          llvm::FunctionCallee &Fn,
++                                          StringRef FnName,
++                                          ArrayRef<llvm::Value *> Args,
++                                          llvm::Type *ReturnType) {
++  bool Unary = Args.size() == 1;
++  if (!Fn) {
++    SmallVector<llvm::Type *, 2> ParamTypes(Args.size(), CGF.Int8PtrTy);
++    llvm::Type *ResultTy =
++        Unary ? static_cast<llvm::Type *>(CGF.Int8PtrTy) : CGF.Builder.getInt1Ty();
++    Fn = CGF.CGM.CreateRuntimeFunction(
++        llvm::FunctionType::get(ResultTy, ParamTypes, false), FnName);
++  }
++  llvm::CallBase *Call = CGF.EmitCallOrInvoke(Fn, Args);
++  return Unary ? CGF.Builder.CreateBitCast(Call, ReturnType) : Call;
++}
++
++/// The objc_opt_ entrypoint call for a message whose method is declared as
++/// NSObject's: `class` returning Class, `self` returning id, a class message
++/// `new` returning id, `isKindOfClass:` taking a Class and `respondsToSelector:`
++/// a SEL and returning bool.
++static std::optional<llvm::Value *>
++tryGenerateOptEntrypointCall(CodeGenFunction &CGF, QualType ResultType,
++                             llvm::Value *Receiver, const CallArgList &Args,
++                             Selector Sel, const ObjCMethodDecl *Method,
++                             bool IsClassMessage) {
++  auto &CGM = CGF.CGM;
++  if (!Method ||
++      !CGM.getLangOpts().ObjCRuntime.shouldUseOptimizedMessageEntrypoints())
++    return std::nullopt;
++  ASTContext &Ctx = CGM.getContext();
++  QualType Returned = Method->getReturnType();
++  auto &Entrypoints = CGM.getObjCEntrypoints();
++  llvm::Type *ReturnType = CGF.ConvertType(ResultType);
++  StringRef Name = Sel.getNameForSlot(0);
++  if (Sel.isUnarySelector()) {
++    if (Name == "class" && Returned->isObjCClassType())
++      return emitObjCOptEntrypoint(CGF, Entrypoints.objc_opt_class,
++                                   "objc_opt_class", Receiver, ReturnType);
++    if (Name == "self" && Returned->isObjCIdType())
++      return emitObjCOptEntrypoint(CGF, Entrypoints.objc_opt_self,
++                                   "objc_opt_self", Receiver, ReturnType);
++    if (Name == "new" && IsClassMessage && Returned->isObjCIdType())
++      return emitObjCOptEntrypoint(CGF, Entrypoints.objc_opt_new,
++                                   "objc_opt_new", Receiver, ReturnType);
++    return std::nullopt;
++  }
++  if (Sel.getNumArgs() != 1 || Args.size() != 1 || Method->param_size() != 1 ||
++      !Ctx.hasSameType(Returned, Ctx.BoolTy))
++    return std::nullopt;
++  QualType Param = Method->parameters()[0]->getType();
++  llvm::Value *Argument = Args.front().getKnownRValue().getScalarVal();
++  if (Name == "isKindOfClass" && Param->isObjCClassType())
++    return emitObjCOptEntrypoint(CGF, Entrypoints.objc_opt_isKindOfClass,
++                                 "objc_opt_isKindOfClass",
++                                 {Receiver, Argument}, ReturnType);
++  if (Name == "respondsToSelector" && Param->isObjCSelType())
++    return emitObjCOptEntrypoint(CGF, Entrypoints.objc_opt_respondsToSelector,
++                                 "objc_opt_respondsToSelector",
++                                 {Receiver, Argument}, ReturnType);
++  return std::nullopt;
++}
++
+ static std::optional<llvm::Value *> tryGenerateSpecializedMessageSend(
+     CodeGenFunction &CGF, QualType ResultType, llvm::Value *Receiver,
+     const CallArgList &Args, Selector Sel, const ObjCMethodDecl *method,
+@@ -400,6 +466,10 @@ static std::optional<llvm::Value *> tryGenerateSpecializedMessageSend(
+   if (!CGM.getCodeGenOpts().ObjCConvertMessagesToRuntimeCalls)
+     return std::nullopt;
+ 
++  if (std::optional<llvm::Value *> OptResult = tryGenerateOptEntrypointCall(
++          CGF, ResultType, Receiver, Args, Sel, method, isClassMessage))
++    return OptResult;
++
+   auto &Runtime = CGM.getLangOpts().ObjCRuntime;
+   switch (Sel.getMethodFamily()) {
+   case OMF_alloc:
+diff --git a/clang/lib/CodeGen/CodeGenModule.h b/clang/lib/CodeGen/CodeGenModule.h
+index e0be93d7..2170d41b 100644
+--- a/clang/lib/CodeGen/CodeGenModule.h
++++ b/clang/lib/CodeGen/CodeGenModule.h
+@@ -175,6 +175,17 @@ struct ObjCEntrypoints {
+   /// void objc_alloc_init(id);
+   llvm::FunctionCallee objc_alloc_init;
+ 
++  /// id objc_opt_class(id), id objc_opt_self(id), id objc_opt_new(Class);
++  llvm::FunctionCallee objc_opt_class;
++  llvm::FunctionCallee objc_opt_self;
++  llvm::FunctionCallee objc_opt_new;
++
++  /// bool objc_opt_isKindOfClass(id, Class);
++  llvm::FunctionCallee objc_opt_isKindOfClass;
++
++  /// bool objc_opt_respondsToSelector(id, SEL);
++  llvm::FunctionCallee objc_opt_respondsToSelector;
++
+   /// void objc_autoreleasePoolPop(void*);
+   llvm::FunctionCallee objc_autoreleasePoolPop;
+ 

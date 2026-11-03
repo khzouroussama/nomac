@@ -1,0 +1,121 @@
+diff --git a/lld/MachO/InputFiles.cpp b/lld/MachO/InputFiles.cpp
+index 4e61064..e2cc987 100644
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -2033,6 +2033,7 @@ DylibFile *DylibFile::getSyntheticDylib(StringRef installName,
+ 
+   auto *dylib = make<DylibFile>(umbrella == this ? nullptr : umbrella);
+   dylib->installName = saver().save(installName);
++  dylib->ldPreviousName = LDPreviousName::Synthetic;
+   dylib->currentVersion = currentVersion;
+   dylib->compatibilityVersion = compatVersion;
+   extraDylibs.push_back(dylib);
+@@ -2133,8 +2134,12 @@ void DylibFile::handleLDPreviousSymbol(StringRef name, StringRef originalName) {
+   }
+ 
+   // A $ld$previous$ symbol without symbol name modifies the dylib it's in.
++  // With a compatibility version, Xcode's ld gives the dylib that version as
++  // its current version too, as for a symbol.
+   this->installName = saver().save(installName);
++  this->ldPreviousName = LDPreviousName::Renamed;
+   this->compatibilityVersion = newCompatibilityVersion;
++  this->currentVersion = newCurrentVersionForSymbol;
+ }
+ 
+ void DylibFile::handleLDInstallNameSymbol(StringRef name,
+diff --git a/lld/MachO/InputFiles.h b/lld/MachO/InputFiles.h
+index 2d5bceb..12a9018 100644
+--- a/lld/MachO/InputFiles.h
++++ b/lld/MachO/InputFiles.h
+@@ -251,6 +251,10 @@ public:
+   bool forceNeeded = false;
+   bool forceWeakImport = false;
+   bool deadStrippable = false;
++  // How a $ld$previous symbol gave the dylib its installName: by renaming the
++  // dylib it is in, or as a synthetic dylib for some of its symbols.
++  enum class LDPreviousName { None, Renamed, Synthetic };
++  LDPreviousName ldPreviousName = LDPreviousName::None;
+ 
+ private:
+   bool explicitlyLinked = false; // Access via isExplicitlyLinked().
+diff --git a/lld/MachO/Writer.cpp b/lld/MachO/Writer.cpp
+index 613e6de..b1b5cec 100644
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -888,6 +888,44 @@ template <class LP> void Writer::createLoadCommands() {
+     dylibFiles.insert(dylibFiles.end(), dylibFiles[i]->extraDylibs.begin(),
+                       dylibFiles[i]->extraDylibs.end());
+ 
++  // Don't emit load commands for a dylib that is not referenced if:
++  // - it was added implicitly (via a reexport, an LC_LOAD_DYLINKER --
++  //   if it's on the linker command line, it's explicit)
++  // - or it's marked MH_DEAD_STRIPPABLE_DYLIB
++  // - or the flag -dead_strip_dylibs is used
++  // FIXME: `isReferenced()` is currently computed before dead code
++  // stripping, so references from dead code keep a dylib alive. This
++  // matches ld64, but it's something we should do better.
++  auto needsLoadCommand = [](const DylibFile *dylibFile) {
++    return dylibFile->isReferenced() || dylibFile->forceNeeded ||
++           (dylibFile->isExplicitlyLinked() && !dylibFile->deadStrippable &&
++            !config->deadStripDylibs);
++  };
++
++  // When $ld$previous symbols give dylibs the installName of another, the
++  // load command has the versions Xcode's ld gives it: those of the first
++  // loaded dylib whose own installName it is, when that dylib needs the load
++  // command or a dylib renamed to its name does; otherwise those of the first
++  // dylib that needs it, such as a synthetic dylib.
++  using LDPreviousName = DylibFile::LDPreviousName;
++  DenseMap<StringRef, DylibFile *> ownerForInstallName;
++  for (DylibFile *dylibFile : dylibFiles)
++    if (!dylibFile->isBundleLoader &&
++        dylibFile->ldPreviousName == LDPreviousName::None)
++      ownerForInstallName.try_emplace(dylibFile->installName, dylibFile);
++  DenseMap<StringRef, DylibFile *> versionsForInstallName;
++  for (DylibFile *dylibFile : dylibFiles) {
++    if (dylibFile->isBundleLoader || !needsLoadCommand(dylibFile))
++      continue;
++    DylibFile *owner = ownerForInstallName.lookup(dylibFile->installName);
++    DylibFile *&versions = versionsForInstallName[dylibFile->installName];
++    if (owner && (dylibFile == owner ||
++                  dylibFile->ldPreviousName == LDPreviousName::Renamed))
++      versions = owner;
++    else if (!versions)
++      versions = dylibFile;
++  }
++
+   for (DylibFile *dylibFile : dylibFiles) {
+     if (dylibFile->isBundleLoader) {
+       dylibFile->ordinal = BIND_SPECIAL_DYLIB_MAIN_EXECUTABLE;
+@@ -897,17 +935,7 @@ template <class LP> void Writer::createLoadCommands() {
+       continue;
+     }
+ 
+-    // Don't emit load commands for a dylib that is not referenced if:
+-    // - it was added implicitly (via a reexport, an LC_LOAD_DYLINKER --
+-    //   if it's on the linker command line, it's explicit)
+-    // - or it's marked MH_DEAD_STRIPPABLE_DYLIB
+-    // - or the flag -dead_strip_dylibs is used
+-    // FIXME: `isReferenced()` is currently computed before dead code
+-    // stripping, so references from dead code keep a dylib alive. This
+-    // matches ld64, but it's something we should do better.
+-    if (!dylibFile->isReferenced() && !dylibFile->forceNeeded &&
+-        (!dylibFile->isExplicitlyLinked() || dylibFile->deadStrippable ||
+-         config->deadStripDylibs))
++    if (!needsLoadCommand(dylibFile))
+       continue;
+ 
+     // Several DylibFiles can have the same installName. Only emit a single
+@@ -948,9 +976,10 @@ template <class LP> void Writer::createLoadCommands() {
+                dylibFile->refState == RefState::Weak) {
+       lcType = LC_LOAD_WEAK_DYLIB;
+     }
++    DylibFile *versions = versionsForInstallName.lookup(dylibFile->installName);
+     in.header->addLoadCommand(make<LCDylib>(lcType, dylibFile->installName,
+-                                            dylibFile->compatibilityVersion,
+-                                            dylibFile->currentVersion));
++                                            versions->compatibilityVersion,
++                                            versions->currentVersion));
+   }
+ 
+   for (const auto &dyldEnv : config->dyldEnvs)

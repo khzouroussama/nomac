@@ -1,0 +1,129 @@
+-alias of a symbol a dylib defines: the alias re-exports it (an export with EXPORT_SYMBOL_FLAGS_REEXPORT, the dylib's
+ordinal and the symbol's name), it is an indirect symbol (N_INDR) among the external definitions and the image
+references the dylib's symbol, as Xcode 27.0's ld links `-alias _NSExtensionMain
+___debug_main_executable_dylib_entry_point` for an app extension's debug dylib; lld stopped with "TODO: support
+aliasing to symbols of kind 3" (docs/formats/build.md "Aliases of dylib symbols").
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1556,6 +1556,19 @@
+       if (const auto &defined = dyn_cast<Defined>(sym)) {
+         symtab->aliasDefined(defined, pair.second, defined->getFile())
+             ->noDeadStrip = true;
++      } else if (auto *dysym = dyn_cast<DylibSymbol>(sym)) {
++        // As Xcode 27.0's ld: the alias re-exports the dylib's symbol, which
++        // the image then references (Xcode's -alias _NSExtensionMain
++        // ___debug_main_executable_dylib_entry_point of debug dylibs).
++        dysym->reference(RefState::Strong);
++        if (DylibFile *file = dysym->getFile())
++          file->liveReferenced = true;
++        auto *alias = make<DylibSymbol>(dysym->getFile(), pair.second,
++                                        /*isWeakDef=*/false,
++                                        RefState::Unreferenced, /*isTlv=*/false);
++        alias->shouldReexport = true;
++        alias->reexportedName = dysym->getName();
++        in.exports->reexportAliases.push_back(alias);
+       } else {
+         error("TODO: support aliasing to symbols of kind " +
+               Twine(sym->kind()));
+--- a/lld/MachO/Symbols.h
++++ b/lld/MachO/Symbols.h
+@@ -319,6 +319,11 @@
+ 
+   bool shouldReexport : 1;
+ 
++  /// For an alias of a dylib symbol (-alias): the name of the symbol it
++  /// re-exports, and that name's offset in the string table.
++  StringRef reexportedName;
++  uint32_t reexportedNameStrx = 0;
++
+ private:
+   RefState refState : 2;
+   const bool weakDef : 1;
+--- a/lld/MachO/ExportTrie.cpp
++++ b/lld/MachO/ExportTrie.cpp
+@@ -59,6 +59,7 @@
+   uint64_t address;
+   uint64_t ordinal = 0;
+   uint8_t flags = 0;
++  StringRef importName;
+   ExportInfo(const Symbol &sym, uint64_t imageBase)
+       : address(sym.getVA() - imageBase) {
+     using namespace llvm::MachO;
+@@ -75,6 +76,7 @@
+       flags |= EXPORT_SYMBOL_FLAGS_REEXPORT;
+       if (!dysym->isDynamicLookup())
+         ordinal = dysym->getFile()->ordinal;
++      importName = dysym->reexportedName;
+     }
+   }
+ };
+@@ -127,7 +129,8 @@
+ uint32_t TrieNode::getTerminalSize() const {
+   uint32_t size = getULEB128Size(info->flags);
+   if (info->flags & MachO::EXPORT_SYMBOL_FLAGS_REEXPORT)
+-    size += getULEB128Size(info->ordinal) + 1; // + 1 for the null-terminator
++    size += getULEB128Size(info->ordinal) + info->importName.size() +
++            1; // + 1 for the null-terminator
+   else
+     size += getULEB128Size(info->address);
+   return size;
+@@ -168,7 +171,9 @@
+     buf += encodeULEB128(info->flags, buf);
+     if (info->flags & MachO::EXPORT_SYMBOL_FLAGS_REEXPORT) {
+       buf += encodeULEB128(info->ordinal, buf);
+-      *buf++ = 0; // empty originalName string
++      memcpy(buf, info->importName.data(), info->importName.size());
++      buf += info->importName.size();
++      *buf++ = 0; // the originalName string, empty for the same name
+     } else {
+       buf += encodeULEB128(info->address, buf);
+     }
+--- a/lld/MachO/SyntheticSections.h
++++ b/lld/MachO/SyntheticSections.h
+@@ -398,6 +398,9 @@
+ 
+   bool hasWeakSymbol = false;
+ 
++  /// Aliases of dylib symbols (-alias), exported as re-exports of them.
++  std::vector<DylibSymbol *> reexportAliases;
++
+ private:
+   TrieBuilder trieBuilder;
+   size_t size = 0;
+--- a/lld/MachO/SyntheticSections.cpp
++++ b/lld/MachO/SyntheticSections.cpp
+@@ -1053,6 +1053,8 @@
+         trieBuilder.addSymbol(*dysym);
+     }
+   }
++  for (const DylibSymbol *alias : reexportAliases)
++    trieBuilder.addSymbol(*alias);
+   size = trieBuilder.build();
+ }
+ 
+@@ -1418,6 +1420,14 @@
+       if (dysym->isReferenced())
+         addSymbol(undefinedSymbols, sym);
+     }
++  }
++
++  // An alias of a dylib symbol is an indirect symbol among the external
++  // definitions, as Xcode 27.0's ld writes it.
++  for (DylibSymbol *alias : in.exports->reexportAliases) {
++    addSymbol(externalSymbols, alias);
++    alias->reexportedNameStrx =
++        stringTableSection.addString(alias->reexportedName);
+   }
+ 
+   emitStabs();
+@@ -1490,6 +1500,10 @@
+       nList->n_desc |= defined->isExternalWeakDef() ? N_WEAK_DEF : 0;
+       nList->n_desc |=
+           defined->referencedDynamically ? REFERENCED_DYNAMICALLY : 0;
++    } else if (auto *dysym = dyn_cast<DylibSymbol>(entry.sym);
++               dysym && !dysym->reexportedName.empty()) {
++      nList->n_type = N_INDR | N_EXT;
++      nList->n_value = dysym->reexportedNameStrx;
+     } else if (auto *dysym = dyn_cast<DylibSymbol>(entry.sym)) {
+       uint16_t n_desc = nList->n_desc;
+       int16_t ordinal = ordinalForDylibSymbol(*dysym);

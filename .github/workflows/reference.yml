@@ -1,0 +1,229 @@
+# Captures Xcode reference artifacts for the corpus on a GitHub-hosted Mac, then verifies
+# nomac against them.
+#
+# capture: for every corpus app (or the comma-separated subset given to a manual run),
+#   records the PIF Xcode generates (-dumpPIF), -showBuildSettings for every target and
+#   scheme, the build log, the products, compiled resources and an unsigned IPA. Artifacts
+#   hold only output derived from the corpus's own open-source apps; nothing from Xcode
+#   itself is uploaded (docs/adr/0004-reference-artifacts.md).
+# build-nomac: builds nomac on the same runner image.
+# verify: recreates each app's checkout at the path the reference used and runs
+#   `nomac verify` against the installed Xcode, so no path normalization is involved.
+# results: renders corpus/RESULTS.md and the progress section of docs/PROGRESS.md from the reports.
+name: reference
+
+on:
+  # Manual only (Actions tab): every run takes several macOS jobs, billed at 10x. The same
+  # captures and comparisons run on any Mac with Xcode 27.0 (docs/VERIFICATION.md "Without CI").
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Comma-separated corpus app ids (empty: all apps)"
+        required: false
+        default: ""
+      skip_build:
+        description: "Capture settings and PIF only"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # While the repository is private, macOS minutes are billed (at 10x) against the owner's
+  # quota, so push-triggered runs then cover only these apps and skip the app builds.
+  # Public repositories get the full corpus on every run.
+  PRIVATE_SMOKE_APPS: retro-rampage,tofu,netnewswire,icecubes
+
+concurrency:
+  group: reference-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      skip_build: ${{ steps.matrix.outputs.skip_build }}
+      xcode_path: ${{ steps.xcode.outputs.path }}
+      xcode_build: ${{ steps.xcode.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          apps="${{ inputs.apps }}"
+          skip_build="${{ inputs.skip_build && 'true' || 'false' }}"
+          if [ "${{ github.event.repository.private }}" = "true" ] && [ -z "$apps" ]; then
+            apps="$PRIVATE_SMOKE_APPS"
+            skip_build=true
+            echo "::notice::Private repository: verifying only $apps without app builds."
+          fi
+          python3 corpus/scripts/matrix.py "$apps" >> "$GITHUB_OUTPUT"
+          echo "skip_build=$skip_build" >> "$GITHUB_OUTPUT"
+      - id: xcode
+        run: |
+          python3 -c 'import json; x=json.load(open("corpus/corpus.json"))["xcode"]; print("path=" + x["path"]); print("build=" + x["build"])' >> "$GITHUB_OUTPUT"
+
+  capture:
+    needs: plan
+    runs-on: xcode-27
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "${{ needs.plan.outputs.xcode_path }}"
+          xcodebuild -version
+          sw_vers
+      - name: Capture reference artifacts
+        run: |
+          python3 corpus/scripts/capture_reference.py "${{ matrix.app }}" "$RUNNER_TEMP/reference" \
+            ${{ needs.plan.outputs.skip_build == 'true' && '--skip-build' || '' }}
+      - name: Summary
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/reference/${{ matrix.app }}/summary.json" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reference-${{ matrix.app }}-xcode-${{ needs.plan.outputs.xcode_build }}
+          path: ${{ runner.temp }}/reference/${{ matrix.app }}
+          retention-days: 90
+          if-no-files-found: error
+
+  build-nomac:
+    needs: plan
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s "${{ needs.plan.outputs.xcode_path }}"
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: macos-release-${{ hashFiles('Package.resolved') }}-${{ hashFiles('Sources/**') }}
+          restore-keys: |
+            macos-release-${{ hashFiles('Package.resolved') }}-
+      - name: Build nomac
+        run: swift build -c release --product nomac
+      - name: Package
+        run: |
+          cd .build/release
+          tar czf "$RUNNER_TEMP/nomac-macos.tgz" nomac $(ls -d *.bundle *.resources 2>/dev/null)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomac-macos
+          path: ${{ runner.temp }}/nomac-macos.tgz
+          retention-days: 7
+
+  verify:
+    needs: [plan, capture, build-nomac]
+    if: ${{ always() && needs.build-nomac.result == 'success' }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        app: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s "${{ needs.plan.outputs.xcode_path }}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomac-macos
+          path: ${{ runner.temp }}/nomac-dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: reference-${{ matrix.app }}-xcode-${{ needs.plan.outputs.xcode_build }}
+          path: ${{ runner.temp }}/reference/${{ matrix.app }}
+      - name: Recreate the checkout
+        run: python3 corpus/scripts/capture_reference.py "${{ matrix.app }}" "$RUNNER_TEMP/verify-prepare" --clone-only
+      - name: nomac verify
+        run: |
+          mkdir -p "$RUNNER_TEMP/nomac" "$RUNNER_TEMP/verify"
+          tar xzf "$RUNNER_TEMP/nomac-dist/nomac-macos.tgz" -C "$RUNNER_TEMP/nomac"
+          set +e
+          "$RUNNER_TEMP/nomac/nomac" verify "$RUNNER_TEMP/reference/${{ matrix.app }}" \
+            --developer-dir "$(xcode-select -p)" \
+            --report "$RUNNER_TEMP/verify/${{ matrix.app }}.json" | tee "$RUNNER_TEMP/verify/${{ matrix.app }}.txt"
+          status=${PIPESTATUS[0]}
+          {
+            echo "### ${{ matrix.app }}"
+            echo '```'
+            grep -E ' (pif|settings): ' "$RUNNER_TEMP/verify/${{ matrix.app }}.txt" || echo "nomac verify exited with status $status"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: nomac verify with the nomac sdk subset
+        # Replays verification with Xcode replaced, at its own path, by the subset
+        # `nomac sdk install` keeps (ADR 0003), proving the subset carries everything the
+        # settings depend on. One app suffices: the subset does not depend on the project.
+        if: ${{ matrix.app == 'retro-rampage' }}
+        run: |
+          xcode="${{ needs.plan.outputs.xcode_path }}"
+          export NOMAC_HOME="$RUNNER_TEMP/nomac-home"
+          "$RUNNER_TEMP/nomac/nomac" sdk install "$xcode"
+          sudo mv "$xcode" "$xcode.full"
+          sudo cp -R "$NOMAC_HOME/xcode/${{ needs.plan.outputs.xcode_build }}/Xcode.app" "$xcode"
+          mkdir -p "$RUNNER_TEMP/subset-verify"
+          set +e
+          "$RUNNER_TEMP/nomac/nomac" verify "$RUNNER_TEMP/reference/${{ matrix.app }}" \
+            --developer-dir "$xcode/Contents/Developer" \
+            --report "$RUNNER_TEMP/subset-verify/${{ matrix.app }}.json" | tee "$RUNNER_TEMP/subset-verify/${{ matrix.app }}.txt"
+          sudo rm -rf "$xcode" && sudo mv "$xcode.full" "$xcode"
+          {
+            echo "### ${{ matrix.app }} with the nomac sdk subset"
+            echo '```'
+            grep -E ' (pif|settings): ' "$RUNNER_TEMP/subset-verify/${{ matrix.app }}.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-${{ matrix.app }}
+          path: ${{ runner.temp }}/verify
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && matrix.app == 'retro-rampage' }}
+        with:
+          name: subset-verify-${{ matrix.app }}
+          path: ${{ runner.temp }}/subset-verify
+          retention-days: 90
+          if-no-files-found: ignore
+
+  results:
+    needs: [plan, verify]
+    if: ${{ always() && needs.verify.result != 'skipped' }}
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomac-macos
+          path: ${{ runner.temp }}/nomac-dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: verify-*
+          path: ${{ runner.temp }}/verify
+      - name: Render results
+        run: |
+          mkdir -p "$RUNNER_TEMP/nomac" "$RUNNER_TEMP/results"
+          tar xzf "$RUNNER_TEMP/nomac-dist/nomac-macos.tgz" -C "$RUNNER_TEMP/nomac"
+          "$RUNNER_TEMP/nomac/nomac" corpus results --reports "$RUNNER_TEMP/verify" \
+            --output "$RUNNER_TEMP/results/RESULTS.md" --progress "$RUNNER_TEMP/results/PROGRESS.md" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          cat "$RUNNER_TEMP/results/RESULTS.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: corpus-results
+          path: ${{ runner.temp }}/results
+          retention-days: 90

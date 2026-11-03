@@ -1,0 +1,146 @@
+Sections of __DATA_CONST and __DATA in Xcode 27.0's ld order (B-193, docs/formats/build.md "Objective-C references,
+archive members and hints in the linked image"): __la_symbol_ptr, __mod_init_func, __const, __cfstring, the
+Objective-C lists and image info, __objc_const, __objc_selrefs, the class, protocol and superclass references,
+__objc_ivar and __objc_data first, the other sections in input order (__data, literal and custom sections), then
+__thread_vars, the sections created for section$start and section$end symbols in name order, __got, __thread_data,
+__thread_bss and the zerofill sections in input order, __common among them in the turn of the file that defines its
+symbols; lld put __got first, the rest in input order and __common before the other zerofill sections.
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -631,9 +631,14 @@
+ // This function must be called after all symbol names are resolved (i.e. after
+ // all InputFiles have been loaded.) As a result, later operations won't see
+ // any CommonSymbols.
++// The __common sections of each file's common symbols, which join the input
++// sections in that file's turn, so that __common takes its place among the
++// zerofill sections in input order, as with Xcode 27.0's ld.
++static DenseMap<const InputFile *, SmallVector<ConcatInputSection *, 0>>
++    commonInputSections;
++
+ static void replaceCommonSymbols() {
+   TimeTraceScope timeScope("Replace common symbols");
+-  ConcatOutputSection *osec = nullptr;
+   for (Symbol *sym : symtab->getSymbols()) {
+     auto *common = dyn_cast<CommonSymbol>(sym);
+     if (common == nullptr)
+@@ -648,10 +653,7 @@
+         make<Section>(common->getFile(), segment_names::data,
+                       section_names::common, S_ZEROFILL, /*addr=*/0);
+     auto *isec = make<ConcatInputSection>(*section, data, common->align);
+-    if (!osec)
+-      osec = ConcatOutputSection::getOrCreateForInput(isec);
+-    isec->parent = osec;
+-    addInputSection(isec);
++    commonInputSections[common->getFile()].push_back(isec);
+ 
+     // FIXME: CommonSymbol should store isReferencedDynamically, noDeadStrip
+     // and pass them on here.
+@@ -1440,9 +1442,16 @@
+       for (const Subsection &subsection : section->subsections)
+         addInputSection(subsection.isec);
+     }
++    for (ConcatInputSection *isec : commonInputSections.lookup(file))
++      addInputSection(isec);
++    commonInputSections.erase(file);
+     if (!file->objCImageInfo.empty())
+       in.objCImageInfo->addFile(file);
+   }
++  for (auto &[file, isecs] : commonInputSections)
++    for (ConcatInputSection *isec : isecs)
++      addInputSection(isec);
++  commonInputSections.clear();
+ }
+ 
+ static void codegenDataGenerate() {
+--- a/lld/MachO/OutputSegment.cpp
++++ b/lld/MachO/OutputSegment.cpp
+@@ -130,27 +130,44 @@
+     return osec->inputOrder;
+   } else if (segname == segment_names::data ||
+              segname == segment_names::dataConst) {
+-    // For each thread spawned, dyld will initialize its TLVs by copying the
+-    // address range from the start of the first thread-local data section to
+-    // the end of the last one. We therefore arrange these sections contiguously
+-    // to minimize the amount of memory used. Additionally, since zerofill
+-    // sections must be at the end of their segments, and since TLV data
+-    // sections can be zerofills, we end up putting all TLV data sections at the
+-    // end of the segment.
++    // As Xcode 27.0's ld orders them: the sections it knows in a fixed order,
++    // the others in input order, then the thread-local variables, the sections
++    // created for section$start and section$end symbols, the GOT, the
++    // thread-local data (which dyld copies as one range, so contiguous) and the
++    // zerofill sections in input order, which must end their segment.
+     switch (sectionType(osec->flags)) {
++    case S_THREAD_LOCAL_VARIABLES:
++      return UnspecifiedInputOrder - 1;
+     case S_THREAD_LOCAL_VARIABLE_POINTERS:
+-      return std::numeric_limits<int>::max() - 3;
++      return std::numeric_limits<int>::max() - 5;
+     case S_THREAD_LOCAL_REGULAR:
+-      return std::numeric_limits<int>::max() - 2;
++      return std::numeric_limits<int>::max() - 3;
+     case S_THREAD_LOCAL_ZEROFILL:
+-      return std::numeric_limits<int>::max() - 1;
++      return std::numeric_limits<int>::max() - 2;
+     case S_ZEROFILL:
+-      return std::numeric_limits<int>::max();
++      return std::numeric_limits<int>::max() - 1;
+     default:
+       return StringSwitch<int>(osec->name)
+-          .Case(section_names::got, -3)
+-          .Case(section_names::lazySymbolPtr, -2)
+-          .Case(section_names::const_, -1)
++          .Case(section_names::lazySymbolPtr, -100)
++          .Case(section_names::moduleInitFunc, -99)
++          .Case(section_names::moduleTermFunc, -98)
++          .Case(section_names::const_, -97)
++          .Case(section_names::cfString, -96)
++          .Case(section_names::objcClassList, -95)
++          .Case(section_names::objcNonLazyClassList, -94)
++          .Case(section_names::objcCatList, -93)
++          .Case("__objc_catlist2", -92)
++          .Case(section_names::objcNonLazyCatList, -91)
++          .Case(section_names::objcProtoList, -90)
++          .Case(section_names::objCImageInfo, -89)
++          .Case(section_names::objcConst, -88)
++          .Case(section_names::objcSelrefs, -87)
++          .Case(section_names::objcProtoRefs, -86)
++          .Case(section_names::objcClassRefs, -85)
++          .Case(section_names::objcSuperRefs, -84)
++          .Case("__objc_ivar", -83)
++          .Case("__objc_data", -82)
++          .Case(section_names::got, std::numeric_limits<int>::max() - 4)
+           .Default(osec->inputOrder);
+     }
+   } else if (segname == segment_names::linkEdit) {
+@@ -181,7 +198,15 @@
+ void OutputSegment::sortOutputSections() {
+   // Must be stable_sort() to keep special sections such as
+   // S_THREAD_LOCAL_REGULAR in input order.
+-  llvm::stable_sort(sections, compareByOrder<OutputSection *>(sectionOrder));
++  // The sections created for section$start and section$end symbols, which
++  // share one order, go in name order, as Xcode 27.0's ld writes them.
++  llvm::stable_sort(sections, [](OutputSection *a, OutputSection *b) {
++    int orderA = sectionOrder(a);
++    int orderB = sectionOrder(b);
++    if (orderA != orderB)
++      return orderA < orderB;
++    return orderA == UnspecifiedInputOrder && a->name < b->name;
++  });
+ }
+ 
+ void OutputSegment::assignAddressesToStartEndSymbols() {
+--- a/lld/MachO/SymbolTable.cpp
++++ b/lld/MachO/SymbolTable.cpp
+@@ -409,7 +409,10 @@
+     assert(isec->live);
+ 
+     // This runs after gatherInputSections(), so need to explicitly set parent
+-    // and add to inputSections.
++    // and add to inputSections. Xcode 27.0's ld puts such sections after the
++    // input sections and the thread-local variables, in the order they are
++    // created.
++    isec->outSecOff = UnspecifiedInputOrder;
+     osec = isec->parent = ConcatOutputSection::getOrCreateForInput(isec);
+     inputSections.push_back(isec);
+   }

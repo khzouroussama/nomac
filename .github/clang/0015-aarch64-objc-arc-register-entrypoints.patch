@@ -1,0 +1,439 @@
+objc_retain_x<N> and objc_release_x<N>, as Xcode 27.0's compilers call them (B-170, docs/formats/build.md
+"Objective-C literals, runtime entrypoints and `this`"): for arm64 targets from iOS, tvOS and Mac Catalyst 16,
+watchOS 9 and every visionOS, above -O0, not for macOS, a call to objc_retain or objc_release takes its object in
+the register the allocator gives it, copied there right after instruction selection as in Xcode's MIR (x0 to
+x15 and x19 to x28 in GPR64noip's order for calls, x0 to x15 in tcGPR64's for tail calls), and calls that
+register's entry point. Written from Xcode's observed output; no open-source LLVM has these calls.
+
+--- a/llvm/lib/Target/AArch64/AArch64.h
++++ b/llvm/lib/Target/AArch64/AArch64.h
+@@ -30,6 +30,8 @@
+ class InstructionSelector;
+ 
+ FunctionPass *createAArch64DeadRegisterDefinitions();
++FunctionPass *createAArch64ObjCARCRegisterCallsPass();
++FunctionPass *createAArch64ObjCARCRegisterTailCallsPass();
+ FunctionPass *createAArch64RedundantCopyEliminationPass();
+ FunctionPass *createAArch64CondBrTuning();
+ FunctionPass *createAArch64CompressJumpTablesPass();
+@@ -88,6 +90,8 @@
+ void initializeAArch64ConditionalComparesPass(PassRegistry &);
+ void initializeAArch64DAGToDAGISelLegacyPass(PassRegistry &);
+ void initializeAArch64DeadRegisterDefinitionsPass(PassRegistry&);
++void initializeAArch64ObjCARCRegisterCallsPass(PassRegistry &);
++void initializeAArch64ObjCARCRegisterTailCallsPass(PassRegistry &);
+ void initializeAArch64ExpandPseudoPass(PassRegistry &);
+ void initializeAArch64LoadStoreOptPass(PassRegistry&);
+ void initializeAArch64LowerHomogeneousPrologEpilogPass(PassRegistry &);
+--- a/llvm/lib/Target/AArch64/AArch64ExpandPseudoInsts.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ExpandPseudoInsts.cpp
+@@ -1641,7 +1641,25 @@
+      return expandSVESpillFill(MBB, MBBI, AArch64::LDR_ZXI, 2);
+    case AArch64::LDR_PPXI:
+      return expandSVESpillFill(MBB, MBBI, AArch64::LDR_PXI, 2);
+-   case AArch64::BLR_RVMARKER:
++   case AArch64::OBJC_ARC_CALL_ANYREG: {
++    // objc_retain_x<N> or objc_release_x<N>, by the register the object was
++    // allocated to; objc_retain and objc_release themselves for x0.
++    Register Object = MI.getOperand(1).getReg();
++    std::string Name =
++        MI.getOperand(0).getImm() == 0 ? "objc_retain" : "objc_release";
++    if (Object != AArch64::X0)
++      Name += "_x" + utostr(TII->getRegisterInfo().getEncodingValue(Object));
++    MachineFunction &MF = *MBB.getParent();
++    MachineOperand Target =
++        MachineOperand::CreateES(MF.createExternalSymbolName(Name));
++    MachineInstr *Call = createCallWithOps(MBB, MBBI, TII, AArch64::BL,
++                                           {Target}, /*RegMaskStartIdx=*/1);
++    if (MI.shouldUpdateAdditionalCallInfo())
++      MF.moveAdditionalCallInfo(&MI, Call);
++    MI.eraseFromParent();
++    return true;
++  }
++  case AArch64::BLR_RVMARKER:
+    case AArch64::BLRA_RVMARKER:
+      return expandCALL_RVMARKER(MBB, MBBI);
+    case AArch64::BLR_BTI:
+--- a/llvm/lib/Target/AArch64/AArch64InstrInfo.td
++++ b/llvm/lib/Target/AArch64/AArch64InstrInfo.td
+@@ -3504,6 +3504,12 @@
+                 PseudoInstExpansion<(BLR GPR64:$Rn)>;
+   def BLR_RVMARKER : Pseudo<(outs), (ins variable_ops), []>,
+                      Sched<[WriteBrReg]>;
++  // A call to objc_retain (kind 0) or objc_release (kind 1) whose object is in
++  // any GPR64objcarg register (AArch64ObjCARCRegisterCalls).
++  def OBJC_ARC_CALL_ANYREG : Pseudo<(outs),
++                                    (ins i64imm:$kind, GPR64objcarg:$obj, variable_ops),
++                                    []>,
++                             Sched<[WriteBr]>;
+   def BLR_BTI : Pseudo<(outs), (ins variable_ops), []>,
+                 Sched<[WriteBrReg]>;
+   let Uses = [X16, SP] in
+@@ -10337,6 +10343,13 @@
+                    Sched<[WriteBrReg]>;
+   def TCRETURNri : Pseudo<(outs), (ins tcGPR64:$dst, i32imm:$FPDiff), []>,
+                    Sched<[WriteBrReg]>;
++  // A tail call to objc_retain (kind 0) or objc_release (kind 1) whose object
++  // is in any GPR64objctail register (AArch64ObjCARCRegisterCalls).
++  def OBJC_ARC_TCRETURN_ANYREG : Pseudo<(outs),
++                                        (ins i64imm:$kind, GPR64objctail:$obj,
++                                             i32imm:$FPDiff, variable_ops),
++                                        []>,
++                                 Sched<[WriteBrReg]>;
+   // Indirect tail-call with any register allowed, used by MachineOutliner when
+   // this is proven safe.
+   // FIXME: If we have to add any more hacks like this, we should instead relax
+--- a/llvm/lib/Target/AArch64/AArch64ObjCARCRegisterCalls.cpp
++++ b/llvm/lib/Target/AArch64/AArch64ObjCARCRegisterCalls.cpp
+@@ -0,0 +1,282 @@
++//===- AArch64ObjCARCRegisterCalls.cpp - objc_retain_x<N>, objc_release_x<N> ----===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// Lets the register allocator pick the register in which a call to objc_retain
++// or objc_release takes its object. The Objective-C runtime has entry points
++// that take it in x1 to x15 and x19 to x28 (objc_retain_x<N>, objc_release_x<N>,
++// the retained object returned in x0 as by objc_retain); Xcode 27.0's compilers
++// call them for arm64 targets from iOS, tvOS and Mac Catalyst 16, watchOS 9 and
++// every visionOS, above -O0, and not for macOS. Right after instruction
++// selection, the copy of the object into x0 becomes a copy into a new register
++// and the call OBJC_ARC_CALL_ANYREG, or for a tail call
++// OBJC_ARC_TCRETURN_ANYREG; after register allocation they call the entry point
++// of the allocated register (AArch64ExpandPseudoInsts, and
++// AArch64ObjCARCRegisterTailCalls before the epilogue is inserted). A call to
++// objc_retain keeps the ordinary register mask, not the this-return one, and
++// the uses of its object it dominates take the result copied out of x0, so the
++// object need not live across the call, as in Xcode's code.
++//
++//===----------------------------------------------------------------------===//
++
++#include "AArch64.h"
++#include "AArch64InstrInfo.h"
++#include "AArch64Subtarget.h"
++#include "llvm/ADT/StringExtras.h"
++#include "llvm/CodeGen/MachineFunction.h"
++#include "llvm/CodeGen/MachineDominators.h"
++#include "llvm/CodeGen/MachineFunctionPass.h"
++#include "llvm/CodeGen/MachineInstrBuilder.h"
++#include "llvm/CodeGen/MachineRegisterInfo.h"
++#include "llvm/IR/GlobalValue.h"
++#include "llvm/InitializePasses.h"
++
++using namespace llvm;
++
++#define DEBUG_TYPE "aarch64-objc-arc-register-calls"
++
++namespace {
++class AArch64ObjCARCRegisterCalls : public MachineFunctionPass {
++public:
++  static char ID;
++  AArch64ObjCARCRegisterCalls() : MachineFunctionPass(ID) {
++    initializeAArch64ObjCARCRegisterCallsPass(*PassRegistry::getPassRegistry());
++  }
++  bool runOnMachineFunction(MachineFunction &MF) override;
++  StringRef getPassName() const override {
++    return "AArch64 Objective-C ARC register entry points";
++  }
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    AU.setPreservesCFG();
++    AU.addRequired<MachineDominatorTreeWrapperPass>();
++    AU.addPreserved<MachineDominatorTreeWrapperPass>();
++    MachineFunctionPass::getAnalysisUsage(AU);
++  }
++};
++
++class AArch64ObjCARCRegisterTailCalls : public MachineFunctionPass {
++public:
++  static char ID;
++  AArch64ObjCARCRegisterTailCalls() : MachineFunctionPass(ID) {
++    initializeAArch64ObjCARCRegisterTailCallsPass(
++        *PassRegistry::getPassRegistry());
++  }
++  bool runOnMachineFunction(MachineFunction &MF) override;
++  StringRef getPassName() const override {
++    return "AArch64 Objective-C ARC register entry point tail calls";
++  }
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    AU.setPreservesCFG();
++    MachineFunctionPass::getAnalysisUsage(AU);
++  }
++};
++} // end anonymous namespace
++
++char AArch64ObjCARCRegisterCalls::ID = 0;
++char AArch64ObjCARCRegisterTailCalls::ID = 0;
++
++INITIALIZE_PASS_BEGIN(AArch64ObjCARCRegisterCalls, DEBUG_TYPE,
++                      "AArch64 Objective-C ARC register entry points", false,
++                      false)
++INITIALIZE_PASS_DEPENDENCY(MachineDominatorTreeWrapperPass)
++INITIALIZE_PASS_END(AArch64ObjCARCRegisterCalls, DEBUG_TYPE,
++                    "AArch64 Objective-C ARC register entry points", false,
++                    false)
++INITIALIZE_PASS(AArch64ObjCARCRegisterTailCalls,
++                "aarch64-objc-arc-register-tail-calls",
++                "AArch64 Objective-C ARC register entry point tail calls",
++                false, false)
++
++static bool hasRegisterEntryPoints(const Triple &T) {
++  if (!T.isAArch64() || !T.isOSDarwin() || T.isMacOSX())
++    return false;
++  if (T.isXROS())
++    return true;
++  if (T.isWatchOS())
++    return T.getOSVersion() >= VersionTuple(9);
++  if (T.isiOS())
++    return T.getOSVersion() >= VersionTuple(16);
++  return false;
++}
++
++/// 0 for objc_retain, 1 for objc_release, -1 for any other instruction.
++static int64_t entryPointKind(const MachineInstr &MI) {
++  if ((MI.getOpcode() != AArch64::BL && MI.getOpcode() != AArch64::TCRETURNdi) ||
++      !MI.getOperand(0).isGlobal())
++    return -1;
++  StringRef Name = MI.getOperand(0).getGlobal()->getName();
++  if (Name == "objc_retain")
++    return 0;
++  if (Name == "objc_release")
++    return 1;
++  return -1;
++}
++
++/// The copy of the call's object into x0, when nothing between it and the
++/// call reads or writes x0.
++static MachineInstr *argumentCopy(MachineInstr &Call,
++                                  const TargetRegisterInfo *TRI) {
++  for (MachineInstr &MI : make_range(std::next(Call.getReverseIterator()),
++                                     Call.getParent()->instr_rend())) {
++    if (MI.isCall())
++      return nullptr;
++    if (MI.isCopy() && MI.getOperand(0).getReg() == AArch64::X0 &&
++        MI.getOperand(1).getReg().isVirtual() && !MI.getOperand(1).getSubReg())
++      return &MI;
++    if (MI.readsRegister(AArch64::X0, TRI) ||
++        MI.modifiesRegister(AArch64::X0, TRI))
++      return nullptr;
++  }
++  return nullptr;
++}
++
++/// Whether Def dominates Use: Use is later in Def's block, or in a block Def's
++/// dominates (for a PHI, the block the value comes from).
++static bool dominatesUse(const MachineInstr &Def, const MachineOperand &Use,
++                         const MachineDominatorTree &DT) {
++  const MachineInstr &User = *Use.getParent();
++  const MachineBasicBlock *Block = Def.getParent();
++  const MachineBasicBlock *UseBlock = User.getParent();
++  if (User.isPHI()) {
++    UseBlock = User.getOperand(Use.getOperandNo() + 1).getMBB();
++    return UseBlock == Block || DT.dominates(Block, UseBlock);
++  }
++  if (UseBlock != Block)
++    return DT.dominates(Block, UseBlock);
++  for (const MachineInstr &MI :
++       make_range(std::next(Def.getIterator()), Block->instr_end()))
++    if (&MI == &User)
++      return true;
++  return false;
++}
++
++/// Copies objc_retain's result out of x0 after the call frame of Call, and
++/// gives it to the uses of Object it dominates.
++static void useRetainResult(MachineInstr &Call, Register Object,
++                            const TargetInstrInfo *TII, MachineRegisterInfo &MRI,
++                            const MachineDominatorTree &DT) {
++  MachineBasicBlock &MBB = *Call.getParent();
++  MachineBasicBlock::iterator After = std::next(Call.getIterator());
++  if (After != MBB.end() &&
++      After->getOpcode() == TII->getCallFrameDestroyOpcode())
++    ++After;
++  Register Result = MRI.createVirtualRegister(&AArch64::GPR64allRegClass);
++  MachineInstr &Copy =
++      *BuildMI(MBB, After, Call.getDebugLoc(), TII->get(TargetOpcode::COPY),
++               Result)
++           .addReg(AArch64::X0);
++  const TargetRegisterClass *ObjectRC = MRI.getRegClass(Object);
++  for (MachineOperand &Use :
++       make_early_inc_range(MRI.use_nodbg_operands(Object))) {
++    if (!dominatesUse(Copy, Use, DT) || !MRI.constrainRegClass(Result, ObjectRC))
++      continue;
++    Use.setReg(Result);
++    Use.setIsKill(false);
++  }
++}
++
++bool AArch64ObjCARCRegisterCalls::runOnMachineFunction(MachineFunction &MF) {
++  const auto &ST = MF.getSubtarget<AArch64Subtarget>();
++  if (skipFunction(MF.getFunction()) ||
++      !hasRegisterEntryPoints(ST.getTargetTriple()))
++    return false;
++  const TargetInstrInfo *TII = ST.getInstrInfo();
++  const TargetRegisterInfo *TRI = ST.getRegisterInfo();
++  MachineRegisterInfo &MRI = MF.getRegInfo();
++  const MachineDominatorTree &DT =
++      getAnalysis<MachineDominatorTreeWrapperPass>().getDomTree();
++  const uint32_t *CallMask =
++      TRI->getCallPreservedMask(MF, MF.getFunction().getCallingConv());
++  bool Changed = false;
++  for (MachineBasicBlock &MBB : MF) {
++    for (MachineInstr &MI : make_early_inc_range(MBB)) {
++      int64_t Kind = entryPointKind(MI);
++      if (Kind < 0)
++        continue;
++      MachineInstr *Copy = argumentCopy(MI, TRI);
++      if (!Copy)
++        continue;
++      bool TailCall = MI.getOpcode() == AArch64::TCRETURNdi;
++      Register Original = Copy->getOperand(1).getReg();
++      Register Object = MRI.createVirtualRegister(
++          TailCall ? &AArch64::GPR64objctailRegClass
++                   : &AArch64::GPR64objcargRegClass);
++      BuildMI(MBB, *Copy, Copy->getDebugLoc(), TII->get(TargetOpcode::COPY),
++              Object)
++          .addReg(Original);
++      // The call's own implicit operands come from MI, as the BL's did.
++      MachineInstr *NewMI = MF.CreateMachineInstr(
++          TII->get(TailCall ? AArch64::OBJC_ARC_TCRETURN_ANYREG
++                            : AArch64::OBJC_ARC_CALL_ANYREG),
++          MI.getDebugLoc(), /*NoImplicit=*/true);
++      MBB.insert(MI.getIterator(), NewMI);
++      MachineInstrBuilder Call(MF, NewMI);
++      Call.addImm(Kind).addReg(Object);
++      bool Retain = Kind == 0 && !TailCall;
++      bool DefinesX0 = false;
++      for (const MachineOperand &MO : drop_begin(MI.operands())) {
++        if (MO.isReg() && MO.isImplicit() && MO.getReg() == AArch64::X0) {
++          if (MO.isUse())
++            continue;
++          DefinesX0 = true;
++        }
++        if (Retain && MO.isRegMask())
++          Call.addRegMask(CallMask);
++        else
++          Call.add(MO);
++      }
++      // A this-return call preserved x0; the result now comes back in it.
++      if (Retain && !DefinesX0)
++        Call.addReg(AArch64::X0, RegState::ImplicitDefine);
++      if (MI.shouldUpdateAdditionalCallInfo())
++        MF.moveAdditionalCallInfo(&MI, Call.getInstr());
++      MI.eraseFromParent();
++      Copy->eraseFromParent();
++      Changed = true;
++      if (Retain)
++        useRetainResult(*NewMI, Original, TII, MRI, DT);
++    }
++  }
++  return Changed;
++}
++
++bool AArch64ObjCARCRegisterTailCalls::runOnMachineFunction(
++    MachineFunction &MF) {
++  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
++  const TargetRegisterInfo *TRI = MF.getSubtarget().getRegisterInfo();
++  bool Changed = false;
++  for (MachineBasicBlock &MBB : MF) {
++    for (MachineInstr &MI : make_early_inc_range(MBB.terminators())) {
++      if (MI.getOpcode() != AArch64::OBJC_ARC_TCRETURN_ANYREG)
++        continue;
++      Register Object = MI.getOperand(1).getReg();
++      std::string Name =
++          MI.getOperand(0).getImm() == 0 ? "objc_retain" : "objc_release";
++      if (Object != AArch64::X0)
++        Name += "_x" + utostr(TRI->getEncodingValue(Object));
++      MachineInstrBuilder Return =
++          BuildMI(MBB, MI, MI.getDebugLoc(), TII->get(AArch64::TCRETURNdi))
++              .addExternalSymbol(MF.createExternalSymbolName(Name));
++      for (const MachineOperand &MO : drop_begin(MI.operands(), 2))
++        Return.add(MO);
++      Return.addReg(Object, RegState::Implicit);
++      if (MI.shouldUpdateAdditionalCallInfo())
++        MF.moveAdditionalCallInfo(&MI, Return.getInstr());
++      MI.eraseFromParent();
++      Changed = true;
++    }
++  }
++  return Changed;
++}
++
++FunctionPass *llvm::createAArch64ObjCARCRegisterCallsPass() {
++  return new AArch64ObjCARCRegisterCalls();
++}
++
++FunctionPass *llvm::createAArch64ObjCARCRegisterTailCallsPass() {
++  return new AArch64ObjCARCRegisterTailCalls();
++}
+--- a/llvm/lib/Target/AArch64/AArch64RegisterInfo.td
++++ b/llvm/lib/Target/AArch64/AArch64RegisterInfo.td
+@@ -255,6 +255,21 @@
+ def GPR64all : RegisterClass<"AArch64", [i64], 64, (add GPR64common, XZR, SP)>;
+ 
+ // For tail calls, we can't use callee-saved registers, as they are restored
++// The registers the Objective-C runtime's objc_retain_x<N> and objc_release_x<N>
++// take their object in, with x0 for objc_retain and objc_release themselves, in
++// GPR64common's allocation order.
++def GPR64objcarg : RegisterClass<"AArch64", [i64], 64,
++                                 (sub GPR64common, X16, X17, X18, FP, LR)> {
++  let AltOrders = [(rotl GPR64objcarg, 8)];
++  let AltOrderSelect = [{ return 1; }];
++}
++
++// Those of them a tail call can pass, which the epilogue does not restore, in
++// tcGPR64's allocation order.
++def GPR64objctail : RegisterClass<"AArch64", [i64], 64,
++                                  (sub GPR64objcarg, X19, X20, X21, X22, X23,
++                                                     X24, X25, X26, X27, X28)>;
++
+ // to the saved value before the tail call, which would clobber a call address.
+ // This is for indirect tail calls to store the address of the destination.
+ def tcGPR64 : RegisterClass<"AArch64", [i64], 64, (sub GPR64common, X19, X20, X21,
+--- a/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp
++++ b/llvm/lib/Target/AArch64/AArch64TargetMachine.cpp
+@@ -244,6 +244,8 @@
+   initializeAArch64ConditionalComparesPass(PR);
+   initializeAArch64ConditionOptimizerPass(PR);
+   initializeAArch64DeadRegisterDefinitionsPass(PR);
++  initializeAArch64ObjCARCRegisterCallsPass(PR);
++  initializeAArch64ObjCARCRegisterTailCallsPass(PR);
+   initializeAArch64ExpandPseudoPass(PR);
+   initializeAArch64LoadStoreOptPass(PR);
+   initializeAArch64MIPeepholeOptPass(PR);
+@@ -730,6 +732,11 @@
+ bool AArch64PassConfig::addInstSelector() {
+   addPass(createAArch64ISelDag(getAArch64TargetMachine(), getOptLevel()));
+ 
++  // Let the register allocator pick the register of objc_retain and
++  // objc_release calls (objc_retain_x<N>, objc_release_x<N>).
++  if (getOptLevel() != CodeGenOptLevel::None)
++    addPass(createAArch64ObjCARCRegisterCallsPass());
++
+   // For ELF, cleanup any local-dynamic TLS accesses (i.e. combine as many
+   // references to _TLS_MODULE_BASE_ as possible.
+   if (TM->getTargetTriple().isOSBinFormatELF() &&
+@@ -831,6 +838,11 @@
+ }
+ 
+ void AArch64PassConfig::addPostRegAlloc() {
++  // Tail calls to objc_retain_x<N> and objc_release_x<N>, before the epilogue
++  // is inserted.
++  if (TM->getOptLevel() != CodeGenOptLevel::None)
++    addPass(createAArch64ObjCARCRegisterTailCallsPass());
++
+   // Remove redundant copy instructions.
+   if (TM->getOptLevel() != CodeGenOptLevel::None &&
+       EnableRedundantCopyElimination)
+--- a/llvm/lib/Target/AArch64/CMakeLists.txt
++++ b/llvm/lib/Target/AArch64/CMakeLists.txt
+@@ -52,6 +52,7 @@
+   AArch64CondBrTuning.cpp
+   AArch64ConditionalCompares.cpp
+   AArch64DeadRegisterDefinitionsPass.cpp
++  AArch64ObjCARCRegisterCalls.cpp
+   AArch64ExpandImm.cpp
+   AArch64ExpandPseudoInsts.cpp
+   AArch64FalkorHWPFFix.cpp

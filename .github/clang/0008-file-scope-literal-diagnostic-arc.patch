@@ -1,0 +1,250 @@
+Backport of llvm/llvm-project#209688, "[clang][Sema] Fix ObjC file-scope literal diagnostic under -fobjc-arc" (merged 2026-07-31), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+Adapted: calls keep isConstantInitializer's explicit arguments, which llvm-project #190313 made
+defaults after swift-6.4.0-RELEASE.
+
+diff --git a/clang/lib/AST/Expr.cpp b/clang/lib/AST/Expr.cpp
+index 528a2508..d7161955 100644
+--- a/clang/lib/AST/Expr.cpp
++++ b/clang/lib/AST/Expr.cpp
+@@ -3914,6 +3914,7 @@ bool Expr::isConstantInitializer(ASTContext &Ctx, bool IsForRef,
+         CE->getCastKind() == CK_NonAtomicToAtomic ||
+         CE->getCastKind() == CK_AtomicToNonAtomic ||
+         CE->getCastKind() == CK_NullToPointer ||
++        CE->getCastKind() == CK_ARCReclaimReturnedObject ||
+         CE->getCastKind() == CK_IntToOCLSampler)
+       return CE->getSubExpr()->isConstantInitializer(Ctx, false, Culprit);
+ 
+diff --git a/clang/lib/Sema/SemaDecl.cpp b/clang/lib/Sema/SemaDecl.cpp
+index 47e6708e..5f32e0a9 100644
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -13668,14 +13668,31 @@ bool Sema::CheckForConstantInitializer(Expr *Init, unsigned DiagID) {
+   if (Init->isConstantInitializer(Context, false, &Culprit))
+     return false;
+ 
+-  // Emit ObjC-specific diagnostics for non-constant literals at file scope.
+-  if (getLangOpts().ObjCConstantLiterals && isa<ObjCObjectLiteral>(Culprit)) {
++  // The culprit reported by isConstantInitializer() may be wrapped in implicit
++  // casts and parentheses that it does not look through: under ARC an
++  // object-pointer initializer is an `ImplicitCastExpr
++  // <ARCReclaimReturnedObject>`, an `id`-typed (or otherwise differently-typed)
++  // variable adds an `ImplicitCastExpr <BitCast>` on top, and a parenthesized
++  // initializer such as `(@{...})` adds a `ParenExpr`. Strip all of these so
++  // the ObjC-specific classification and per-element reporting below can see
++  // the underlying literal regardless of how it is wrapped.
++  const Expr *CulpritLiteral = Culprit->IgnoreParenImpCasts();
+ 
+-    // For collection literals iterate the elements to highlight which one is
+-    // the offender.
+-    if (auto ALE = dyn_cast<ObjCArrayLiteral>(Init)) {
+-      for (auto *Elm : ALE->elements()) {
+-        if (!Elm->isConstantInitializer(Context, false, nullptr)) {
++  // Emit ObjC-specific diagnostics for non-constant literals at file scope.
++  if (getLangOpts().ObjCConstantLiterals &&
++      isa<ObjCObjectLiteral>(CulpritLiteral)) {
++
++    // For collection literals, iterate the elements to point at the specific
++    // offender. These per-element checks mirror the constant-initializer rules
++    // applied when the literal was built (see SemaObjC::BuildObjCArrayLiteral
++    // and SemaObjC::BuildObjCDictionaryLiteral): each element must itself be a
++    // constant object literal, and dictionary keys must additionally be string
++    // literals. Elements, keys and values are wrapped in an implicit BitCast to
++    // `id`, so the isa<> classification is done on the unwrapped expression.
++    if (const auto *ALE = dyn_cast<ObjCArrayLiteral>(CulpritLiteral)) {
++      for (const Expr *Elm : ALE->elements()) {
++        if (!isa<ObjCObjectLiteral>(Elm->IgnoreImpCasts()) ||
++            !Elm->isConstantInitializer(Context, false, nullptr)) {
+           Diag(Elm->getExprLoc(),
+                diag::err_objc_literal_nonconstant_at_file_scope)
+               << ObjC().CheckLiteralKind(Init) << Elm->getSourceRange();
+@@ -13684,12 +13701,12 @@ bool Sema::CheckForConstantInitializer(Expr *Init, unsigned DiagID) {
+       }
+     }
+ 
+-    if (auto DLE = dyn_cast<ObjCDictionaryLiteral>(Init)) {
++    if (const auto *DLE = dyn_cast<ObjCDictionaryLiteral>(CulpritLiteral)) {
+       for (size_t I = 0, N = DLE->getNumElements(); I != N; ++I) {
+         const ObjCDictionaryElement Elm = DLE->getKeyValueElement(I);
+ 
+-        // Check that the key is a string literal and is constant.
+-        if (!isa<ObjCStringLiteral>(Elm.Key) ||
++        // Keys must be constant string literals.
++        if (!isa<ObjCStringLiteral>(Elm.Key->IgnoreImpCasts()) ||
+             !Elm.Key->isConstantInitializer(Context, false, nullptr)) {
+           Diag(Elm.Key->getExprLoc(),
+                diag::err_objc_literal_nonconstant_at_file_scope)
+@@ -13697,7 +13714,9 @@ bool Sema::CheckForConstantInitializer(Expr *Init, unsigned DiagID) {
+           return true;
+         }
+ 
+-        if (!Elm.Value->isConstantInitializer(Context, false, nullptr)) {
++        // Values must be constant object literals.
++        if (!isa<ObjCObjectLiteral>(Elm.Value->IgnoreImpCasts()) ||
++            !Elm.Value->isConstantInitializer(Context, false, nullptr)) {
+           Diag(Elm.Value->getExprLoc(),
+                diag::err_objc_literal_nonconstant_at_file_scope)
+               << ObjC().CheckLiteralKind(Init) << Elm.Value->getSourceRange();
+@@ -13706,9 +13725,9 @@ bool Sema::CheckForConstantInitializer(Expr *Init, unsigned DiagID) {
+       }
+     }
+ 
+-    Diag(Culprit->getExprLoc(),
++    Diag(CulpritLiteral->getExprLoc(),
+          diag::err_objc_literal_nonconstant_at_file_scope)
+-        << ObjC().CheckLiteralKind(Init) << Culprit->getSourceRange();
++        << ObjC().CheckLiteralKind(Init) << CulpritLiteral->getSourceRange();
+     return true;
+   }
+ 
+diff --git a/clang/test/SemaObjC/objc-constant-literal-dict-key-restrictions.m b/clang/test/SemaObjC/objc-constant-literal-dict-key-restrictions.m
+new file mode 100644
+index 00000000..a00352fb
+--- /dev/null
++++ b/clang/test/SemaObjC/objc-constant-literal-dict-key-restrictions.m
+@@ -0,0 +1,145 @@
++// RUN: %clang_cc1 -fsyntax-only -verify=objc \
++// RUN:   -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 \
++// RUN:   -fobjc-constant-literals -fconstant-nsnumber-literals \
++// RUN:   -fconstant-nsarray-literals -fconstant-nsdictionary-literals %s
++
++// RUN: %clang_cc1 -fsyntax-only -verify=objc \
++// RUN:   -fobjc-arc \
++// RUN:   -triple arm64-apple-ios15.1.0-simulator -fobjc-runtime=ios-15.1.0 \
++// RUN:   -fobjc-constant-literals -fconstant-nsnumber-literals \
++// RUN:   -fconstant-nsarray-literals -fconstant-nsdictionary-literals %s
++
++// RUN: %clang_cc1 -fsyntax-only -verify=objcxx \
++// RUN:   -fobjc-arc -x objective-c++ \
++// RUN:   -triple arm64-apple-ios15.1.0-simulator -fobjc-runtime=ios-15.1.0 \
++// RUN:   -fobjc-constant-literals -fconstant-nsnumber-literals \
++// RUN:   -fconstant-nsarray-literals -fconstant-nsdictionary-literals %s
++
++// In C++ these file-scope initializers are dynamic initializers rather than
++// constant ones, so none of the diagnostics below apply.
++// objcxx-no-diagnostics
++
++#if __LP64__ || (TARGET_OS_EMBEDDED && !TARGET_OS_IPHONE) || TARGET_OS_WIN32 || NS_BUILD_32_LIKE_64
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++@class NSString;
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
+++ (NSNumber *)numberWithBool:(unsigned char)value;
++@end
++
++@interface NSArray
+++ (id)arrayWithObjects:(const id[])objects count:(NSUInteger)cnt;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++int foo(void);
++
++static NSString *const someStringConstantVar = @"foo";
++
++// ---- Accepted: string-literal keys with constant literal values -----------
++// These are constant, so they must be diagnosed under neither triple. The `id`
++// case additionally wraps the literal in an implicit BitCast, which must not
++// stop it from being recognized as a constant literal.
++
++static NSDictionary *const dASCII = @{@"a" : @1, @"m" : @2, @"z" : @3};
++static NSDictionary *const dEmpty = @{};
++static NSArray *const aOK = @[@1, @2, @3];
++static id const dOKAsId = @{@"a" : @1};
++
++// ---- Rejected: non-string-literal key -------------------------------------
++// The error must point at the offending key, not the whole `@{...}` and not the
++// value. Splitting each element across lines lets -verify confirm the caret
++// lands on the key. This must hold with and without ARC.
++
++static NSDictionary *const dNumberKey = @{
++    @5 // objc-error {{its keys are string literals}}
++    : @1};
++
++static NSDictionary *const dBoxedKey = @{
++    @(1 + 2) // objc-error {{its keys are string literals}}
++    : @1};
++
++static NSDictionary *const dBoolKey = @{
++    @__objc_yes // objc-error {{its keys are string literals}}
++    : @1};
++
++// The offending key is the second entry; the first (valid) entry is not blamed.
++static NSDictionary *const dSecondKeyBad = @{
++    @"ok" : @1,
++    @2 // objc-error {{its keys are string literals}}
++    : @2};
++
++// A constant NSString variable is not a string *literal*, so it is rejected as
++// a key and the caret points at it.
++static NSDictionary *const dConstVarKey = @{
++    someStringConstantVar // objc-error {{its keys are string literals}}
++    : @1};
++
++// ---- Rejected: valid string key but non-constant value --------------------
++// The key is a valid string literal; the value is the culprit, so the caret
++// must point at the value and the key must not be blamed.
++
++static NSDictionary *const dValueBad = @{
++    @"a" :
++    @(foo())}; // objc-error {{its keys are string literals}}
++
++// Even when an earlier entry is fully valid, the caret points at the first bad
++// value rather than the whole literal or the good entry.
++static NSDictionary *const dMixedValueBad = @{
++    @"a" : @1,
++    @"b" :
++    @(foo())}; // objc-error {{its keys are string literals}}
++
++// A value that is constant but not itself a literal (a reference to another
++// constant) is likewise rejected, pointing at the value.
++static NSDictionary *const dNonLiteralValue = @{
++    @"a" :
++    someStringConstantVar}; // objc-error {{its keys are string literals}}
++
++// ---- Rejected: id-typed variable under ARC --------------------------------
++// Declaring the variable `id` wraps the literal in an implicit BitCast. The
++// diagnostic must still be the dictionary-specific one (not the generic C
++// "initializer element is not a compile-time constant") and must point at the
++// offending key.
++
++static id const dNumberKeyAsId = @{
++    @5 // objc-error {{its keys are string literals}}
++    : @1};
++
++// ---- Rejected: non-constant array element ---------------------------------
++// The array diagnostic points at the specific offending element.
++
++static NSArray *const aValueBad = @[
++    @1,
++    @(foo())]; // objc-error {{an array literal can only be used at file scope}}
++
++// ---- Rejected: parenthesized literal --------------------------------------
++// A parenthesized initializer such as `(@{...})` adds a `ParenExpr`; combined
++// with the implicit BitCast for an `id`-typed variable it would otherwise hide
++// the literal and fall back to the generic diagnostic. The specific-culprit
++// reporting must still fire through parentheses (including nested ones) for both
++// dictionary- and id-typed variables.
++
++static NSDictionary *const dParenValueBad = (@{
++    @"a" :
++    @(foo())}); // objc-error {{its keys are string literals}}
++
++static id const dParenIdValueBad = (@{
++    @"a" :
++    @(foo())}); // objc-error {{its keys are string literals}}
++
++static id const dNestedParenIdValueBad = ((@{
++    @"a" :
++    @(foo())})); // objc-error {{its keys are string literals}}
++
++static id const aParenIdValueBad = (@[
++    @1,
++    @(foo())]); // objc-error {{an array literal can only be used at file scope}}

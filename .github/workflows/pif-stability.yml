@@ -1,0 +1,49 @@
+# Dumps Xcode's PIF for corpus apps with synchronized folders several times and compares the
+# dumps (.github/scripts/pif_stability.py), to tell which parts of the PIF nomac must reproduce
+# exactly and which Xcode itself does not keep stable (docs/formats/pif.md, open questions).
+name: pif-stability
+
+on:
+  # Manual only (Actions tab): macOS minutes are billed at 10x. The script also runs on any Mac
+  # with Xcode 27.0 (docs/VERIFICATION.md "Without CI").
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Space-separated corpus app ids"
+        required: false
+        default: "netnewswire icecubes"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pif-stability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dump:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(python3 -c 'import json; print(json.load(open("corpus/corpus.json"))["xcode"]["path"])')"
+          xcodebuild -version
+      - name: Dump and compare
+        run: |
+          for app in ${{ inputs.apps || 'netnewswire icecubes' }}; do
+            python3 .github/scripts/pif_stability.py "$app" "$RUNNER_TEMP/stability" --work "$RUNNER_TEMP/stability-work"
+            {
+              echo "### $app"
+              echo '```json'
+              python3 -c 'import json, sys; s = json.load(open(sys.argv[1])); [c.pop("phaseOrders", None) for c in s["comparisons"].values()]; print(json.dumps(s, indent=2))' "$RUNNER_TEMP/stability/$app/summary.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pif-stability
+          path: ${{ runner.temp }}/stability
+          retention-days: 30

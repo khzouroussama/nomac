@@ -1,0 +1,25 @@
+--- a/lld/MachO/Symbols.cpp
++++ b/lld/MachO/Symbols.cpp
+@@ -50,7 +50,7 @@
+   return in.lazyPointers->getVA(stubsIndex);
+ }
+ uint64_t Symbol::getGotVA() const { return in.got->getVA(gotIndex); }
+-uint64_t Symbol::getTlvVA() const { return in.tlvPointers->getVA(gotIndex); }
++uint64_t Symbol::getTlvVA() const { return in.got->getVA(gotIndex); }
+ 
+ Defined::Defined(StringRef name, InputFile *file, InputSection *isec,
+                  uint64_t value, uint64_t size, bool isWeakDef, bool isExternal,
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -683,8 +683,10 @@
+     if (relocAttrs.hasAttr(RelocAttrBits::POINTER) || needsBinding(sym))
+       in.got->addEntry(sym);
+   } else if (relocAttrs.hasAttr(RelocAttrBits::TLV)) {
++    // Xcode's ld keeps pointers to thread-local variables in __got with the
++    // other non-lazy pointers, not in a __thread_ptrs section.
+     if (needsBinding(sym))
+-      in.tlvPointers->addEntry(sym);
++      in.got->addEntry(sym);
+   } else if (relocAttrs.hasAttr(RelocAttrBits::UNSIGNED)) {
+     // References from thread-local variable sections are treated as offsets
+     // relative to the start of the referent section, and therefore have no

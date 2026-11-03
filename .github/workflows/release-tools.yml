@@ -1,0 +1,167 @@
+# Builds nomac's release downloads (docs/RELEASES.md, docs/INSTALL.md) on GitHub's Linux runners, one
+# per architecture: cctools and the LLVM tools side by side, then the swift-frontend against the
+# patched llvm-project, packaged as the tools' archive; nomac with the Swift standard library linked
+# in; then the release archive (nomac, its resources, the tools, install.sh), which a fresh
+# ubuntu:24.04 installs with install.sh. Each build step runs in swift:6.4.1-noble
+# (release-tools.sh). Started by hand; the archives are workflow artifacts, attached to a release by
+# hand.
+name: release-tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version in the archive's name"
+        default: "27.0.1-preview"
+      tools_run_id:
+        description: "A previous run whose nomac-tools-linux-* artifacts to reuse instead of building the tools (empty: build them)"
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  cctools:
+    if: inputs.tools_run_id == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/release-tools.sh cctools "$RUNNER_TEMP/r"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cctools-${{ runner.arch }}
+          path: ${{ runner.temp }}/r/tools
+          retention-days: 7
+
+  llvm:
+    if: inputs.tools_run_id == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space and add swap
+        run: .github/scripts/release-tools-runner.sh
+      - run: .github/scripts/release-tools.sh llvm "$RUNNER_TEMP/r"
+      # The swift-frontend is built against this patched source.
+      - name: Pack the patched llvm-project
+        run: sudo tar -C "$RUNNER_TEMP/r/llvm-work" -I 'zstd -T0 -3' -cf "$RUNNER_TEMP/llvm-project.tar.zst" llvm-project-swift-6.4.0-RELEASE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvm-${{ runner.arch }}
+          path: ${{ runner.temp }}/r/tools
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: llvm-project-${{ runner.arch }}
+          path: ${{ runner.temp }}/llvm-project.tar.zst
+          compression-level: 0
+          retention-days: 7
+
+  swift-frontend:
+    needs: [cctools, llvm]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space and add swap
+        run: .github/scripts/release-tools-runner.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: llvm-project-${{ runner.arch }}
+          path: ${{ runner.temp }}
+      - name: Unpack the patched llvm-project
+        run: |
+          mkdir -p "$RUNNER_TEMP/r/llvm-work"
+          tar -C "$RUNNER_TEMP/r/llvm-work" -I zstd -xf "$RUNNER_TEMP/llvm-project.tar.zst"
+          rm "$RUNNER_TEMP/llvm-project.tar.zst"
+      - run: .github/scripts/release-tools.sh swift-frontend "$RUNNER_TEMP/r"
+      - uses: actions/download-artifact@v4
+        with:
+          name: llvm-${{ runner.arch }}
+          path: ${{ runner.temp }}/llvm-tools
+      - uses: actions/download-artifact@v4
+        with:
+          name: cctools-${{ runner.arch }}
+          path: ${{ runner.temp }}/llvm-tools
+      - name: Gather the tools
+        run: sudo cp -R "$RUNNER_TEMP/llvm-tools/." "$RUNNER_TEMP/r/tools/"
+      - run: .github/scripts/release-tools.sh package "$RUNNER_TEMP/r"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomac-tools-linux-${{ runner.arch }}
+          path: ${{ runner.temp }}/r/dist
+          compression-level: 0
+          retention-days: 30
+
+  nomac:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/release-tools.sh nomac "$RUNNER_TEMP/r"
+      - name: Pack nomac and its resources
+        run: sudo tar -C "$RUNNER_TEMP/r/nomac-build/release" -cf "$RUNNER_TEMP/nomac.tar" nomac $(cd "$RUNNER_TEMP/r/nomac-build/release" && ls -d *.bundle | grep -v 'Tests\.bundle$')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomac-${{ runner.arch }}
+          path: ${{ runner.temp }}/nomac.tar
+          retention-days: 7
+
+  release:
+    needs: [nomac, swift-frontend]
+    if: always() && needs.nomac.result == 'success' && (needs.swift-frontend.result == 'success' || needs.swift-frontend.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomac-tools-linux-${{ runner.arch }}
+          path: ${{ runner.temp }}/r/dist
+          run-id: ${{ inputs.tools_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: nomac-${{ runner.arch }}
+          path: ${{ runner.temp }}
+      - name: Unpack nomac
+        run: mkdir -p "$RUNNER_TEMP/r/nomac-build/release" && tar -C "$RUNNER_TEMP/r/nomac-build/release" -xf "$RUNNER_TEMP/nomac.tar"
+      - run: RELEASE_VERSION=${{ inputs.version }} .github/scripts/release-tools.sh release "$RUNNER_TEMP/r"
+      # The archive as a user gets it: a fresh Ubuntu 24.04 installs it with install.sh and runs nomac.
+      - name: Install on a fresh ubuntu:24.04
+        run: |
+          docker run --rm -v "$RUNNER_TEMP/r/release:/release:ro" ubuntu:24.04 bash -c '
+            set -e; apt-get update -q >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -y -q xz-utils sudo >/dev/null
+            mkdir /tmp/x && tar xJf /release/nomac-*.tar.xz -C /tmp/x
+            /tmp/x/nomac-*/install.sh
+            export PATH=$HOME/.local/bin:$PATH
+            nomac --version
+            nomac doctor || true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomac-${{ inputs.version }}-linux-${{ runner.arch }}
+          path: ${{ runner.temp }}/r/release
+          compression-level: 0
+          retention-days: 30

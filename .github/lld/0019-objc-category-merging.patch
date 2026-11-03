@@ -1,0 +1,17 @@
+Objective-C categories are merged by default, as Xcode 27.0's ld merges them (iOS 15 and 18): the categories on a class
+of the image go into the class, and those on one class of a dylib into one category (__OBJC_$_INSTANCE_METHODS_
+NSObject(A|B)); -no_objc_category_merging still turns it off (B-193, docs/formats/build.md "Objective-C references,
+archive members and hints in the linked image").
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -2391,8 +2391,9 @@
+ 
+     // Category merging uses "->live = false" to erase old category data, so
+     // it has to run after dead-stripping (markLive).
++    // Xcode 27.0's ld merges categories by default.
+     if (args.hasFlag(OPT_objc_category_merging, OPT_no_objc_category_merging,
+-                     false))
++                     true))
+       objc::mergeCategories();
+ 
+     // ICF assumes that all literals have been folded already, so we must run

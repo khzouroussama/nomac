@@ -1,0 +1,457 @@
+Backport of llvm/llvm-project#209927, "[ObjC] Sort constant NSDictionary keys by UTF-16 code unit" (merged 2026-10-13), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+Adapted: one context line without the final period that llvm-project #193119 added.
+
+diff --git a/clang/include/clang/Basic/DiagnosticSemaKinds.td b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+index a77f381c..630f28fe 100644
+--- a/clang/include/clang/Basic/DiagnosticSemaKinds.td
++++ b/clang/include/clang/Basic/DiagnosticSemaKinds.td
+@@ -3639,6 +3639,10 @@ def warn_nsdictionary_duplicate_key : Warning<
+   InGroup<DiagGroup<"objc-dictionary-duplicate-keys">>;
+ def note_nsdictionary_duplicate_key_here : Note<
+   "previous equal key is here">;
++def warn_objc_dictionary_ill_formed_utf8_key : Warning<
++  "dictionary key is ill-formed as UTF-8 and will be truncated in a static "
++  "constant dictionary, so it may not be found at runtime">,
++  InGroup<DiagGroup<"objc-dictionary-invalid-utf8-key">>;
+ def err_swift_param_attr_not_swiftcall : Error<
+   "'%0' parameter can only be used with swiftcall%select{ or swiftasynccall|}1 "
+   "calling convention%select{|s}1">;
+diff --git a/clang/lib/CodeGen/CGObjCMac.cpp b/clang/lib/CodeGen/CGObjCMac.cpp
+index 3fd6b8de..2e01490c 100644
+--- a/clang/lib/CodeGen/CGObjCMac.cpp
++++ b/clang/lib/CodeGen/CGObjCMac.cpp
+@@ -2579,9 +2579,14 @@ ConstantAddress CGObjCCommonMac::GenerateConstantNSDictionary(
+                           CGM.getCodeGenOpts().PointerAuth.ObjCIsaPointers,
+                           GlobalDecl(), QualType());
+ 
+-  // Use the hashing helper to manage the keys and sorting
++  // Use the hashing helper to manage the keys and sorting. Sort by UTF-16
++  // code unit exactly when the keys are emitted as constant CFStrings (which
++  // store and compare keys as UTF-16); with -fno-constant-cfstrings the keys
++  // are OBJC_CLASS_$_NSConstantString compared as raw bytes, so sort by
++  // UTF-8 byte order instead.
+   auto HashOpts(NSDictionaryBuilder::Options::Sorted);
+-  NSDictionaryBuilder DictBuilder(E, KeysAndObjects, HashOpts);
++  NSDictionaryBuilder DictBuilder(E, KeysAndObjects, HashOpts,
++                                  !CGM.getLangOpts().NoConstantCFStrings);
+ 
+   // Ask `HashBuilder` for the fully sorted keys / values and the count
+   uint64_t const NumElements = DictBuilder.getNumElements();
+diff --git a/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h b/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h
+index f9eb54be..3af84956 100644
+--- a/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h
++++ b/clang/lib/CodeGen/CGObjCMacConstantLiteralUtil.h
+@@ -20,7 +20,10 @@
+ #include "clang/AST/Type.h"
+ #include "llvm/ADT/APFloat.h"
+ #include "llvm/ADT/APSInt.h"
++#include "llvm/ADT/ArrayRef.h"
+ #include "llvm/ADT/DenseMapInfo.h"
++#include "llvm/ADT/STLExtras.h"
++#include "llvm/Support/ConvertUTF.h"
+ #include <numeric>
+ 
+ namespace clang {
+@@ -108,7 +111,13 @@ public:
+   NSDictionaryBuilder(
+       const ObjCDictionaryLiteral *E,
+       ArrayRef<std::pair<llvm::Constant *, llvm::Constant *>> KeysAndObjects,
+-      const Options O = Options::Sorted) {
++      const Options O = Options::Sorted,
++      // When keys are emitted as constant CFStrings (the default), they are
++      // stored and looked up as UTF-16, so sort by UTF-16 code unit. When
++      // -fno-constant-cfstrings is passed, keys are instead emitted as
++      // OBJC_CLASS_$_NSConstantString and compared as raw bytes at lookup
++      // time, so sort by UTF-8 byte order (LKS < RKS) to match.
++      bool SortKeysByUTF16 = true) {
+     Opts = static_cast<uint64_t>(O);
+     uint64_t const NumElements = KeysAndObjects.size();
+ 
+@@ -119,28 +128,68 @@ public:
+     SmallVector<size_t, 16> ElementIndicies(NumElements);
+     std::iota(ElementIndicies.begin(), ElementIndicies.end(), 0);
+ 
++    // Precompute the UTF-16 form of each string key (unless the keys are not
++    // emitted as constant CFStrings, in which case UTF-16 comparison does not
++    // apply). The runtime stores constant-CFString keys as UTF-16 and looks
++    // them up by UTF-16 code-unit order, so we must sort by the same order
++    // here. Sorting by the raw UTF-8 bytes instead would diverge for keys
++    // mixing characters in U+E000..U+FFFF with astral characters
++    // (U+10000..U+10FFFF), because UTF-16 encodes the latter with lead
++    // surrogates (0xD800..0xDBFF) that sort *below* 0xE000 -- causing the
++    // runtime's lookup to miss keys that are actually present.
++    //
++    // A key need not be well-formed UTF-8: string literals with invalid or
++    // partial sequences are legal in the AST (Sema warns about them separately;
++    // see warn_objc_dictionary_ill_formed_utf8_key). We deliberately mirror the
++    // constant CFString emitter (CodeGenModule::GetConstantCFStringEntry),
++    // which runs ConvertUTF8toUTF16 with strictConversion and keeps whatever
++    // prefix converts successfully, so we sort by exactly the code units the
++    // string is stored and looked up as. Any trailing bytes that fail to
++    // convert are dropped from the sort key; this cannot crash and yields a
++    // valid strict-weak ordering regardless of well-formedness.
++    //
++    // The raw UTF-8 bytes of each key, used for byte-order sorting when the
++    // keys are not emitted as UTF-16 constant CFStrings.
++    SmallVector<StringRef, 16> KeysUTF8;
++    KeysUTF8.reserve(NumElements);
++    SmallVector<SmallVector<llvm::UTF16, 16>, 16> KeysUTF16(NumElements);
++    for (size_t I = 0; I < NumElements; ++I) {
++      Expr *const K = E->getKeyValueElement(I).Key->IgnoreImpCasts();
++      auto *SL = cast<ObjCStringLiteral>(K);
++      // NOTE: Using the `StringLiteral->getString()` since it checks that
++      //       `chars` are 1 byte
++      StringRef KS = SL->getString()->getString();
++      KeysUTF8.push_back(KS);
++      if (!SortKeysByUTF16)
++        continue;
++      SmallVectorImpl<llvm::UTF16> &Dst = KeysUTF16[I];
++      Dst.resize(KS.size()); // UTF-16 needs <= as many code units as UTF-8.
++      const llvm::UTF8 *SrcPtr =
++          reinterpret_cast<const llvm::UTF8 *>(KS.data());
++      llvm::UTF16 *DstPtr = Dst.data();
++      llvm::ConvertUTF8toUTF16(&SrcPtr, SrcPtr + KS.size(), &DstPtr,
++                               DstPtr + Dst.size(), llvm::strictConversion);
++      // ConvertUTF8toUTF16 advances DstPtr to the end of the converted prefix.
++      Dst.truncate(DstPtr - Dst.data());
++    }
++
+     // Now perform the sorts and shift the indicies as needed
+-    std::stable_sort(
+-        ElementIndicies.begin(), ElementIndicies.end(),
+-        [E, O](size_t LI, size_t RI) {
+-          Expr *const LK = E->getKeyValueElement(LI).Key->IgnoreImpCasts();
+-          Expr *const RK = E->getKeyValueElement(RI).Key->IgnoreImpCasts();
+-
+-          if (!isa<ObjCStringLiteral>(LK) || !isa<ObjCStringLiteral>(RK))
+-            llvm_unreachable("Non-constant literals should not be sorted to "
+-                             "maintain existing behavior");
+-
+-          // NOTE: Using the `StringLiteral->getString()` since it checks that
+-          //       `chars` are 1 byte
+-          StringRef LKS = cast<ObjCStringLiteral>(LK)->getString()->getString();
+-          StringRef RKS = cast<ObjCStringLiteral>(RK)->getString()->getString();
+-
+-          // Do an alpha sort to aid in with de-dupe at link time
+-          // `O(log n)` worst case lookup at runtime supported by `Foundation`
+-          if (O == Options::Sorted)
+-            return LKS < RKS;
+-          llvm_unreachable("Unexpected `NSDictionaryBuilder::Options given");
+-        });
++    llvm::stable_sort(ElementIndicies, [O, SortKeysByUTF16, &KeysUTF8,
++                                        &KeysUTF16](size_t LI, size_t RI) {
++      // This is a deterministic total order, so it still aids link-time
++      // de-dupe, and it supports the runtime's `O(log n)` worst-case
++      // lookup. ArrayRef::operator< is a lexicographic code-unit
++      // comparison.
++      if (O == Options::Sorted) {
++        if (SortKeysByUTF16)
++          return ArrayRef<llvm::UTF16>(KeysUTF16[LI]) <
++                 ArrayRef<llvm::UTF16>(KeysUTF16[RI]);
++        // Sort by raw UTF-8 byte order (LKS < RKS) to match the lookup
++        // order used for OBJC_CLASS_$_NSConstantString keys.
++        return KeysUTF8[LI] < KeysUTF8[RI];
++      }
++      llvm_unreachable("Unexpected `NSDictionaryBuilder::Options given");
++    });
+ 
+     // Finally use the sorted indicies to insert into `Elements`.
+     for (auto &Idx : ElementIndicies) {
+diff --git a/clang/lib/Sema/SemaExprObjC.cpp b/clang/lib/Sema/SemaExprObjC.cpp
+index 72b6506e..5a82f4ba 100644
+--- a/clang/lib/Sema/SemaExprObjC.cpp
++++ b/clang/lib/Sema/SemaExprObjC.cpp
+@@ -1055,6 +1055,43 @@ CheckObjCDictionaryLiteralDuplicateKeys(Sema &S,
+   }
+ }
+ 
++/// Warn about string keys of a constant dictionary literal that are not
++/// well-formed UTF-8. When a dictionary is emitted as a static constant, its
++/// keys are stored and looked up as UTF-16, and the CFString emitter truncates
++/// each key at the first ill-formed byte. A truncated key generally cannot be
++/// found at runtime as written, so flag it -- mirroring the diagnostic emitted
++/// for ill-formed UTF-8 when boxing a string
++/// (warn_objc_boxing_invalid_utf8_string).
++static void CheckObjCDictionaryLiteralUTF8Keys(Sema &S,
++                                               ObjCDictionaryLiteral *Literal) {
++  // Only constant dictionaries store/truncate keys as UTF-16; ordinary runtime
++  // dictionaries keep the original NSString unchanged.
++  if (!Literal->isExpressibleAsConstantInitializer())
++    return;
++  if (Literal->isValueDependent() || Literal->isTypeDependent())
++    return;
++  // With -fno-constant-cfstrings the keys are emitted as
++  // OBJC_CLASS_$_NSConstantString, which preserves the original bytes (no
++  // truncation) and compares them as-is at lookup time, so an ill-formed key
++  // is still found and there is nothing to warn about.
++  if (S.getLangOpts().NoConstantCFStrings)
++    return;
++
++  for (unsigned Idx = 0, End = Literal->getNumElements(); Idx != End; ++Idx) {
++    Expr *Key = Literal->getKeyValueElement(Idx).Key->IgnoreParenImpCasts();
++    auto *StrLit = dyn_cast<ObjCStringLiteral>(Key);
++    if (!StrLit)
++      continue;
++    StringRef Bytes = StrLit->getString()->getBytes();
++    const llvm::UTF8 *Begin = Bytes.bytes_begin();
++    const llvm::UTF8 *End2 = Bytes.bytes_end();
++    if (!llvm::isLegalUTF8String(&Begin, End2))
++      S.Diag(StrLit->getExprLoc(),
++             diag::warn_objc_dictionary_ill_formed_utf8_key)
++          << StrLit->getSourceRange();
++  }
++}
++
+ ExprResult SemaObjC::BuildObjCDictionaryLiteral(
+     SourceRange SR, MutableArrayRef<ObjCDictionaryElement> Elements) {
+   ASTContext &Context = getASTContext();
+@@ -1266,6 +1303,7 @@ ExprResult SemaObjC::BuildObjCDictionaryLiteral(
+       ExpressibleAsConstantInitLiteral, SR);
+ 
+   CheckObjCDictionaryLiteralDuplicateKeys(SemaRef, DictionaryLiteral);
++  CheckObjCDictionaryLiteralUTF8Keys(SemaRef, DictionaryLiteral);
+ 
+   return SemaRef.MaybeBindToTemporary(DictionaryLiteral);
+ }
+diff --git a/clang/test/CodeGenObjC/objc-constant-dictionary-key-order-no-cfstrings.m b/clang/test/CodeGenObjC/objc-constant-dictionary-key-order-no-cfstrings.m
+new file mode 100644
+index 00000000..74586b3a
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc-constant-dictionary-key-order-no-cfstrings.m
+@@ -0,0 +1,70 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -fno-constant-cfstrings -Wno-CFString-literal -emit-llvm -o - %s | FileCheck %s
++// RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -fno-constant-cfstrings -Wno-CFString-literal -emit-llvm -o - %s | FileCheck %s
++
++// With -fno-constant-cfstrings the keys are emitted as
++// OBJC_CLASS_$_NSConstantString (raw UTF-8 bytes preserved) and compared as
++// raw bytes at lookup time, so the emitter must sort by UTF-8 byte order
++// (LKS < RKS) rather than UTF-16 code-unit order. This is the opposite of the
++// default order for keys mixing the BMP above the surrogate range with astral
++// characters: the PUA key (bytes EE 80 80) sorts before the emoji (bytes
++// F0 9F 98 80), even though the emoji's UTF-16 lead surrogate (0xD83D) sorts
++// before the PUA's code unit (0xE000).
++
++#if __LP64__
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++@interface NSString @end
++
++@interface NSSimpleCString : NSString {
++@protected
++    char *bytes;
++    unsigned int numBytes;
++}
++@end
++
++@interface NSConstantString : NSSimpleCString
++@end
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++// The emoji U+1F600 is stored as the raw UTF-8 bytes F0 9F 98 80.
++// CHECK: @.str = private unnamed_addr constant [5 x i8] c"\F0\9F\98\80\00"
++// CHECK: @_unnamed_nsstring_ = private constant %struct.__builtin_NSString { ptr @"OBJC_CLASS_$_NSConstantString", ptr @.str, i32 4 }
++
++// The Private Use Area character U+E000 is stored as the raw UTF-8 bytes EE 80 80.
++// CHECK: @.str.[[PUA:[0-9]+]] = private unnamed_addr constant [4 x i8] c"\EE\80\80\00"
++// CHECK: @_unnamed_nsstring_.[[NSS:[0-9]+]] = private constant %struct.__builtin_NSString { ptr @"OBJC_CLASS_$_NSConstantString", ptr @.str.[[PUA]], i32 3 }
++
++// The emitted keys array is ordered by UTF-8 byte order: the PUA's first byte
++// 0xEE sorts before the emoji's first byte 0xF0, so the PUA key (suffixed
++// global, emitted second) comes first in the array.
++// CHECK: @_unnamed_array_storage = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_nsstring_.[[NSS]], ptr @_unnamed_nsstring_]
++static NSDictionary *const diverges = @{
++    @"\U0001F600" : @1,
++    @"\uE000" : @2,
++};
++
++// An ill-formed key (stray 0xFF byte) does not warn here: the truncation
++// warning is only emitted when keys become constant CFStrings. Its raw bytes
++// are preserved and sort by byte order, where 0xFF sorts after ASCII.
++// CHECK: @.str.[[ABC:[0-9]+]] = private unnamed_addr constant [4 x i8] c"abc\00"
++// CHECK: @_unnamed_nsstring_.[[ABCNSS:[0-9]+]] = private constant %struct.__builtin_NSString { ptr @"OBJC_CLASS_$_NSConstantString", ptr @.str.[[ABC]], i32 3 }
++// CHECK: @.str.[[INV:[0-9]+]] = private unnamed_addr constant [2 x i8] c"\FF\00"
++// CHECK: @_unnamed_nsstring_.[[INVNSS:[0-9]+]] = private constant %struct.__builtin_NSString { ptr @"OBJC_CLASS_$_NSConstantString", ptr @.str.[[INV]], i32 1 }
++// CHECK: @_unnamed_array_storage.[[ARR:[0-9]+]] = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_nsstring_.[[ABCNSS]], ptr @_unnamed_nsstring_.[[INVNSS]]]
++static NSDictionary *const invalid = @{
++    @"abc" : @1,
++    @"\xff" : @2,
++};
++
++const void *use(void) { return (const void *)diverges; }
++const void *useInvalid(void) { return (const void *)invalid; }
+diff --git a/clang/test/CodeGenObjC/objc-constant-dictionary-key-order.m b/clang/test/CodeGenObjC/objc-constant-dictionary-key-order.m
+new file mode 100644
+index 00000000..4744e911
+--- /dev/null
++++ b/clang/test/CodeGenObjC/objc-constant-dictionary-key-order.m
+@@ -0,0 +1,60 @@
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -Wno-CFString-literal -emit-llvm -o - %s | FileCheck %s
++// RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -Wno-CFString-literal -emit-llvm -o - %s | FileCheck %s
++
++// The constant dictionary emitter sorts string keys by UTF-16 code unit, which
++// is the order the runtime uses to look them up. This matters for keys that mix
++// the BMP above the surrogate range (U+E000..U+FFFF) with astral characters
++// (U+10000..U+10FFFF): UTF-16 encodes astral characters with lead surrogates
++// (0xD800..0xDBFF) that sort *below* 0xE000, which is the opposite of their
++// UTF-8 byte order. Sorting by UTF-16 here keeps compile-time emission and
++// runtime lookup consistent so the keys can be found.
++
++#if __LP64__
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++// The emoji U+1F600 is stored as the UTF-16 surrogate pair <0xD83D, 0xDE00>.
++// CHECK: @.str = private unnamed_addr constant [3 x i16] [i16 -10179, i16 -8704, i16 0], section "__TEXT,__ustring"
++// CHECK: @_unnamed_cfstring_ = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 {{[0-9]+}}, ptr @.str, i64 2 }
++
++// The Private Use Area character U+E000 is a single UTF-16 code unit <0xE000>.
++// CHECK: @.str.2 = private unnamed_addr constant [2 x i16] [i16 -8192, i16 0], section "__TEXT,__ustring"
++// CHECK: @_unnamed_cfstring_.3 = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 {{[0-9]+}}, ptr @.str.2, i64 1 }
++
++// The emitted keys array is ordered by UTF-16 code unit: the emoji's lead
++// surrogate 0xD83D sorts before the PUA's 0xE000, so @_unnamed_cfstring_ (emoji)
++// comes first even though its UTF-8 bytes (F0 9F 98 80) are greater than the
++// PUA's (EE 80 80). This matches the runtime's UTF-16 lookup order.
++// CHECK: @_unnamed_array_storage = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_cfstring_, ptr @_unnamed_cfstring_.3]
++// CHECK: @_unnamed_nsdictionary_ = private constant %struct.__builtin_NSDictionary { ptr @"OBJC_CLASS_$_NSConstantDictionary", i64 1, i64 2, ptr @_unnamed_array_storage, ptr @_unnamed_array_storage.5 }
++
++static NSDictionary *const diverges = @{
++    @"\U0001F600" : @1,
++    @"\uE000" : @2,
++};
++
++// An ill-formed key (stray 0xFF byte) warns in Sema (see the SemaObjC test for
++// that warning); its UTF-16 conversion yields an empty prefix, which sorts
++// before everything, and emission completes without crashing.
++// CHECK: @.str.[[ABC:[0-9]+]] = private unnamed_addr constant [4 x i8] c"abc\00", section "__TEXT,__cstring,cstring_literals"
++// CHECK: @_unnamed_cfstring_.[[ABCCF:[0-9]+]] = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 {{[0-9]+}}, ptr @.str.[[ABC]], i64 3 }
++// CHECK: @.str.[[INV:[0-9]+]] = private unnamed_addr constant [1 x i16] zeroinitializer, section "__TEXT,__ustring"
++// CHECK: @_unnamed_cfstring_.[[INVCF:[0-9]+]] = private global %struct.__NSConstantString_tag { ptr @__CFConstantStringClassReference, i32 {{[0-9]+}}, ptr @.str.[[INV]], i64 0 }
++// CHECK: @_unnamed_array_storage.[[ARR:[0-9]+]] = internal unnamed_addr constant [2 x ptr] [ptr @_unnamed_cfstring_.[[INVCF]], ptr @_unnamed_cfstring_.[[ABCCF]]]
++static NSDictionary *const invalid = @{
++    @"abc" : @1,
++    @"\xff" : @2,
++};
++
++const void *use(void) { return (const void *)diverges; }
++const void *useInvalid(void) { return (const void *)invalid; }
+diff --git a/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key-no-cfstrings.m b/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key-no-cfstrings.m
+new file mode 100644
+index 00000000..a532f912
+--- /dev/null
++++ b/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key-no-cfstrings.m
+@@ -0,0 +1,46 @@
++// RUN: %clang_cc1 -fsyntax-only -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -fno-constant-cfstrings -Wno-CFString-literal -verify %s
++
++// With -fno-constant-cfstrings the keys are emitted as
++// OBJC_CLASS_$_NSConstantString, which preserves the original bytes (no
++// truncation) and compares them as-is at lookup time, so an ill-formed UTF-8
++// key is still found at runtime. No warning is expected here -- contrast
++// objc-constant-dictionary-invalid-utf8-key.m, which covers the truncating
++// constant-CFString emission.
++//
++// (-Wno-CFString-literal silences the unrelated literal-encoding warning that
++// also fires for @"\xff"; same as the companion test.)
++
++#if __LP64__
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++// Needed to emit string literals with -fno-constant-cfstrings.
++@interface NSString @end
++
++@interface NSSimpleCString : NSString {
++@protected
++    char *bytes;
++    unsigned int numBytes;
++}
++@end
++
++@interface NSConstantString : NSSimpleCString
++@end
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++// Ill-formed UTF-8 key (a lone 0xFF continuation byte): no warning, since the
++// key is preserved as-is rather than truncated.
++// expected-no-diagnostics
++static NSDictionary *const bad = @{
++    @"\xff" : @1,
++    @"ok" : @2,
++};
+diff --git a/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key.m b/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key.m
+new file mode 100644
+index 00000000..542b9e57
+--- /dev/null
++++ b/clang/test/SemaObjC/objc-constant-dictionary-invalid-utf8-key.m
+@@ -0,0 +1,41 @@
++// RUN: %clang_cc1 -fsyntax-only -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -Wno-CFString-literal -verify %s
++
++// A constant dictionary stores and looks up its keys as UTF-16, truncating any
++// key at the first ill-formed UTF-8 byte. Warn when that happens, since the
++// truncated key generally cannot be found at runtime.
++
++#if __LP64__
++typedef unsigned long NSUInteger;
++#else
++typedef unsigned int NSUInteger;
++#endif
++
++@interface NSNumber
+++ (NSNumber *)numberWithInt:(int)value;
++@end
++
++@interface NSDictionary
+++ (id)dictionaryWithObjects:(const id[])objects forKeys:(const id[])keys count:(NSUInteger)cnt;
++@end
++
++// Ill-formed UTF-8 key (a lone 0xFF continuation byte) in a constant dictionary.
++static NSDictionary *const bad = @{
++    @"\xff" : @1, // expected-warning {{dictionary key is ill-formed as UTF-8 and will be truncated in a static constant dictionary, so it may not be found at runtime}}
++    @"ok" : @2,
++};
++
++// Well-formed keys (including non-ASCII and astral) must NOT warn.
++static NSDictionary *const good = @{
++    @"ascii" : @1,
++    @"café" : @2,
++    @"\U0001F600" : @3,
++};
++
++// A runtime (non-constant) dictionary keeps the original NSString and is not
++// truncated, so it must NOT warn even with an ill-formed key.
++NSDictionary *runtime(NSNumber *n) {
++  return @{
++      @"\xff" : n,
++      @"ok" : n,
++  };
++}

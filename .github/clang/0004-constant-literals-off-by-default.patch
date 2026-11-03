@@ -1,0 +1,43 @@
+Backport of llvm/llvm-project#195000, "[Driver] Disable -fobjc-constant-literals by default" (merged 2026-04-30), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+
+diff --git a/clang/lib/Driver/ToolChains/Clang.cpp b/clang/lib/Driver/ToolChains/Clang.cpp
+index 49ed5715..9c18419e 100644
+--- a/clang/lib/Driver/ToolChains/Clang.cpp
++++ b/clang/lib/Driver/ToolChains/Clang.cpp
+@@ -4337,7 +4337,7 @@ static void RenderObjCOptions(const ToolChain &TC, const Driver &D,
+     bool EnableConstantLiterals =
+         Args.hasFlag(options::OPT_fobjc_constant_literals,
+                      options::OPT_fno_objc_constant_literals,
+-                     /*default=*/true) &&
++                     /*default=*/false) &&
+         Runtime.hasConstantLiteralClasses();
+     if (EnableConstantLiterals)
+       CmdArgs.push_back("-fobjc-constant-literals");
+diff --git a/clang/test/Driver/objc-constant-literals.m b/clang/test/Driver/objc-constant-literals.m
+new file mode 100644
+index 00000000..7903028d
+--- /dev/null
++++ b/clang/test/Driver/objc-constant-literals.m
+@@ -0,0 +1,21 @@
++// RUN: %clang -### -target arm64-apple-macosx11 -c %s 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=DEFAULT
++// RUN: %clang -### -target arm64-apple-macosx11 -fobjc-constant-literals -c %s 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=ENABLED
++// RUN: %clang -### -target arm64-apple-macosx11 -fno-objc-constant-literals -c %s 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=DISABLED
++
++// DEFAULT-NOT: -fobjc-constant-literals
++// DEFAULT-NOT: -fconstant-nsnumber-literals
++// DEFAULT-NOT: -fconstant-nsarray-literals
++// DEFAULT-NOT: -fconstant-nsdictionary-literals
++
++// ENABLED: -fobjc-constant-literals
++// ENABLED: -fconstant-nsnumber-literals
++// ENABLED: -fconstant-nsarray-literals
++// ENABLED: -fconstant-nsdictionary-literals
++
++// DISABLED-NOT: -fobjc-constant-literals
++// DISABLED-NOT: -fconstant-nsnumber-literals
++// DISABLED-NOT: -fconstant-nsarray-literals
++// DISABLED-NOT: -fconstant-nsdictionary-literals

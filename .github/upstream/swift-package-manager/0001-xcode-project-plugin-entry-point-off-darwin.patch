@@ -1,0 +1,48 @@
+--- a/Sources/Runtimes/PackagePlugin/Plugin.swift
++++ b/Sources/Runtimes/PackagePlugin/Plugin.swift
+@@ -560,8 +560,10 @@
+ 
+ fileprivate func callEntryPoint(_ record: XcodeProjectPluginInvocationRecord, _ functionName: String) throws {
+     #if !canImport(Darwin)
+-    // Workaround for a compiler crash presumably related to Objective-C bridging on non-Darwin platforms (rdar://130826719&136043295)
+-    typealias CallerFuncType = @convention(c) (UnsafeRawPointer) -> Any
++    // A function returning an existential through the C calling convention does not compile off
++    // Darwin (rdar://130826719&136043295), so there the add-on library returns an error as a
++    // retained XcodeProjectPluginError, or nil on success.
++    typealias CallerFuncType = @convention(c) (UnsafeRawPointer) -> UnsafeMutableRawPointer?
+     #else
+     typealias CallerFuncType = @convention(c) (UnsafeRawPointer) -> (any Error)?
+     #endif
+@@ -574,11 +576,9 @@
+     // The caller function is expected to take a pointer to a XcodeProjectPluginInvocationRecord. It is expected to return nil on success or an error on failure, as there is no way of throwing form a C function.
+     let recordPtr = UnsafeRawPointer(Unmanaged.passUnretained(record).toOpaque())
+     #if !canImport(Darwin)
+-    // Workaround for a compiler crash presumably related to Objective-C bridging on non-Darwin platforms (rdar://130826719&136043295)
+-    /*if let error = callerFunc(recordPtr) as! (any Error)? {
+-        throw error
+-    }*/
+-    fatalError("FIXME: Compiler crashes when trying to compile a call to callerFunc")
++    if let errorPtr = callerFunc(recordPtr) {
++        throw Unmanaged<XcodeProjectPluginError>.fromOpaque(errorPtr).takeRetainedValue().underlying
++    }
+     #else
+     if let error = callerFunc(recordPtr) {
+         throw error
+@@ -586,6 +586,17 @@
+     #endif
+ }
+ 
++#if !canImport(Darwin)
++/// An error of the add-on library's entry point, which it returns retained.
++@_spi(PackagePluginInternal) public final class XcodeProjectPluginError {
++    public let underlying: any Error
++
++    public init(_ underlying: any Error) {
++        self.underlying = underlying
++    }
++}
++#endif
++
+ fileprivate enum Library: Sendable {
+     @_alwaysEmitIntoClient
+     public static func open() throws -> LibraryHandle {

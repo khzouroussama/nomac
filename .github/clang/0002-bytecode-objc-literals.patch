@@ -1,0 +1,79 @@
+Backport of llvm/llvm-project#189058, "[clang][bytecode] Add support for objc array- and dictionary literals" (merged 2026-03-28), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+
+diff --git a/clang/lib/AST/ByteCode/Compiler.cpp b/clang/lib/AST/ByteCode/Compiler.cpp
+index afa3b7ea..920abfcd 100644
+--- a/clang/lib/AST/ByteCode/Compiler.cpp
++++ b/clang/lib/AST/ByteCode/Compiler.cpp
+@@ -3761,6 +3761,21 @@ bool Compiler<Emitter>::VisitCXXTypeidExpr(const CXXTypeidExpr *E) {
+   return true;
+ }
+ 
++template <class Emitter>
++bool Compiler<Emitter>::VisitObjCDictionaryLiteral(
++    const ObjCDictionaryLiteral *E) {
++  if (E->isExpressibleAsConstantInitializer())
++    return this->emitDummyPtr(E, E);
++  return this->emitError(E);
++}
++
++template <class Emitter>
++bool Compiler<Emitter>::VisitObjCArrayLiteral(const ObjCArrayLiteral *E) {
++  if (E->isExpressibleAsConstantInitializer())
++    return this->emitDummyPtr(E, E);
++  return this->emitError(E);
++}
++
+ template <class Emitter>
+ bool Compiler<Emitter>::VisitExpressionTraitExpr(const ExpressionTraitExpr *E) {
+   assert(Ctx.getLangOpts().CPlusPlus);
+diff --git a/clang/lib/AST/ByteCode/Compiler.h b/clang/lib/AST/ByteCode/Compiler.h
+index 05ba7460..b3776536 100644
+--- a/clang/lib/AST/ByteCode/Compiler.h
++++ b/clang/lib/AST/ByteCode/Compiler.h
+@@ -214,6 +214,8 @@ public:
+   bool VisitCXXDeleteExpr(const CXXDeleteExpr *E);
+   bool VisitBlockExpr(const BlockExpr *E);
+   bool VisitCXXTypeidExpr(const CXXTypeidExpr *E);
++  bool VisitObjCDictionaryLiteral(const ObjCDictionaryLiteral *E);
++  bool VisitObjCArrayLiteral(const ObjCArrayLiteral *E);
+ 
+   // Statements.
+   bool visitCompoundStmt(const CompoundStmt *S);
+diff --git a/clang/test/CodeGenObjC/no-nsconstant-literals.m b/clang/test/CodeGenObjC/no-nsconstant-literals.m
+index 8a10869f..bcf20569 100644
+--- a/clang/test/CodeGenObjC/no-nsconstant-literals.m
++++ b/clang/test/CodeGenObjC/no-nsconstant-literals.m
+@@ -1,9 +1,15 @@
+ // RUN: %clang_cc1 -triple x86_64-apple-macosx10.14.0 -fobjc-runtime=macosx-10.14.0 -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-ALL-DISABLED %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx10.14.0 -fobjc-runtime=macosx-10.14.0 -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s -fexperimental-new-constant-interpreter | FileCheck --check-prefix CHECK-ALL-DISABLED %s
+ 
+ // RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-ALL-DISABLED-CONST-ON %s
+ // RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-NUMBERS-DISABLED %s
+ // RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s | FileCheck --check-prefix CHECK-DICT-DISABLED %s
+ 
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s -fexperimental-new-constant-interpreter | FileCheck --check-prefix CHECK-ALL-DISABLED-CONST-ON %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s -fexperimental-new-constant-interpreter | FileCheck --check-prefix CHECK-NUMBERS-DISABLED %s
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -I %S/Inputs -emit-llvm -no-enable-noundef-analysis -o - %s -fexperimental-new-constant-interpreter | FileCheck --check-prefix CHECK-DICT-DISABLED %s
++
++
+ #if __has_feature(objc_bool)
+ #define YES __objc_yes
+ #define NO __objc_no
+diff --git a/clang/test/CodeGenObjC/objc2-constant-collection-literals.m b/clang/test/CodeGenObjC/objc2-constant-collection-literals.m
+index acc9004f..792d9241 100644
+--- a/clang/test/CodeGenObjC/objc2-constant-collection-literals.m
++++ b/clang/test/CodeGenObjC/objc2-constant-collection-literals.m
+@@ -2,6 +2,12 @@
+ // RUN: %clang_cc1 -x objective-c++ -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
+ // RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK
+ 
++// RUN: %clang_cc1 -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s -fexperimental-new-constant-interpreter | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -x objective-c++ -triple x86_64-apple-macosx11.0.0 -fobjc-runtime=macosx-11.0.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s -fexperimental-new-constant-interpreter | FileCheck %s --check-prefix=CHECK
++// RUN: %clang_cc1 -triple arm64-apple-ios14.0 -fobjc-runtime=ios-14.0 -fobjc-constant-literals -fconstant-nsnumber-literals -fconstant-nsarray-literals -fconstant-nsdictionary-literals -I %S/Inputs -emit-llvm -o - %s -fexperimental-new-constant-interpreter | FileCheck %s --check-prefix=CHECK
++
++
++
+ #if __has_feature(objc_constant_literals)
+ 
+ #if __has_feature(objc_bool)

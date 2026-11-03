@@ -1,0 +1,748 @@
+{
+  "schemaVersion": 1,
+  "xcode": {
+    "version": "27.0",
+    "build": "27A266a",
+    "runner": "xcode-27",
+    "path": "/Applications/Xcode_27.app"
+  },
+  "progress": [
+    {"title": "Project loader (xcodeproj, xcworkspace, xcconfig, schemes → PIF)", "weight": 20, "kinds": ["pif", "list", "settings"], "measure": "apps"},
+    {"title": "Build driver (Swift Build on Linux, Swift/ObjC/C/C++, pods, SwiftPM, xcframeworks)", "weight": 25, "kinds": ["build"], "measure": "checks", "host": "Linux"},
+    {"title": "Asset catalogs (actool replacement, .car writer)", "weight": 10, "kinds": ["assets"], "measure": "checks"},
+    {"title": "Storyboards and xibs (ibtool replacement)", "weight": 10, "kinds": ["nib"], "measure": "checks"},
+    {"title": "Strings and localization", "weight": 3, "kinds": ["strings"], "measure": "checks"},
+    {"title": "Core Data models (momc replacement)", "weight": 4, "kinds": ["coredata"], "measure": "checks"},
+    {"title": "Packaging and signing (IPA, entitlements, dSYM)", "weight": 8, "kinds": ["signing", "export"], "measure": "checks"},
+    {"title": "Extensions, App Clips, widgets, watch targets", "weight": 5, "kinds": [], "measure": "checks"},
+    {"title": "Device workflow (install, launch, XCTest on device)", "weight": 6, "kinds": [], "measure": "checks"},
+    {"title": "Distribution (TestFlight, App Store Connect)", "weight": 3, "kinds": [], "measure": "checks"},
+    {"title": "Rare file types (intents, SceneKit, texture atlases)", "weight": 2, "kinds": [], "measure": "checks"},
+    {"title": "Metal and CoreML (Wine-hosted tools, runtime fallbacks)", "weight": 2, "kinds": [], "measure": "checks"},
+    {"title": "Verification harness (corpus, macOS reference builds, nomac verify)", "weight": 2, "kinds": [], "measure": "reports"}
+  ],
+  "apps": [
+    {
+      "id": "retro-rampage",
+      "name": "Retro Rampage",
+      "repository": "https://github.com/nicklockwood/RetroRampage",
+      "commit": "da836d11247f6a815fb58b6114c28454aedcce37",
+      "license": "MIT",
+      "container": "Source/Rampage.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "Rampage",
+        "configuration": "Release",
+        "settings": {
+          "IPHONEOS_DEPLOYMENT_TARGET": "15.0"
+        }
+      },
+      "test": {
+        "scheme": "Rampage"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "game",
+        "framework-target",
+        "embedded-framework",
+        "unit-test-bundle",
+        "xcassets",
+        "storyboard",
+        "launch-storyboard",
+        "legacy-object-version-50"
+      ],
+      "notes": "Ray-casting game: an app, two embedded framework targets and a unit-test bundle in one project with no package dependencies. First loader milestone. Deployment target 11.0 is below Xcode 27's minimum, so the build reference raises it to 15.0."
+    },
+    {
+      "id": "tofu",
+      "name": "Tofu Authenticator",
+      "repository": "https://github.com/calleerlandsson/Tofu",
+      "commit": "b993d46749558d64d191a4ff9229457d1030a7cc",
+      "license": "ISC",
+      "container": "Tofu.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "Tofu",
+        "configuration": "Release",
+        "settings": {
+          "IPHONEOS_DEPLOYMENT_TARGET": "15.0"
+        }
+      },
+      "test": {
+        "scheme": "Tofu"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "storyboard",
+        "xcassets",
+        "xcconfig",
+        "conditional-settings-sdk",
+        "shell-script-phase",
+        "ui-test-bundle",
+        "no-shared-schemes"
+      ],
+      "notes": "Small UIKit app with no shared schemes (xcodebuild autocreates them), an xcconfig base configuration, [sdk=] conditional settings and a git-based script phase."
+    },
+    {
+      "id": "flappy-fly-bird",
+      "name": "Flappy Fly Bird",
+      "repository": "https://github.com/eleev/flappy-fly-bird",
+      "commit": "488f4ec23d9137c87a81e8d223e57454a70c1183",
+      "license": "BSD-3-Clause",
+      "container": "FlappyFlyBird.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "FlappyFlyBird",
+        "configuration": "Release",
+        "settings": {
+          "IPHONEOS_DEPLOYMENT_TARGET": "15.0"
+        }
+      },
+      "test": {
+        "scheme": "FlappyFlyBird"
+      },
+      "exercises": [
+        "swift",
+        "spritekit",
+        "gameplaykit",
+        "game",
+        "sks",
+        "spriteatlas",
+        "xcassets",
+        "storyboard"
+      ],
+      "notes": "SpriteKit and GameplayKit game: two asset catalogs, sprite atlases and SpriteKit scene files. The README restricts the art and audio to non-commercial use; nomac only builds it."
+    },
+    {
+      "id": "uncloudnotes",
+      "name": "UnCloudNotes",
+      "repository": "https://github.com/kodecocodes/cdt-materials",
+      "commit": "0bf99e1cc689aae227f0f7515c7323a2f7d3b34e",
+      "license": "Apache-2.0",
+      "container": "06-versioning-and-migration/projects/final/UnCloudNotes.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "UnCloudNotes",
+        "configuration": "Release",
+        "settings": {
+          "IPHONEOS_DEPLOYMENT_TARGET": "15.0"
+        }
+      },
+      "test": {
+        "scheme": "UnCloudNotes"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "storyboard",
+        "core-data",
+        "core-data-versions",
+        "core-data-mapping-model",
+        "xcassets",
+        "no-shared-schemes"
+      ],
+      "notes": "Core Data migration sample: four model versions and two mapping models, plus storyboards. The momc replacement's main reference."
+    },
+    {
+      "id": "gomap",
+      "name": "Go Map!!",
+      "repository": "https://github.com/bryceco/GoMap",
+      "commit": "d45d881b84d298377b5798500885c3744f21eeb6",
+      "license": "ISC",
+      "container": "src/GoMap.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [
+        "perl -pi -e 's/IPHONEOS_DEPLOYMENT_TARGET = 1[23]\\.0;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/' src/GoMap.xcodeproj/project.pbxproj"
+      ],
+      "build": {
+        "scheme": "GoMap",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "GoMap"
+      },
+      "exercises": [
+        "swift",
+        "objc",
+        "mixed-language",
+        "uikit",
+        "storyboard",
+        "xcstrings",
+        "xcassets",
+        "swiftpm-remote-packages",
+        "app-extensions",
+        "widgets",
+        "ui-test-bundle"
+      ],
+      "notes": "OpenStreetMap editor: mixed Swift and Objective-C, 17 storyboards, 18 string catalogs, a photo-share extension and a widget. Its deployment target 13.0 is below Xcode 27's minimum, so the build reference raises it to 15.0. B-098: pinned to the parent of be5be6b, which adopted `reservedRegions` and `verticalBarEdge` (not in Xcode 27.0's SDK); the deployment targets below Xcode 27's minimum (12.0, 13.0) are raised to 15.0 in the project by a prepare step, replacing a command-line setting that also lowered the iOS 16.6 widget and broke its `DynamicIslandExpandedContentBuilder`."
+    },
+    {
+      "id": "icecubes",
+      "name": "Ice Cubes",
+      "repository": "https://github.com/Dimillian/IceCubesApp",
+      "commit": "9efcb16e720f337a401cf61c8e300dd043368282",
+      "license": "AGPL-3.0",
+      "container": "IceCubesApp.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [
+        "cp IceCubesApp.xcconfig.template IceCubesApp.xcconfig"
+      ],
+      "build": {
+        "scheme": "IceCubesApp",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "IceCubesApp"
+      },
+      "exercises": [
+        "swift",
+        "swiftui",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "app-extensions",
+        "widgets",
+        "share-extension",
+        "action-extension",
+        "notification-service-extension",
+        "xcconfig",
+        "xcstrings",
+        "xcassets"
+      ],
+      "notes": "SwiftUI Mastodon client built from 13 local Swift packages, with 7 synchronized folder groups and four extensions. Its base xcconfig is created from the committed template, as the README instructs. B-098: pinned to the parent of 5c91bd2, which adopted `axisBehavior`, an API Xcode 27.0's SDK does not have: the newest commit that builds with Xcode 27.0."
+    },
+    {
+      "id": "netnewswire",
+      "name": "NetNewsWire",
+      "repository": "https://github.com/Ranchero-Software/NetNewsWire",
+      "commit": "94032d95fe04a05d44591450234c3c5da0a40842",
+      "license": "MIT",
+      "container": "NetNewsWire.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": ["buildscripts/updateSecrets.sh"],
+      "build": {
+        "scheme": "NetNewsWire-iOS",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "NetNewsWire-iOS"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "appkit-targets",
+        "multi-platform-project",
+        "xcconfig-only-settings",
+        "xcconfig-in-synchronized-folder",
+        "optional-xcconfig-include",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "share-extension",
+        "widgets",
+        "host-swift-script-phase",
+        "storyboard",
+        "xib",
+        "xcassets"
+      ],
+      "notes": "RSS reader whose iOS and macOS apps share one project. All settings live in 22 xcconfig files attached through synchronized folders (objectVersion 76). A script phase runs a Swift script on the host. The secrets module needs its generated SecretKey file before it compiles. The prepare step runs the schemes' build pre-action, buildscripts/updateSecrets.sh, which writes the Secrets package's SecretKey.swift from its gyb template, with empty values when no secrets are set: Xcode compiles a package source a pre-action writes only from the next build on (scheme_action_experiments.py), so the reference is of a checkout built before."
+    },
+    {
+      "id": "swiftfin",
+      "name": "Swiftfin",
+      "repository": "https://github.com/jellyfin/Swiftfin",
+      "commit": "f9842d500f2b1c3178bebbcbf67d6b82d21d47ec",
+      "license": "MPL-2.0",
+      "container": "Swiftfin.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "Swiftfin",
+        "configuration": "Release",
+        "options": [
+          "-skipMacroValidation"
+        ]
+      },
+      "test": {
+        "scheme": "Swiftfin"
+      },
+      "exercises": [
+        "swift",
+        "swiftui",
+        "tvos-target",
+        "swift-macros",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "host-swift-script-phase",
+        "xcstrings",
+        "xcassets"
+      ],
+      "notes": "Jellyfin client for iOS and tvOS with 41 pinned packages, a local Swift macro package (host-built compiler plugin) and a host Swift script phase."
+    },
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud",
+      "repository": "https://github.com/nextcloud/ios",
+      "commit": "38478cc391398fdeb1ccddabc0c05fe0abc5b579",
+      "license": "GPL-3.0",
+      "container": "Nextcloud.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [
+        "cat > GoogleService-Info.plist <<'PLIST'\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<!-- Official AdMob public test ad unit IDs: https://developers.google.com/admob/ios/test-ads -->\n\t<key>AD_UNIT_ID_FOR_BANNER_TEST</key>\n\t<string>ca-app-pub-3940256099942544/2934735716</string>\n\t<key>AD_UNIT_ID_FOR_INTERSTITIAL_TEST</key>\n\t<string>ca-app-pub-3940256099942544/4411468910</string>\n\t<key>API_KEY</key>\n\t<string>AIzaSyPlaceholderApiKeyForTesting000000</string>\n\t<key>BUNDLE_ID</key>\n\t<string>id</string>\n\t<key>CLIENT_ID</key>\n\t<string>123456789000-00000000000000000000000000000000.apps.googleusercontent.com</string>\n\t<key>DATABASE_URL</key>\n\t<string>https://mockproject-1234.firebaseio.com</string>\n\t<key>GCM_SENDER_ID</key>\n\t<string>123456789000</string>\n\t<key>GOOGLE_APP_ID</key>\n\t<string>1:123456789000:ios:0000000000000000</string>\n\t<key>IS_ADS_ENABLED</key>\n\t<true/>\n\t<key>IS_ANALYTICS_ENABLED</key>\n\t<true/>\n\t<key>IS_APPINVITE_ENABLED</key>\n\t<true/>\n\t<key>IS_GCM_ENABLED</key>\n\t<true/>\n\t<key>IS_SIGNIN_ENABLED</key>\n\t<true/>\n\t<key>PLIST_VERSION</key>\n\t<string>1</string>\n\t<key>PROJECT_ID</key>\n\t<string>mockproject-1234</string>\n\t<key>REVERSED_CLIENT_ID</key>\n\t<string>com.googleusercontent.apps.123456789000-00000000000000000000000000000000</string>\n\t<key>STORAGE_BUCKET</key>\n\t<string>mockproject-1234.appspot.com</string>\n</dict>\n</plist>\nPLIST",
+        "perl -pi -e 's{firebase-ios-sdk/Crashlytics/run\\\\\"}{firebase-ios-sdk/Crashlytics/upload-symbols\\\\\" --build-phase --validate}' Nextcloud.xcodeproj/project.pbxproj"
+      ],
+      "build": {
+        "scheme": "Nextcloud",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Nextcloud"
+      },
+      "exercises": [
+        "swift",
+        "objc",
+        "mixed-language",
+        "uikit",
+        "swiftui",
+        "app-extensions",
+        "file-provider-extension",
+        "extensionkit-extension",
+        "widgets",
+        "intents-extension",
+        "notification-service-extension",
+        "share-extension",
+        "swiftpm-remote-packages",
+        "storyboard",
+        "xib",
+        "xcassets",
+        "strings",
+        "stringsdict"
+      ],
+      "notes": "File sync client with eight extensions, including File Provider and ExtensionKit. Needs a GoogleService-Info.plist, which is not committed; the reference uses an empty property list. B-098: pinned to the parent of c503423, which adopted `axisBehavior`; GoogleService-Info.plist is Firebase's mock from the README, and the Crashlytics phase only validates (`upload-symbols --validate`), so no build uploads anything."
+    },
+    {
+      "id": "mastodon",
+      "name": "Mastodon",
+      "repository": "https://github.com/mastodon/mastodon-ios",
+      "commit": "6d45b164ad2c5b42f07e7296464fe973abc65a12",
+      "license": "GPL-3.0",
+      "container": "Mastodon.xcodeproj",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "Mastodon",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Mastodon"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "unpinned-packages",
+        "app-extensions",
+        "intents-extension",
+        "widgets",
+        "share-extension",
+        "notification-service-extension",
+        "ui-test-bundle",
+        "xcassets",
+        "strings"
+      ],
+      "notes": "Official Mastodon client. No Package.resolved is committed, so package versions float; the reference records what Xcode resolved. B-098: pinned to its newest commit of 2026-10-30; the floating Nuke of the earlier capture did not compile with Swift 6.4."
+    },
+    {
+      "id": "cwa",
+      "name": "Corona-Warn-App",
+      "repository": "https://github.com/corona-warn-app/cwa-app-ios",
+      "commit": "02c629b695e64643b3d8a06dff290eb59ae14ad3",
+      "license": "Apache-2.0",
+      "container": "src/xcode/ENA.xcworkspace",
+      "tier": "A",
+      "submodules": false,
+      "prepare": [
+        "perl -pi -e 's/signature\\?\\.bytes \\?\\? Data\\.randomBytes\\(length: 42\\)\\?\\.bytes/signature.map { [UInt8](\\$0) } ?? Data.randomBytes(length: 42).map { [UInt8](\\$0) }/' src/xcode/ENA/HealthCertificateToolkit/Sources/HealthCertificateToolkit/CertificateAccess/DigitalCovidCertificateFake.swift",
+        "perl -pi -e 's/\\.bytes\\[0\\.\\.\\.15\\]\\) \\?\\? \\[\\]/.prefix(16)) ?? Data()/g; s/\\.bytes\\[0\\.\\.\\.15\\]/.prefix(16)/g; s{signature\\.bytes\\[0\\.\\.\\.signature\\.count / 2 - 1\\]}{signature.prefix(signature.count / 2)}g' src/xcode/ENA/ENA/Source/Services/HealthCertificate/Models/HealthCertificateRevocationEntries.swift",
+        "perl -pi -e 's/\\bdata\\.bytes\\b/[UInt8](data)/g' src/xcode/ENA/ENASecurity/Sources/ENASecurity/GCMEncryption.swift",
+        "perl -pi -e 's/let nextAction = \\{ \\[weak self\\] in/let nextAction: CompletionVoid = { [weak self] in/' src/xcode/ENA/ENA/Source/Scenes/ExposureSubmission/ExposureSubmissionCoordinator.swift"
+      ],
+      "build": {
+        "scheme": "ENACommunity",
+        "configuration": "Release",
+        "settings": {
+          "IPHONEOS_DEPLOYMENT_TARGET": "15.0"
+        }
+      },
+      "test": {
+        "scheme": "ENATests"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "workspace",
+        "multi-project-workspace",
+        "conditional-settings-sdk",
+        "conditional-settings-arch",
+        "framework-target",
+        "sqlite",
+        "swiftpm-remote-packages",
+        "swiftpm-local-packages",
+        "storyboard",
+        "xib",
+        "xcassets",
+        "strings",
+        "stringsdict",
+        "shell-script-phase"
+      ],
+      "notes": "Germany's exposure-notification app (archived in 2023): a three-project workspace with [sdk=] and [arch=] conditional settings. B-098: archived; a prepare patch adapts four files to Swift 6.4 and the iOS 27 SDK (Foundation's `Data.bytes` is a `RawSpan` now and hides the dependency's `[UInt8]` one; one closure needs its declared type)."
+    },
+    {
+      "id": "wikipedia",
+      "name": "Wikipedia",
+      "repository": "https://github.com/wikimedia/wikipedia-ios",
+      "commit": "427f61dbf9587cf221c8e6bcc93a4e4ab1c6f35b",
+      "license": "MIT",
+      "container": "Wikipedia.xcodeproj",
+      "tier": "B",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "Wikipedia",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Wikipedia"
+      },
+      "exercises": [
+        "swift",
+        "objc",
+        "mixed-language",
+        "bridging-header",
+        "uikit",
+        "swiftui",
+        "framework-target",
+        "command-line-tool-targets",
+        "app-extensions",
+        "widgets",
+        "sticker-pack",
+        "notification-service-extension",
+        "core-data",
+        "core-data-mapping-model",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "storyboard",
+        "xib",
+        "xcassets",
+        "strings",
+        "stringsdict",
+        "many-schemes",
+        "missing-optional-xcconfig"
+      ],
+      "notes": "Large mixed Objective-C/Swift app with an embedded framework, eight Core Data models, many localizations and 14 shared schemes. References OpenSourceDebug.xcconfig, which is not committed, and runs a committed macOS-only tool in a script phase."
+    },
+    {
+      "id": "pocket-casts",
+      "name": "Pocket Casts",
+      "repository": "https://github.com/Automattic/pocket-casts-ios",
+      "commit": "63cec8b9637c6997641cba31c9857ec4f0666921",
+      "license": "MPL-2.0",
+      "container": "podcasts.xcodeproj",
+      "tier": "B",
+      "submodules": false,
+      "prepare": [
+        "cp podcasts/Credentials/ApiCredentials.tpl podcasts/Credentials/LocalApiCredentials.swift && perl -pi -e 's/%\\{.*\\}//' podcasts/Credentials/LocalApiCredentials.swift"
+      ],
+      "build": {
+        "scheme": "pocketcasts",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "pocketcasts"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "swiftui",
+        "watchos-target",
+        "tvos-target",
+        "app-clip",
+        "intents-extension",
+        "widgets",
+        "notification-extensions",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "aggregate-target",
+        "shell-script-phase",
+        "xcassets",
+        "strings"
+      ],
+      "notes": "Podcast player with iOS, watchOS and tvOS apps, an App Clip, intents and 49 synchronized folder groups. Script phases expect `make install_dependencies`. B-098: pinned to the parent of 3546d04, which adopted `UIArrangementViewController` (not in Xcode 27.0's SDK); credentials as the README's `make external_contributor` writes them (the template with its placeholders emptied), so no a8c secrets are needed."
+    },
+    {
+      "id": "kickstarter",
+      "name": "Kickstarter",
+      "repository": "https://github.com/kickstarter/ios-oss",
+      "commit": "5f5463cfb830413d253efed45bfcec0322c9f152",
+      "license": "Apache-2.0",
+      "container": "Kickstarter.xcodeproj",
+      "tier": "B",
+      "submodules": false,
+      "prepare": [
+        "mkdir -p Frameworks/native-secrets/ios && cp Configs/Secrets.swift.example Frameworks/native-secrets/ios/Secrets.swift && cp Configs/Secrets.swift.example KsApi/Sources/KsApi/Secrets.swift",
+        "for variant in Alpha Beta Production; do mkdir -p Frameworks/native-secrets/ios/Firebase-$variant && cat > Frameworks/native-secrets/ios/Firebase-$variant/GoogleService-Info.plist <<'PLIST'\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<!-- Official AdMob public test ad unit IDs: https://developers.google.com/admob/ios/test-ads -->\n\t<key>AD_UNIT_ID_FOR_BANNER_TEST</key>\n\t<string>ca-app-pub-3940256099942544/2934735716</string>\n\t<key>AD_UNIT_ID_FOR_INTERSTITIAL_TEST</key>\n\t<string>ca-app-pub-3940256099942544/4411468910</string>\n\t<key>API_KEY</key>\n\t<string>AIzaSyPlaceholderApiKeyForTesting000000</string>\n\t<key>BUNDLE_ID</key>\n\t<string>id</string>\n\t<key>CLIENT_ID</key>\n\t<string>123456789000-00000000000000000000000000000000.apps.googleusercontent.com</string>\n\t<key>DATABASE_URL</key>\n\t<string>https://mockproject-1234.firebaseio.com</string>\n\t<key>GCM_SENDER_ID</key>\n\t<string>123456789000</string>\n\t<key>GOOGLE_APP_ID</key>\n\t<string>1:123456789000:ios:0000000000000000</string>\n\t<key>IS_ADS_ENABLED</key>\n\t<true/>\n\t<key>IS_ANALYTICS_ENABLED</key>\n\t<true/>\n\t<key>IS_APPINVITE_ENABLED</key>\n\t<true/>\n\t<key>IS_GCM_ENABLED</key>\n\t<true/>\n\t<key>IS_SIGNIN_ENABLED</key>\n\t<true/>\n\t<key>PLIST_VERSION</key>\n\t<string>1</string>\n\t<key>PROJECT_ID</key>\n\t<string>mockproject-1234</string>\n\t<key>REVERSED_CLIENT_ID</key>\n\t<string>com.googleusercontent.apps.123456789000-00000000000000000000000000000000</string>\n\t<key>STORAGE_BUCKET</key>\n\t<string>mockproject-1234.appspot.com</string>\n</dict>\n</plist>\nPLIST\ndone",
+        "perl -ni -e 'print unless /^eval \\$COMMAND_PATH\\$(UPLOAD|VALIDATE)_ARGUMENTS/' bin/firebase-crashlytics-run.sh"
+      ],
+      "build": {
+        "scheme": "Kickstarter iOS",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Kickstarter iOS"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "framework-target",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "graphql-codegen",
+        "notification-service-extension",
+        "xcconfig",
+        "xcassets",
+        "strings"
+      ],
+      "notes": "Kickstarter's app: several embedded frameworks and an Apollo GraphQL code-generation target. `make bootstrap` creates configuration files from *.example templates. B-098: `make bootstrap`'s fallback without the private native-secrets repository: Configs/Secrets.swift.example copied where the Makefile copies it, Firebase's mock GoogleService-Info.plist in the three Firebase folders the project names, and bin/firebase-crashlytics-run.sh without its validate and upload calls (its upload-symbols is an x86_64 executable, which needs Rosetta), so the Crashlytics phase does nothing and nothing is uploaded."
+    },
+    {
+      "id": "signal",
+      "name": "Signal",
+      "repository": "https://github.com/signalapp/Signal-iOS",
+      "commit": "d13b9da9e4622e16297b111243755c4c2972091a",
+      "license": "AGPL-3.0",
+      "container": "Signal.xcworkspace",
+      "tier": "B",
+      "submodules": true,
+      "prepare": [],
+      "build": {
+        "scheme": "Signal",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Signal"
+      },
+      "exercises": [
+        "swift",
+        "objc",
+        "mixed-language",
+        "cocoapods",
+        "pods-xcconfig",
+        "workspace",
+        "framework-target",
+        "share-extension",
+        "notification-service-extension",
+        "swiftpm-remote-packages",
+        "xcassets",
+        "strings",
+        "stringsdict"
+      ],
+      "notes": "Signal messenger: the CocoaPods sandbox lives in a git submodule, so Pods.xcodeproj and the Pods-*.xcconfig base configurations come from that submodule."
+    },
+    {
+      "id": "home-assistant",
+      "name": "Home Assistant",
+      "repository": "https://github.com/home-assistant/iOS",
+      "commit": "0a8b4b7ea21e615290e04862fa04acdbc921e346",
+      "license": "Apache-2.0",
+      "container": "HomeAssistant.xcodeproj",
+      "tier": "B",
+      "submodules": false,
+      "prepare": [],
+      "build": {
+        "scheme": "App-Release",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Tests-Unit"
+      },
+      "exercises": [
+        "swift",
+        "swiftui",
+        "uikit",
+        "watchos-target",
+        "watch-complications",
+        "framework-target",
+        "intents-extension",
+        "intent-definitions",
+        "widgets",
+        "notification-extensions",
+        "share-extension",
+        "synchronized-folders",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "shell-script-phase",
+        "xcassets",
+        "strings"
+      ],
+      "notes": "Home Assistant companion: iOS, watchOS and Mac Catalyst, 20 targets, 106 synchronized folder groups and intent definitions. Its README requires Xcode 27. B-098: the earlier reference had no build (captured with --skip-build); its build takes over an hour on a loaded Mac."
+    },
+    {
+      "id": "moonlight",
+      "name": "Moonlight",
+      "repository": "https://github.com/moonlight-stream/moonlight-ios",
+      "commit": "02dc9780496eeeac6d01c8bbdccb8b6fe71ef28a",
+      "license": "GPL-3.0",
+      "container": "Moonlight.xcodeproj",
+      "tier": "B",
+      "submodules": true,
+      "prepare": [
+        "perl -pi -e 's{^(\\s*)/Applications/Xcode\\.app/Contents/Developer(/Toolchains/XcodeDefault\\.xctoolchain/usr/include),}{$1\"\\$(DEVELOPER_DIR)$2\",}' Moonlight.xcodeproj/project.pbxproj"
+      ],
+      "build": {
+        "scheme": "Moonlight",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Moonlight"
+      },
+      "exercises": [
+        "objc",
+        "c",
+        "uikit",
+        "tvos-target",
+        "core-data",
+        "storyboard",
+        "xcassets",
+        "git-submodules",
+        "no-shared-schemes"
+      ],
+      "notes": "Game-streaming client written in Objective-C and C (moonlight-common-c submodule), with Core Data and storyboards for iOS and tvOS. B-098: the project names /Applications/Xcode.app's toolchain headers; where Xcode.app is another Xcode, its SwiftBridging module map clashes with the building Xcode's, so a prepare step points that search path at $(DEVELOPER_DIR), what it is on the author's machine."
+    },
+    {
+      "id": "firefox",
+      "name": "Firefox for iOS",
+      "repository": "https://github.com/mozilla-mobile/firefox-ios",
+      "commit": "2ebc2bbebddeb09da9b75f563fe5669d80b96358",
+      "license": "MPL-2.0",
+      "container": "firefox-ios/Client.xcodeproj",
+      "tier": "C",
+      "submodules": false,
+      "prepare": [
+        "sh ./bootstrap.sh"
+      ],
+      "build": {
+        "scheme": "Fennec",
+        "configuration": "Debug",
+        "options": [
+          "-skipMacroValidation"
+        ]
+      },
+      "test": {
+        "scheme": "Fennec"
+      },
+      "exercises": [
+        "swift",
+        "uikit",
+        "static-library-targets",
+        "app-extensions",
+        "widgets",
+        "credential-provider",
+        "sticker-pack",
+        "swift-macros",
+        "swiftpm-local-packages",
+        "swiftpm-remote-packages",
+        "node-bootstrap",
+        "shell-script-phase",
+        "xcassets",
+        "strings"
+      ],
+      "notes": "Firefox: 23 targets with static libraries and many extensions. bootstrap.sh needs Node.js for the bundled user scripts. Its package macros are not approved on a fresh Mac, so the build reference passes -skipMacroValidation, as swiftfin's does. B-098: built in `Debug`, the configuration its Fennec scheme uses (with `-configuration Fennec`, which the project lacks, xcodebuild split the products and ActionExtension could not see ActionExtensionKit, B-050), pinned to the parent of da88ac4, which adopted `UIVerticalBarBehavior` (not in Xcode 27.0's SDK)."
+    },
+    {
+      "id": "mattermost",
+      "name": "Mattermost (React Native)",
+      "repository": "https://github.com/mattermost/mattermost-mobile",
+      "commit": "33b237a3cefa0fce3bed1fe793fd8955e72af649",
+      "license": "Apache-2.0",
+      "container": "ios/Mattermost.xcworkspace",
+      "tier": "C",
+      "submodules": false,
+      "prepare": [
+        "npm ci --ignore-scripts",
+        "npx patch-package",
+        "perl -pi -e 's/if let subtitle = subtitle \\{/if #available(iOS 16.0, *), let subtitle = subtitle {/' node_modules/expo-router/ios/LinkPreview/LinkPreviewNativeActionView.swift",
+        "cp node_modules/@mattermost/compass-icons/font/compass-icons.ttf assets/fonts/ && node scripts/generate-assets.js && node scripts/generate-compass-glyph-map.mjs",
+        "cd ios && pod install",
+        "perl -pi -e 's/IPHONEOS_DEPLOYMENT_TARGET = (?:[0-9]|1[0-4])(?:\\.[0-9]+)*;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/' ios/Pods/Pods.xcodeproj/project.pbxproj ios/Mattermost.xcodeproj/project.pbxproj"
+      ],
+      "build": {
+        "scheme": "Mattermost",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Mattermost"
+      },
+      "exercises": [
+        "react-native",
+        "cocoapods",
+        "pods-xcconfig",
+        "workspace",
+        "objc",
+        "swift",
+        "share-extension",
+        "notification-service-extension",
+        "node-bootstrap",
+        "shell-script-phase"
+      ],
+      "notes": "React Native app: the workspace and Pods project exist only after npm and CocoaPods have run. Its Pods' deployment target 9.0 is below Xcode 27's minimum, so the build reference raises it to 15.0. B-098: the app's own setup applies patches/ratex-react-native+0.1.4.patch (`npx patch-package`, which `npm ci --ignore-scripts` skips; without it two Pods targets write `ratex.h`) and copies the compass-icons font and generated assets as scripts/postinstall.sh does; the Pods' and app's deployment targets below Xcode 27's minimum are raised to 15.0 in the projects, replacing a command-line setting that also lowered ExpoRouter (iOS 16 APIs). expo-router 55.0.14 (also at main of 2026-11-02) sets a menu action's `subtitle`, iOS 16 only in Xcode 27.0's SDK, from a target of iOS 15.1; a prepare step puts it under `#available(iOS 16.0, *)`."
+    },
+    {
+      "id": "flutter-platform-channels",
+      "name": "Flutter platform_channels sample",
+      "repository": "https://github.com/flutter/samples",
+      "commit": "21c71902bb2c7da3cce328ba5946cba2f35a660a",
+      "license": "BSD-3-Clause",
+      "container": "platform_channels/ios/Runner.xcodeproj",
+      "tier": "C",
+      "submodules": false,
+      "prepare": [
+        "git clone --depth 1 --branch stable https://github.com/flutter/flutter.git \"$RUNNER_TEMP/flutter\"",
+        "cd platform_channels && \"$RUNNER_TEMP/flutter/bin/flutter\" build ios --config-only --no-codesign"
+      ],
+      "build": {
+        "scheme": "Runner",
+        "configuration": "Release"
+      },
+      "test": {
+        "scheme": "Runner"
+      },
+      "exercises": [
+        "flutter",
+        "swift",
+        "generated-xcconfig",
+        "shell-script-phase",
+        "unit-test-bundle"
+      ],
+      "notes": "Flutter iOS shell: Generated.xcconfig and the Flutter framework exist only after `flutter build ios --config-only`."
+    }
+  ]
+}

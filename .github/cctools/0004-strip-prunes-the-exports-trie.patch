@@ -1,0 +1,158 @@
+--- a/cctools/misc/strip.c
++++ b/cctools/misc/strip.c
+@@ -25,6 +25,10 @@
+  * files (with the restriction the symbol table is at the end of the file) and
+  * fat files with Mach-O files in them.
+  */
++#ifndef NMEDIT
++/* nomac: prune the exports trie as Apple's strip does (misc/prune_trie.cpp). */
++#define TRIE_SUPPORT 1
++#endif
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+--- a/cctools/include/mach-o/cctools_helpers.h
++++ b/cctools/include/mach-o/cctools_helpers.h
+@@ -0,0 +1,13 @@
++/* nomac: the declaration strip.c includes with TRIE_SUPPORT (misc/prune_trie.cpp). */
++#ifndef CCTOOLS_HELPERS_H
++#define CCTOOLS_HELPERS_H
++#include <stdint.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++const char *prune_trie(uint8_t *trie_start, uint32_t trie_start_size, int (*prune)(const char *name),
++                       uint32_t *trie_new_size);
++#ifdef __cplusplus
++}
++#endif
++#endif
+--- a/cctools/misc/prune_trie.cpp
++++ b/cctools/misc/prune_trie.cpp
+@@ -0,0 +1,126 @@
++/*
++ * nomac: prune_trie() for strip with TRIE_SUPPORT. Keeps the exports whose names prune() keeps and
++ * writes their trie as Xcode 27.0's strip of an executable does (nomac's
++ * .github/scripts/strip_experiments.py, docs/adr/0181-static-libraries.md): the root first, each
++ * of its child offsets a ULEB128 padded with zeros to 5 bytes, then every other node after its
++ * children, the edges of a node in byte order of their labels; the trie padded with zeros to 8
++ * bytes where the old one starts, the old trie's other bytes and its size in the load command
++ * left as they were.
++ */
++#include <stdint.h>
++#include <string.h>
++#include <algorithm>
++#include <memory>
++#include <string>
++#include <vector>
++#include "MachOTrie.hpp"
++#include <mach-o/cctools_helpers.h>
++
++namespace {
++struct Node {
++    std::vector<std::pair<std::string, std::unique_ptr<Node>>> edges;
++    const mach_o::trie::Entry *entry = nullptr;
++};
++
++void insert(Node *node, const std::string &name, const mach_o::trie::Entry *entry) {
++    if (name.empty()) {
++        node->entry = entry;
++        return;
++    }
++    for (auto &edge : node->edges) {
++        const std::string &label = edge.first;
++        size_t common = 0;
++        while (common < label.size() && common < name.size() && label[common] == name[common]) common++;
++        if (common == 0) continue;
++        if (common < label.size()) {
++            auto middle = std::make_unique<Node>();
++            middle->edges.emplace_back(label.substr(common), std::move(edge.second));
++            edge.first = label.substr(0, common);
++            edge.second = std::move(middle);
++        }
++        insert(edge.second.get(), name.substr(common), entry);
++        return;
++    }
++    auto leaf = std::make_unique<Node>();
++    leaf->entry = entry;
++    node->edges.emplace_back(name, std::move(leaf));
++}
++
++void uleb(std::vector<uint8_t> &out, uint64_t value) {
++    do {
++        uint8_t byte = value & 0x7f;
++        value >>= 7;
++        out.push_back(value != 0 ? (byte | 0x80) : byte);
++    } while (value != 0);
++}
++
++std::vector<uint8_t> terminal(const mach_o::trie::Entry *entry) {
++    std::vector<uint8_t> info;
++    if (entry == nullptr) return info;
++    uleb(info, entry->flags);
++    if (entry->flags & EXPORT_SYMBOL_FLAGS_REEXPORT) {
++        uleb(info, entry->other);
++        const char *name = entry->importName != nullptr ? entry->importName : "";
++        info.insert(info.end(), name, name + strlen(name) + 1);
++    } else {
++        uleb(info, entry->address);
++        if (entry->flags & EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER) uleb(info, entry->other);
++    }
++    return info;
++}
++
++void sortEdges(Node *node) {
++    std::sort(node->edges.begin(), node->edges.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
++    for (auto &edge : node->edges) sortEdges(edge.second.get());
++}
++
++void appendNode(std::vector<uint8_t> &out, Node *node, const std::vector<uint32_t> &offsets, bool padded) {
++    std::vector<uint8_t> info = terminal(node->entry);
++    uleb(out, info.size());
++    out.insert(out.end(), info.begin(), info.end());
++    out.push_back((uint8_t)node->edges.size());
++    for (size_t index = 0; index < node->edges.size(); index++) {
++        const std::string &label = node->edges[index].first;
++        out.insert(out.end(), label.begin(), label.end());
++        out.push_back(0);
++        size_t start = out.size();
++        uleb(out, offsets[index]);
++        while (padded && out.size() < start + 5) out.push_back(0);
++    }
++}
++
++uint32_t appendAfterChildren(std::vector<uint8_t> &out, Node *node) {
++    std::vector<uint32_t> offsets;
++    for (auto &edge : node->edges) offsets.push_back(appendAfterChildren(out, edge.second.get()));
++    uint32_t offset = (uint32_t)out.size();
++    appendNode(out, node, offsets, false);
++    return offset;
++}
++} // namespace
++
++const char *prune_trie(uint8_t *trie_start, uint32_t trie_start_size, int (*prune)(const char *name),
++                       uint32_t *trie_new_size) {
++    std::vector<mach_o::trie::Entry> exports;
++    try {
++        mach_o::trie::parseTrie(trie_start, trie_start + trie_start_size, exports);
++    } catch (const char *message) {
++        return message;
++    }
++    Node root;
++    for (const mach_o::trie::Entry &entry : exports)
++        if (prune(entry.name) == 0) insert(&root, entry.name, &entry);
++    sortEdges(&root);
++    // The root's size: its child offsets are written after the rest, in 5-byte slots.
++    std::vector<uint8_t> trie;
++    appendNode(trie, &root, std::vector<uint32_t>(root.edges.size(), 0), true);
++    std::vector<uint32_t> offsets;
++    for (auto &edge : root.edges) offsets.push_back(appendAfterChildren(trie, edge.second.get()));
++    std::vector<uint8_t> head;
++    appendNode(head, &root, offsets, true);
++    std::copy(head.begin(), head.end(), trie.begin());
++    while (trie.size() % 8 != 0) trie.push_back(0);
++    if (trie.size() > trie_start_size) return "the pruned trie is larger than the original";
++    memcpy(trie_start, trie.data(), trie.size());
++    *trie_new_size = (uint32_t)trie.size();
++    return nullptr;
++}

@@ -1,0 +1,15 @@
+Linker optimization hints are not applied, as Xcode 27.0's ld applies none (iOS 12 to 18, macOS, the simulator): its
+adrp and add stay where lld wrote adr and nop, and its GOT loads relaxed to adrp, add and ldr stay where lld wrote nop,
+nop and a literal ldr (docs/formats/build.md "Linker optimization hints").
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1945,7 +1945,8 @@
+   config->deadStripDuplicates = args.hasArg(OPT_dead_strip_duplicates);
+   config->warnDylibInstallName = args.hasFlag(
+       OPT_warn_dylib_install_name, OPT_no_warn_dylib_install_name, false);
+-  config->ignoreOptimizationHints = args.hasArg(OPT_ignore_optimization_hints);
++  // Xcode 27.0's ld applies no linker optimization hint, for any target.
++  config->ignoreOptimizationHints = true;
+   config->callGraphProfileSort = args.hasFlag(
+       OPT_call_graph_profile_sort, OPT_no_call_graph_profile_sort, true);
+   config->printSymbolOrder = args.getLastArgValue(OPT_print_symbol_order_eq);

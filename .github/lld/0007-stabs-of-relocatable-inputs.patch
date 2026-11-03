@@ -1,0 +1,157 @@
+--- a/lld/MachO/InputFiles.h
++++ b/lld/MachO/InputFiles.h
+@@ -185,6 +185,15 @@
+   std::vector<CallGraphEntry> callGraph;
+   llvm::DenseMap<ConcatInputSection *, FDE> fdes;
+   std::vector<AliasSymbol *> aliases;
++  // The objects an input that ld -r made keeps the debug information in: its
++  // stabs name each object file with its source and the symbols it defines.
++  struct StabsObject {
++    StringRef sourceFile;
++    StringRef path;
++    uint64_t modTime;
++    std::vector<StringRef> symbols;
++  };
++  std::vector<StabsObject> stabsObjects;
+ 
+ private:
+   llvm::once_flag initDwarf;
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -804,13 +804,33 @@
+   std::vector<std::vector<uint32_t>> symbolsBySection(sections.size());
+   symbols.resize(nList.size());
+   SmallVector<unsigned, 32> undefineds;
++  std::string stabsSource;
+   for (uint32_t i = 0; i < nList.size(); ++i) {
+     const NList &sym = nList[i];
+ 
+-    // Ignore debug symbols for now.
+-    // FIXME: may need special handling.
+-    if (sym.n_type & N_STAB)
++    // Debug symbols only give the debug map of an input without DWARF.
++    if (sym.n_type & N_STAB) {
++      StringRef name = StringRef(strtab + sym.n_strx).trim();
++      switch (sym.n_type) {
++      case N_SO:
++        if (name.empty())
++          stabsSource.clear();
++        else
++          stabsSource += name;
++        break;
++      case N_OSO:
++        stabsObjects.push_back({saver().save(stabsSource), name, sym.n_value, {}});
++        break;
++      case N_FUN:
++      case N_STSYM:
++      case N_LCSYM:
++      case N_GSYM:
++        if (!name.empty() && !stabsObjects.empty())
++          stabsObjects.back().symbols.push_back(name);
++        break;
++      }
+       continue;
++    }
+ 
+     if ((sym.n_type & N_TYPE) == N_SECT) {
+       Subsections &subsections = sections[sym.n_sect - 1]->subsections;
+--- a/lld/MachO/SyntheticSections.cpp
++++ b/lld/MachO/SyntheticSections.cpp
+@@ -1249,26 +1249,7 @@
+   // Emit STABS symbols so that dsymutil and/or the debugger can map address
+   // regions in the final binary to the source and object files from which they
+   // originated.
+-  InputFile *lastFile = nullptr;
+-  for (SortingPair &pair : symbolsNeedingStabs) {
+-    Defined *defined = pair.first;
+-    // When emitting STABS entries for a symbol, always use the original
+-    // InputSection of the defined symbol, not the section of the function body
+-    // (which might be a different function entirely if ICF folded this
+-    // function). This ensures STABS entries point back to the original object
+-    // file.
+-    InputSection *isec = defined->originalIsec;
+-    ObjFile *file = cast<ObjFile>(isec->getFile());
+-
+-    if (lastFile == nullptr || lastFile != file) {
+-      if (lastFile != nullptr)
+-        emitEndSourceStab();
+-      lastFile = file;
+-
+-      emitBeginSourceStab(file->sourceFile());
+-      emitObjectFileStab(file);
+-    }
+-
++  auto emitSymbolStab = [&](Defined *defined, InputSection *isec) {
+     StabsEntry symStab;
+     symStab.sect = isec->parent->index;
+     symStab.strx = stringTableSection.addString(defined->getName());
+@@ -1299,6 +1280,69 @@
+     } else {
+       symStab.type = defined->isExternal() ? N_GSYM : N_STSYM;
+       stabs.emplace_back(std::move(symStab));
++    }
++  };
++
++  InputFile *lastFile = nullptr;
++  for (SortingPair &pair : symbolsNeedingStabs) {
++    Defined *defined = pair.first;
++    // When emitting STABS entries for a symbol, always use the original
++    // InputSection of the defined symbol, not the section of the function body
++    // (which might be a different function entirely if ICF folded this
++    // function). This ensures STABS entries point back to the original object
++    // file.
++    InputSection *isec = defined->originalIsec;
++    ObjFile *file = cast<ObjFile>(isec->getFile());
++
++    if (lastFile == nullptr || lastFile != file) {
++      if (lastFile != nullptr)
++        emitEndSourceStab();
++      lastFile = file;
++
++      emitBeginSourceStab(file->sourceFile());
++      emitObjectFileStab(file);
++    }
++
++    emitSymbolStab(defined, isec);
++  }
++
++  // An input that ld -r made has stabs naming the objects with the DWARF, as
++  // Xcode's ld writes them; the image's debug map names those objects.
++  bool groupOpen = lastFile != nullptr;
++  for (InputFile *input : inputFiles) {
++    auto *file = dyn_cast<ObjFile>(input);
++    if (!file || file->compileUnit || file->stabsObjects.empty())
++      continue;
++    DenseMap<StringRef, Defined *> defineds;
++    for (Symbol *sym : file->symbols)
++      if (auto *defined = dyn_cast_or_null<Defined>(sym))
++        if (defined->isLive() && defined->getFile() == file &&
++            !defined->isAbsolute())
++          defineds.try_emplace(defined->getName(), defined);
++    for (const ObjFile::StabsObject &object : file->stabsObjects) {
++      bool begun = false;
++      for (StringRef name : object.symbols) {
++        Defined *defined = defineds.lookup(name);
++        if (!defined || (!config->keepICFStabs &&
++                         defined->identicalCodeFoldingKind !=
++                             Symbol::ICFFoldKind::None))
++          continue;
++        if (!begun) {
++          if (groupOpen)
++            emitEndSourceStab();
++          groupOpen = begun = true;
++          emitBeginSourceStab(object.sourceFile);
++          StabsEntry stab(N_OSO);
++          stab.sect = target->cpuSubtype;
++          StringRef path = object.path;
++          path.consume_front(config->osoPrefix);
++          stab.strx = stringTableSection.addString(path);
++          stab.desc = 1;
++          stab.value = object.modTime;
++          stabs.emplace_back(std::move(stab));
++        }
++        emitSymbolStab(defined, defined->originalIsec);
++      }
+     }
+   }
+ 

@@ -1,0 +1,23 @@
+For Apple targets, reverts llvm-project 09abecef7bbf (PR48002) as Xcode 27.0's clang does (vendor feature
+revert09abecef7bbf): a name that an elaborated-type-specifier of a local class introduces is not pushed into the
+enclosing block scope (B-170, docs/formats/build.md "Clang's driver").
+--- a/clang/lib/Sema/SemaDecl.cpp
++++ b/clang/lib/Sema/SemaDecl.cpp
+@@ -1527,8 +1527,15 @@
+     CurContext->addDecl(D);
+ 
+   // Out-of-line definitions shouldn't be pushed into scope in C++, unless they
+-  // are function-local declarations.
+-  if (getLangOpts().CPlusPlus && D->isOutOfLine() && !S->getFnParent())
++  // are function-local declarations. For Apple targets, Xcode 27.0's clang
++  // reverts llvm-project 09abecef7bbf: a name an elaborated-type-specifier of a
++  // local class introduces is not pushed into the enclosing block scope.
++  if (getLangOpts().CPlusPlus && D->isOutOfLine() &&
++      (Context.getTargetInfo().getTriple().isOSDarwin()
++           ? !D->getDeclContext()->getRedeclContext()->Equals(
++                 D->getLexicalDeclContext()->getRedeclContext()) &&
++                 !D->getLexicalDeclContext()->isFunctionOrMethod()
++           : !S->getFnParent()))
+     return;
+ 
+   // Template instantiations should also not be pushed into scope.

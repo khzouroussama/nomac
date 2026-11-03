@@ -1,0 +1,101 @@
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1380,6 +1380,8 @@
+   // true. If it isn't, we simply create a non-deduplicating CStringSection.
+   // Either way, we must unconditionally finalize it here.
+   in.cStringSection->finalizeContents();
++  for (CStringSection *section : in.namedCStringSections)
++    section->finalizeContents();
+   in.objcMethnameSection->finalizeContents();
+   in.wordLiteralSection->finalizeContents();
+ }
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -375,8 +375,13 @@
+       if (sec.nreloc)
+         fatal(toString(this) + ": " + sec.segname + "," + sec.sectname +
+               " contains relocations, which is unsupported");
++      // Xcode's ld merges equal strings in __cstring and the Objective-C name
++      // sections, and keeps every string of another C-string section.
+       bool dedupLiterals =
+-          name == section_names::objcMethname || config->dedupStrings;
++          name == section_names::objcMethname ||
++          (config->dedupStrings &&
++           (name == section_names::cString || name == "__objc_classname" ||
++            name == "__objc_methtype"));
+       InputSection *isec =
+           make<CStringInputSection>(section, data, align, dedupLiterals);
+       // FIXME: parallelize this?
+--- a/lld/MachO/InputSection.cpp
++++ b/lld/MachO/InputSection.cpp
+@@ -17,6 +17,7 @@
+ #include "Target.h"
+ #include "Writer.h"
+ 
++#include "lld/Common/CommonLinkerContext.h"
+ #include "lld/Common/ErrorHandler.h"
+ #include "lld/Common/Memory.h"
+ #include "llvm/Support/xxhash.h"
+@@ -63,15 +64,29 @@
+     isec->parent = osec;
+     inputSections.push_back(isec);
+   } else if (auto *isec = dyn_cast<CStringInputSection>(inputSection)) {
++    // Xcode's ld keeps each C-string section under its own name
++    // (__objc_classname, __objc_methtype, __oslogstring, ...).
++    CStringSection *section = nullptr;
+     if (isec->getName() == section_names::objcMethname) {
+-      if (in.objcMethnameSection->inputOrder == UnspecifiedInputOrder)
+-        in.objcMethnameSection->inputOrder = inputSectionsOrder++;
+-      in.objcMethnameSection->addInput(isec);
++      section = in.objcMethnameSection;
++    } else if (isec->getName() == section_names::cString) {
++      section = in.cStringSection;
+     } else {
+-      if (in.cStringSection->inputOrder == UnspecifiedInputOrder)
+-        in.cStringSection->inputOrder = inputSectionsOrder++;
+-      in.cStringSection->addInput(isec);
++      for (CStringSection *named : in.namedCStringSections)
++        if (named->name == isec->getName())
++          section = named;
++      if (!section) {
++        const char *name = saver().save(isec->getName()).data();
++        if (isec->deduplicateLiterals)
++          section = make<DeduplicatedCStringSection>(name);
++        else
++          section = make<CStringSection>(name);
++        in.namedCStringSections.push_back(section);
++      }
+     }
++    if (section->inputOrder == UnspecifiedInputOrder)
++      section->inputOrder = inputSectionsOrder++;
++    section->addInput(isec);
+   } else if (auto *isec = dyn_cast<WordLiteralInputSection>(inputSection)) {
+     if (in.wordLiteralSection->inputOrder == UnspecifiedInputOrder)
+       in.wordLiteralSection->inputOrder = inputSectionsOrder++;
+--- a/lld/MachO/SyntheticSections.h
++++ b/lld/MachO/SyntheticSections.h
+@@ -844,6 +844,8 @@
+   const uint8_t *bufferStart = nullptr;
+   MachHeaderSection *header = nullptr;
+   CStringSection *cStringSection = nullptr;
++  // The other C-string sections, each under its own name, as Xcode's ld.
++  std::vector<CStringSection *> namedCStringSections;
+   DeduplicatedCStringSection *objcMethnameSection = nullptr;
+   WordLiteralSection *wordLiteralSection = nullptr;
+   RebaseSection *rebase = nullptr;
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -1105,6 +1105,13 @@
+     }
+   }
+ 
++  // Xcode's ld writes word literals into __TEXT,__const. lld cannot mix them
++  // with that section's input sections, so it names them __literals; without
++  // such sections, they take ld64's name.
++  if (in.wordLiteralSection->isNeeded() &&
++      !concatOutputSections.count({segment_names::text, section_names::const_}))
++    in.wordLiteralSection->name = section_names::const_;
++
+   for (SyntheticSection *ssec : syntheticSections) {
+     auto it = concatOutputSections.find({ssec->segname, ssec->name});
+     // We add all LinkEdit sections here because we don't know if they are

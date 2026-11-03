@@ -1,0 +1,585 @@
+{
+  "description": "React Native and Expo apps nomac was not developed against, for .github/scripts/rn_sweep.py: open source, each at a fixed commit. An example is a folder of a source repository; react-native and expo are the versions its install resolved (rn_sweep.py report).",
+  "sources": {
+    "expo-examples": {
+      "repository": "https://github.com/expo/examples",
+      "commit": "2cc7a440b01eb30e326b91cf1f3aae41e749d128",
+      "npmBefore": "2026-10-30T18:34:37Z"
+    }
+  },
+  "apps": [
+    {
+      "id": "expo-blank",
+      "source": "expo-examples",
+      "path": "blank",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-stickersmash",
+      "source": "expo-examples",
+      "path": "stickersmash"
+    },
+    {
+      "id": "expo-with-apollo",
+      "source": "expo-examples",
+      "path": "with-apollo"
+    },
+    {
+      "id": "expo-with-app-integrity",
+      "source": "expo-examples",
+      "path": "with-app-integrity"
+    },
+    {
+      "id": "expo-with-auth0",
+      "source": "expo-examples",
+      "path": "with-auth0"
+    },
+    {
+      "id": "expo-with-aws-storage-upload",
+      "source": "expo-examples",
+      "path": "with-aws-storage-upload"
+    },
+    {
+      "id": "expo-with-better-auth",
+      "source": "expo-examples",
+      "path": "with-better-auth"
+    },
+    {
+      "id": "expo-with-camera",
+      "source": "expo-examples",
+      "path": "with-camera",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-clerk",
+      "source": "expo-examples",
+      "path": "with-clerk"
+    },
+    {
+      "id": "expo-with-convex",
+      "source": "expo-examples",
+      "path": "with-convex"
+    },
+    {
+      "id": "expo-with-custom-font",
+      "source": "expo-examples",
+      "path": "with-custom-font"
+    },
+    {
+      "id": "expo-with-drawer-navigation",
+      "source": "expo-examples",
+      "path": "with-drawer-navigation"
+    },
+    {
+      "id": "expo-with-e2e",
+      "source": "expo-examples",
+      "path": "with-e2e"
+    },
+    {
+      "id": "expo-with-facebook-auth",
+      "source": "expo-examples",
+      "path": "with-facebook-auth"
+    },
+    {
+      "id": "expo-with-firebase-saml-login",
+      "source": "expo-examples",
+      "path": "with-firebase-saml-login"
+    },
+    {
+      "id": "expo-with-firebase-storage-upload",
+      "source": "expo-examples",
+      "path": "with-firebase-storage-upload"
+    },
+    {
+      "id": "expo-with-formdata-image-upload",
+      "source": "expo-examples",
+      "path": "with-formdata-image-upload"
+    },
+    {
+      "id": "expo-with-github-remote-build-cache-provider",
+      "source": "expo-examples",
+      "path": "with-github-remote-build-cache-provider"
+    },
+    {
+      "id": "expo-with-google-vision",
+      "source": "expo-examples",
+      "path": "with-google-vision"
+    },
+    {
+      "id": "expo-with-graphql",
+      "source": "expo-examples",
+      "path": "with-graphql"
+    },
+    {
+      "id": "expo-with-html",
+      "source": "expo-examples",
+      "path": "with-html"
+    },
+    {
+      "id": "expo-with-icons",
+      "source": "expo-examples",
+      "path": "with-icons"
+    },
+    {
+      "id": "expo-with-legend-state-supabase",
+      "source": "expo-examples",
+      "path": "with-legend-state-supabase"
+    },
+    {
+      "id": "expo-with-libsql",
+      "source": "expo-examples",
+      "path": "with-libsql"
+    },
+    {
+      "id": "expo-with-maestro",
+      "source": "expo-examples",
+      "path": "with-maestro"
+    },
+    {
+      "id": "expo-with-magic",
+      "source": "expo-examples",
+      "path": "with-magic"
+    },
+    {
+      "id": "expo-with-maps",
+      "source": "expo-examples",
+      "path": "with-maps",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-moti",
+      "source": "expo-examples",
+      "path": "with-moti"
+    },
+    {
+      "id": "expo-with-nextjs",
+      "source": "expo-examples",
+      "path": "with-nextjs"
+    },
+    {
+      "id": "expo-with-openai",
+      "source": "expo-examples",
+      "path": "with-openai"
+    },
+    {
+      "id": "expo-with-pdf",
+      "source": "expo-examples",
+      "path": "with-pdf"
+    },
+    {
+      "id": "expo-with-processing",
+      "source": "expo-examples",
+      "path": "with-processing"
+    },
+    {
+      "id": "expo-with-react-compiler",
+      "source": "expo-examples",
+      "path": "with-react-compiler"
+    },
+    {
+      "id": "expo-with-react-flow",
+      "source": "expo-examples",
+      "path": "with-react-flow"
+    },
+    {
+      "id": "expo-with-react-navigation",
+      "source": "expo-examples",
+      "path": "with-react-navigation"
+    },
+    {
+      "id": "expo-with-react-router",
+      "source": "expo-examples",
+      "path": "with-react-router"
+    },
+    {
+      "id": "expo-with-react-strict-dom",
+      "source": "expo-examples",
+      "path": "with-react-strict-dom"
+    },
+    {
+      "id": "expo-with-react-three-fiber",
+      "source": "expo-examples",
+      "path": "with-react-three-fiber"
+    },
+    {
+      "id": "expo-with-reanimated",
+      "source": "expo-examples",
+      "path": "with-reanimated",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-router",
+      "source": "expo-examples",
+      "path": "with-router",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-router-ai",
+      "source": "expo-examples",
+      "path": "with-router-ai"
+    },
+    {
+      "id": "expo-with-router-menus",
+      "source": "expo-examples",
+      "path": "with-router-menus"
+    },
+    {
+      "id": "expo-with-router-tv",
+      "source": "expo-examples",
+      "path": "with-router-tv"
+    },
+    {
+      "id": "expo-with-router-uniwind",
+      "source": "expo-examples",
+      "path": "with-router-uniwind"
+    },
+    {
+      "id": "expo-with-rsc",
+      "source": "expo-examples",
+      "path": "with-rsc"
+    },
+    {
+      "id": "expo-with-s3",
+      "source": "expo-examples",
+      "path": "with-s3"
+    },
+    {
+      "id": "expo-with-satori",
+      "source": "expo-examples",
+      "path": "with-satori"
+    },
+    {
+      "id": "expo-with-sentry",
+      "source": "expo-examples",
+      "path": "with-sentry",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-shadcn",
+      "source": "expo-examples",
+      "path": "with-shadcn"
+    },
+    {
+      "id": "expo-with-skia",
+      "source": "expo-examples",
+      "path": "with-skia",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-socket-io",
+      "source": "expo-examples",
+      "path": "with-socket-io"
+    },
+    {
+      "id": "expo-with-splash-screen",
+      "source": "expo-examples",
+      "path": "with-splash-screen"
+    },
+    {
+      "id": "expo-with-sqlite",
+      "source": "expo-examples",
+      "path": "with-sqlite",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-storybook",
+      "source": "expo-examples",
+      "path": "with-storybook"
+    },
+    {
+      "id": "expo-with-stripe",
+      "source": "expo-examples",
+      "path": "with-stripe",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-styled-components",
+      "source": "expo-examples",
+      "path": "with-styled-components"
+    },
+    {
+      "id": "expo-with-svg",
+      "source": "expo-examples",
+      "path": "with-svg"
+    },
+    {
+      "id": "expo-with-tailwindcss",
+      "source": "expo-examples",
+      "path": "with-tailwindcss"
+    },
+    {
+      "id": "expo-with-tfjs-camera",
+      "source": "expo-examples",
+      "path": "with-tfjs-camera"
+    },
+    {
+      "id": "expo-with-three",
+      "source": "expo-examples",
+      "path": "with-three"
+    },
+    {
+      "id": "expo-with-tinybase",
+      "source": "expo-examples",
+      "path": "with-tinybase"
+    },
+    {
+      "id": "expo-with-tv",
+      "source": "expo-examples",
+      "path": "with-tv"
+    },
+    {
+      "id": "expo-with-typescript",
+      "source": "expo-examples",
+      "path": "with-typescript"
+    },
+    {
+      "id": "expo-with-victory-native",
+      "source": "expo-examples",
+      "path": "with-victory-native"
+    },
+    {
+      "id": "expo-with-video-background",
+      "source": "expo-examples",
+      "path": "with-video-background"
+    },
+    {
+      "id": "expo-with-webbrowser-redirect",
+      "source": "expo-examples",
+      "path": "with-webbrowser-redirect"
+    },
+    {
+      "id": "expo-with-webgpu",
+      "source": "expo-examples",
+      "path": "with-webgpu"
+    },
+    {
+      "id": "expo-with-webrtc",
+      "source": "expo-examples",
+      "path": "with-webrtc"
+    },
+    {
+      "id": "expo-with-widgets",
+      "source": "expo-examples",
+      "path": "with-widgets",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
+    },
+    {
+      "id": "expo-with-workbox",
+      "source": "expo-examples",
+      "path": "with-workbox"
+    },
+    {
+      "id": "expo-with-yarn-workspaces",
+      "source": "expo-examples",
+      "path": "with-yarn-workspaces"
+    },
+    {
+      "id": "expo-with-zustand",
+      "source": "expo-examples",
+      "path": "with-zustand"
+    },
+    {
+      "id": "bluesky",
+      "repository": "https://github.com/bluesky-social/social-app",
+      "commit": "ea0aa7ceb855b539d81a8b869375fab8ceaa9d39",
+      "expo": "58.0.19",
+      "react-native": "0.88.0"
+    },
+    {
+      "id": "bluewallet",
+      "repository": "https://github.com/BlueWallet/BlueWallet",
+      "commit": "3631c47d000e9faf702a9bcf9c9b3f7a4c1bfcfe",
+      "react-native": "0.88.1"
+    },
+    {
+      "id": "rocketchat",
+      "repository": "https://github.com/RocketChat/Rocket.Chat.ReactNative",
+      "commit": "75c8855775ee8f090b3ff408e0d30db0121f169c",
+      "react-native": "0.86.3",
+      "expo": "57.0.23"
+    },
+    {
+      "id": "inaturalist",
+      "repository": "https://github.com/inaturalist/iNaturalistReactNative",
+      "commit": "a940aaf43ec1085b3837952c9c289792571d9115",
+      "react-native": "0.83.10"
+    },
+    {
+      "id": "zeus",
+      "repository": "https://github.com/ZeusLN/zeus",
+      "commit": "b1da973422467c8e0f84e7feedb782c13f6751a2",
+      "react-native": "0.87.1"
+    },
+    {
+      "id": "expensify",
+      "repository": "https://github.com/Expensify/App",
+      "commit": "1191e7b2fba721b609ec645880a4ce4456cda1ac"
+    },
+    {
+      "id": "rainbow",
+      "repository": "https://github.com/rainbow-me/rainbow",
+      "commit": "242bfe582159d71a82d64d019930667a86c16fec"
+    },
+    {
+      "id": "jitsi-meet",
+      "repository": "https://github.com/jitsi/jitsi-meet",
+      "commit": "90de37b1a913304491cd5a1f2b5ad72c97593e23"
+    },
+    {
+      "id": "standard-notes",
+      "repository": "https://github.com/standardnotes/app",
+      "commit": "11432ca3b443f1b520430ac28c70678e0bcfd425",
+      "path": "packages/mobile"
+    },
+    {
+      "id": "joplin",
+      "repository": "https://github.com/laurent22/joplin",
+      "commit": "8691218b89d55231dbcce982861e018e417551dc",
+      "path": "packages/app-mobile"
+    },
+    {
+      "id": "notesnook",
+      "repository": "https://github.com/streetwriters/notesnook",
+      "commit": "e1bf280a75bb4c4bb55372b34e1cb2e4f35f2188",
+      "path": "apps/mobile"
+    },
+    {
+      "id": "ignite",
+      "repository": "https://github.com/infinitered/ignite",
+      "commit": "e829d2f922c5568a59a77bfb6232aeb500be3f13",
+      "path": "boilerplate"
+    },
+    {
+      "id": "tooot",
+      "repository": "https://github.com/tooot-app/app",
+      "commit": "7bcef6fe1df1c64f47b2c599f1f56da922e04d4e"
+    },
+    {
+      "id": "chainreact-2023",
+      "repository": "https://github.com/infinitered/ChainReactApp2023",
+      "commit": "cb1c2b9e6225dbfbe4077f6ddfbca3d5c9629237"
+    },
+    {
+      "id": "graysky",
+      "repository": "https://github.com/mozzius/graysky",
+      "commit": "abef3e4859955fdf5b02d67b478e769003352cd6",
+      "path": "apps/expo"
+    },
+    {
+      "id": "showtime",
+      "repository": "https://github.com/showtime-xyz/showtime-frontend",
+      "commit": "d7484398307423e7382a8c9eef84731707b5340d"
+    },
+    {
+      "id": "podverse",
+      "repository": "https://github.com/podverse/podverse-rn",
+      "commit": "84155643c2a881584874357411d1262ac688fc67"
+    },
+    {
+      "id": "metamask",
+      "repository": "https://github.com/MetaMask/metamask-mobile",
+      "commit": "032bc6d0eeec58745294a6f086c1b23c8ad4ca57"
+    },
+    {
+      "id": "eigen",
+      "repository": "https://github.com/artsy/eigen",
+      "commit": "4420554cd44aba592b3c203a05a2baa2705412c3"
+    },
+    {
+      "id": "memmy",
+      "repository": "https://github.com/Memmy-App/memmy",
+      "commit": "f5019cad4660fbf39c63fcc712c8f7ee075836e7"
+    },
+    {
+      "id": "olas",
+      "repository": "https://github.com/pablof7z/olas",
+      "commit": "380d6950197b18eb4a31e7d9ce5862255f4137d1"
+    },
+    {
+      "id": "obytes-template",
+      "repository": "https://github.com/obytes/react-native-template-obytes",
+      "commit": "fd9b358ed11913d2a49fd9ffa6582fe03ba130e7"
+    },
+    {
+      "id": "zulip-mobile",
+      "repository": "https://github.com/zulip/zulip-mobile",
+      "commit": "d7cf6da79b4b9467e240b42f24330e97390a8aff"
+    },
+    {
+      "id": "skia-example",
+      "repository": "https://github.com/Shopify/react-native-skia",
+      "commit": "337a209d82413b4b9bf32d688dcb4a1bbfbcca98",
+      "path": "apps/example"
+    },
+    {
+      "id": "reanimated-example",
+      "repository": "https://github.com/software-mansion/react-native-reanimated",
+      "commit": "134779bf3c8f59dedf2af44454c02f7a1d679e60",
+      "path": "apps/fabric-example"
+    },
+    {
+      "id": "vision-camera-example",
+      "repository": "https://github.com/mrousavy/react-native-vision-camera",
+      "commit": "6624e8cd09114d5364d43fa0e0c0648e6d3c1072",
+      "path": "apps/simple-camera"
+    },
+    {
+      "id": "maps-example",
+      "repository": "https://github.com/react-native-maps/react-native-maps",
+      "commit": "39c6fd177d6c91ea087fcf083fd484f2499b6ea8",
+      "path": "example"
+    },
+    {
+      "id": "webview-example",
+      "repository": "https://github.com/react-native-webview/react-native-webview",
+      "commit": "054572b187824084aa19e709f5d2f569a33a6f4a",
+      "path": "example"
+    },
+    {
+      "id": "stripe-example",
+      "repository": "https://github.com/stripe/stripe-react-native",
+      "commit": "b25fcdc699066f8344786127882da7b9ffce5ff2",
+      "path": "example"
+    },
+    {
+      "id": "mmkv-example",
+      "repository": "https://github.com/mrousavy/react-native-mmkv",
+      "commit": "ca5acf0ca9acc5cd1b75c486be6adad40c488047",
+      "path": "example"
+    },
+    {
+      "id": "lottie-example",
+      "repository": "https://github.com/lottie-react-native/lottie-react-native",
+      "commit": "7ac5e96cfbf80789118e873d9d736dee9ecc2fd9",
+      "path": "example"
+    },
+    {
+      "id": "video-example",
+      "repository": "https://github.com/TheWidlarzGroup/react-native-video",
+      "commit": "a3cde3b22f4d99791eb9242ba97ce01064d64152",
+      "path": "example"
+    },
+    {
+      "id": "screens-example",
+      "repository": "https://github.com/software-mansion/react-native-screens",
+      "commit": "ec16f25b791193da6938e2729c52ca949cd35086",
+      "path": "FabricExample"
+    },
+    {
+      "id": "gesture-handler-example",
+      "repository": "https://github.com/software-mansion/react-native-gesture-handler",
+      "commit": "b19e23310a579e1cce8fcbc57ad7dee95f4dbb9e",
+      "path": "apps/basic-example"
+    }
+  ]
+}

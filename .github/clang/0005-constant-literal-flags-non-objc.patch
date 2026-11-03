@@ -1,0 +1,75 @@
+Backport of llvm/llvm-project#200303, "[Driver] Don't warn on ObjC constant-literal flags for non-ObjC inputs" (merged 2026-06-05), to
+swiftlang/llvm-project swift-6.4.0-RELEASE (docs/adr/0170-xcodes-clang-abi-and-a-patched-clang.md, B-170).
+Adapted: Options.td at clang/include/clang/Driver/Options.td.
+
+diff --git a/clang/include/clang/Driver/Options.td b/clang/include/clang/Driver/Options.td
+index f4be813a..ad2d6305 100644
+--- a/clang/include/clang/Driver/Options.td
++++ b/clang/include/clang/Driver/Options.td
+@@ -2219,7 +2219,7 @@ defm objc_constant_literals : BoolFOption<"objc-constant-literals",
+   LangOpts<"ObjCConstantLiterals">, DefaultFalse,
+   PosFlag<SetTrue, [], [CC1Option], "Enable">,
+   NegFlag<SetFalse, [], [], "Disable">,
+-  BothFlags<[], [ClangOption], " compile-time constant ObjC literals">>;
++  BothFlags<[NoArgumentUnused], [ClangOption], " compile-time constant ObjC literals">>;
+ def fconstant_array_class_EQ : Joined<["-"], "fconstant-array-class=">, Group<f_Group>,
+   Visibility<[ClangOption, CC1Option]>,
+   MarshallingInfoString<LangOpts<"ObjCConstantArrayClass">>;
+@@ -3751,17 +3751,17 @@ defm constant_nsnumber_literals : BoolFOption<"constant-nsnumber-literals",
+   LangOpts<"ConstantNSNumberLiterals">, DefaultFalse,
+   PosFlag<SetTrue, [], [CC1Option], "Enable">,
+   NegFlag<SetFalse, [], [], "Disable">,
+-  BothFlags<[], [ClangOption], " compile-time constant NSNumber literals">>;
++  BothFlags<[NoArgumentUnused], [ClangOption], " compile-time constant NSNumber literals">>;
+ defm constant_nsarray_literals : BoolFOption<"constant-nsarray-literals",
+   LangOpts<"ConstantNSArrayLiterals">, DefaultFalse,
+   PosFlag<SetTrue, [], [CC1Option], "Enable">,
+   NegFlag<SetFalse, [], [], "Disable">,
+-  BothFlags<[], [ClangOption], " compile-time constant NSArray literals">>;
++  BothFlags<[NoArgumentUnused], [ClangOption], " compile-time constant NSArray literals">>;
+ defm constant_nsdictionary_literals : BoolFOption<"constant-nsdictionary-literals",
+   LangOpts<"ConstantNSDictionaryLiterals">, DefaultFalse,
+   PosFlag<SetTrue, [], [CC1Option], "Enable">,
+   NegFlag<SetFalse, [], [], "Disable">,
+-  BothFlags<[], [ClangOption], " compile-time constant NSDictionary literals">>;
++  BothFlags<[NoArgumentUnused], [ClangOption], " compile-time constant NSDictionary literals">>;
+ def fno_common : Flag<["-"], "fno-common">, Group<f_Group>,
+   Visibility<[ClangOption, CC1Option]>,
+     HelpText<"Compile common globals like normal definitions">;
+diff --git a/clang/test/Driver/objc-constant-literals.m b/clang/test/Driver/objc-constant-literals.m
+index 7903028d..aec39918 100644
+--- a/clang/test/Driver/objc-constant-literals.m
++++ b/clang/test/Driver/objc-constant-literals.m
+@@ -19,3 +19,32 @@
+ // DISABLED-NOT: -fconstant-nsnumber-literals
+ // DISABLED-NOT: -fconstant-nsarray-literals
+ // DISABLED-NOT: -fconstant-nsdictionary-literals
++
++// The constant literal flags are Objective-C only. A build system may still
++// pass them uniformly to non-ObjC inputs (e.g. assembly files via a shared
++// response file); they carry NoArgumentUnused so they don't trigger
++// -Wunused-command-line-argument under -Werror.
++// RUN: %clang -target arm64-apple-macosx11 -Werror \
++// RUN:   -fobjc-constant-literals -fconstant-nsnumber-literals \
++// RUN:   -fconstant-nsarray-literals -fconstant-nsdictionary-literals \
++// RUN:   -x assembler -c %s -o /dev/null 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=IGNORED --allow-empty
++// RUN: %clang -target arm64-apple-macosx11 -Werror \
++// RUN:   -fno-objc-constant-literals -fno-constant-nsnumber-literals \
++// RUN:   -fno-constant-nsarray-literals -fno-constant-nsdictionary-literals \
++// RUN:   -x assembler -c %s -o /dev/null 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=IGNORED --allow-empty
++
++// IGNORED-NOT: argument unused during compilation
++// IGNORED-NOT: -fobjc-constant-literals
++// IGNORED-NOT: -fconstant-nsnumber-literals
++// IGNORED-NOT: -fconstant-nsarray-literals
++// IGNORED-NOT: -fconstant-nsdictionary-literals
++
++// The same flags must also be ignored (and not forwarded to cc1) when compiling
++// non-ObjC C/C++ inputs.
++// RUN: %clang -target arm64-apple-macosx11 -Werror \
++// RUN:   -fobjc-constant-literals -fconstant-nsnumber-literals \
++// RUN:   -fconstant-nsarray-literals -fconstant-nsdictionary-literals \
++// RUN:   -x c++ -c %s -o /dev/null 2>&1 \
++// RUN:   | FileCheck %s --check-prefix=IGNORED --allow-empty

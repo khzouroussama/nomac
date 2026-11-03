@@ -1,0 +1,7 @@
+# Milestone tags. The `tags` workflow creates each one once the `ci` workflow has succeeded on
+# its commit (docs/adr/0007-milestone-tags.md). One per line:
+#
+#   <tag> <full commit SHA> <message>
+#
+# Tags are never moved or deleted by the workflow. Lines stay in this file after their tag
+# exists; the workflow skips tags that already point at their commit.

@@ -1,0 +1,13 @@
+--- a/lib/BuildSystem/BuildSystem.cpp	2026-11-02 20:55:44
++++ b/lib/BuildSystem/BuildSystem.cpp	2026-11-02 20:55:44
+@@ -1025,7 +1025,9 @@
+          end = llvm::sys::fs::directory_iterator(); it != end && !ec;
+          it = it.increment(ec)) {
+       // If this is a symlink to a parent directory, exclude it from results so we don't get stuck in a loop.
+-      if (llvm::sys::fs::is_symlink_file(*it->status())) {
++      // An entry whose status cannot be read (removed since the directory was read) is kept as a file.
++      auto status = it->status();
++      if (status && llvm::sys::fs::is_symlink_file(*status)) {
+         SmallString<256> resolvedPath;
+         if (!llvm::sys::fs::real_path(it->path(), resolvedPath)) {
+           if (path.startswith(resolvedPath)) {

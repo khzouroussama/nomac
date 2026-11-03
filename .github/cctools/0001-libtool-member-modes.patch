@@ -1,0 +1,19 @@
+--- a/cctools/misc/libtool.c
++++ b/cctools/misc/libtool.c
+@@ -2324,7 +2324,6 @@
+ 	    if(cmd_flags.D == TRUE || zero_ar_date == TRUE)
+ 		stat_buf.st_mtime = toc_time;
+             if (cmd_flags.D == TRUE) {
+-                stat_buf.st_mode = toc_mode;
+                 stat_buf.st_uid = toc_uid;
+                 stat_buf.st_gid = toc_gid;
+             }
+@@ -2341,7 +2340,7 @@
+ 	       (int)sizeof(member->ar_hdr.ar_gid),
+ 		   (unsigned short)stat_buf.st_gid,
+ 	       (int)sizeof(member->ar_hdr.ar_mode),
+-		   (unsigned int)stat_buf.st_mode,
++		   (unsigned int)(stat_buf.st_mode & 0777),
+ 	       (int)sizeof(member->ar_hdr.ar_size),
+ 		   (long)size + ar_name_size,
+ 	       (int)sizeof(member->ar_hdr.ar_fmag),

@@ -1,0 +1,12 @@
+--- a/cctools/ld64/src/ld/parsers/macho_relocatable_file.cpp
++++ b/cctools/ld64/src/ld/parsers/macho_relocatable_file.cpp
+@@ -2770,6 +2770,9 @@
+ 			} else if ( strncmp(sect->sectname(), "__asm", 5) == 0 ) {
+ 				bitcodeAsm = true;
+ 			}
++			// nomac: Xcode's ld leaves a Swift module hash out of every output, a relocatable one of one input too
++			if ( strncmp(sect->sectname(), "__swift_modhash", 15) == 0 )
++				continue;
+ 			// If treat the bitcode as data, continue to parse as a normal section.
+ 			if ( !_treateBitcodeAsData )
+ 				continue;

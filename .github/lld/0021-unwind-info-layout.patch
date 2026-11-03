@@ -1,0 +1,145 @@
+__unwind_info laid out as Xcode 27.0's ld lays it out (B-193, docs/formats/build.md "Objective-C references,
+archive members and hints in the linked image"): common encodings are those used by more than one entry, by
+descending frequency then ascending encoding; the index reserves one entry per 511 entries and two more; each
+second-level page starts where the previous one ends, rounded up to 8 bytes; the sentinel is one byte past the last
+function. lld made every encoding common, ordered ties descending, gave each page 4096 bytes and put the sentinel at
+the end.
+--- a/lld/MachO/UnwindInfoSection.cpp
++++ b/lld/MachO/UnwindInfoSection.cpp
+@@ -125,8 +125,17 @@
+   size_t entryIndex;
+   size_t entryCount;
+   size_t byteCount;
++  uint64_t offset = 0;
+   std::vector<compact_unwind_encoding_t> localEncodings;
+   EncodingMap localEncodingIndexes;
++
++  size_t byteSize() const {
++    if (kind == UNWIND_SECOND_LEVEL_COMPRESSED)
++      return sizeof(unwind_info_compressed_second_level_page_header) +
++             (entryCount + localEncodings.size()) * sizeof(uint32_t);
++    return sizeof(unwind_info_regular_second_level_page_header) +
++           entryCount * sizeof(unwind_info_regular_second_level_entry);
++  }
+ };
+ 
+ // UnwindInfoSectionImpl allows us to avoid cluttering our header file with a
+@@ -164,6 +173,7 @@
+   DenseMap<size_t, uint32_t> lsdaIndex;
+   std::vector<SecondLevelPage> secondLevelPages;
+   uint64_t level2PagesOffset = 0;
++  size_t indexEntriesReserved = 0;
+   // The highest-address function plus its size. The unwinder needs this to
+   // determine the address range that is covered by unwind info.
+   uint64_t cueEndBoundary = 0;
+@@ -529,15 +539,18 @@
+   for (size_t idx : cuIndices)
+     encodingFrequencies[cuEntries[idx].encoding]++;
+ 
+-  // Make a vector of encodings, sorted by descending frequency
++  // Make a vector of the encodings used more than once, sorted by descending
++  // frequency, then ascending encoding, as Xcode's ld does; the others stay in
++  // their page's local table.
+   for (const auto &frequency : encodingFrequencies)
+-    commonEncodings.emplace_back(frequency);
++    if (frequency.second > 1)
++      commonEncodings.emplace_back(frequency);
+   llvm::sort(commonEncodings,
+              [](const std::pair<compact_unwind_encoding_t, size_t> &a,
+                 const std::pair<compact_unwind_encoding_t, size_t> &b) {
+-               // When frequencies match, secondarily sort on encoding
+-               // to maintain parity with validate-unwind-info.py
+-               return std::tie(a.second, a.first) > std::tie(b.second, b.first);
++               if (a.second != b.second)
++                 return a.second > b.second;
++               return a.first < b.first;
+              });
+ 
+   // Truncate the vector to 127 elements.
+@@ -610,17 +623,23 @@
+       entriesWithLsda.push_back(idx);
+   }
+ 
+-  // compute size of __TEXT,__unwind_info section
++  // compute size of __TEXT,__unwind_info section. Xcode's ld reserves index
++  // entries for one regular page per 511 entries and two more, and starts each
++  // second-level page after the previous one's entries, rounded up to 8 bytes.
++  indexEntriesReserved =
++      divideCeil(cuIndices.size(), REGULAR_SECOND_LEVEL_ENTRIES_MAX) + 2;
+   level2PagesOffset = sizeof(unwind_info_section_header) +
+                       commonEncodings.size() * sizeof(uint32_t) +
+                       personalities.size() * sizeof(uint32_t) +
+-                      // The extra second-level-page entry is for the sentinel
+-                      (secondLevelPages.size() + 1) *
++                      indexEntriesReserved *
+                           sizeof(unwind_info_section_header_index_entry) +
+                       entriesWithLsda.size() *
+                           sizeof(unwind_info_section_header_lsda_index_entry);
+-  unwindInfoSize =
+-      level2PagesOffset + secondLevelPages.size() * SECOND_LEVEL_PAGE_BYTES;
++  unwindInfoSize = level2PagesOffset;
++  for (SecondLevelPage &page : secondLevelPages) {
++    page.offset = unwindInfoSize;
++    unwindInfoSize = alignTo(page.offset + page.byteSize(), 8);
++  }
+ }
+ 
+ // All inputs are relocated and output addresses are known, so write!
+@@ -656,24 +675,19 @@
+   // Level-1 index
+   uint32_t lsdaOffset =
+       uip->indexSectionOffset +
+-      uip->indexCount * sizeof(unwind_info_section_header_index_entry);
+-  uint64_t l2PagesOffset = level2PagesOffset;
++      indexEntriesReserved * sizeof(unwind_info_section_header_index_entry);
+   auto *iep = reinterpret_cast<unwind_info_section_header_index_entry *>(i32p);
+   for (const SecondLevelPage &page : secondLevelPages) {
+     size_t idx = cuIndices[page.entryIndex];
+     iep->functionOffset = cuEntries[idx].functionAddress - in.header->addr;
+-    iep->secondLevelPagesSectionOffset = l2PagesOffset;
++    iep->secondLevelPagesSectionOffset = page.offset;
+     iep->lsdaIndexArraySectionOffset =
+         lsdaOffset + lsdaIndex.lookup(idx) *
+                          sizeof(unwind_info_section_header_lsda_index_entry);
+     iep++;
+-    l2PagesOffset += SECOND_LEVEL_PAGE_BYTES;
+   }
+-  // Level-1 sentinel
+-  // XXX(vyng): Note that LD64 adds +1 here.
+-  // Unsure whether it's a bug or it's their workaround for something else.
+-  // See comments from https://reviews.llvm.org/D138320.
+-  iep->functionOffset = cueEndBoundary - in.header->addr;
++  // Level-1 sentinel, one byte past the last function as in Xcode's ld
++  iep->functionOffset = cueEndBoundary + 1 - in.header->addr;
+   iep->secondLevelPagesSectionOffset = 0;
+   iep->lsdaIndexArraySectionOffset =
+       lsdaOffset + entriesWithLsda.size() *
+@@ -681,8 +695,8 @@
+   iep++;
+ 
+   // LSDAs
+-  auto *lep =
+-      reinterpret_cast<unwind_info_section_header_lsda_index_entry *>(iep);
++  auto *lep = reinterpret_cast<unwind_info_section_header_lsda_index_entry *>(
++      buf + lsdaOffset);
+   for (size_t idx : entriesWithLsda) {
+     const CompactUnwindEntry &cu = cuEntries[idx];
+     lep->lsdaOffset = cu.lsda->getVA(/*off=*/0) - in.header->addr;
+@@ -691,8 +705,8 @@
+   }
+ 
+   // Level-2 pages
+-  auto *pp = reinterpret_cast<uint32_t *>(lep);
+   for (const SecondLevelPage &page : secondLevelPages) {
++    auto *pp = reinterpret_cast<uint32_t *>(buf + page.offset);
+     if (page.kind == UNWIND_SECOND_LEVEL_COMPRESSED) {
+       uintptr_t functionAddressBase =
+           cuEntries[cuIndices[page.entryIndex]].functionAddress;
+@@ -734,7 +748,6 @@
+         *ep++ = cue.encoding;
+       }
+     }
+-    pp += SECOND_LEVEL_PAGE_WORDS;
+   }
+ }
+ 

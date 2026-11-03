@@ -1,0 +1,17 @@
+LLVM's matrix intrinsic lowering on by default, as in Xcode 27.0's clang (B-170, docs/formats/build.md "Clang's
+driver"): its -print-pipeline-passes runs lower-matrix-intrinsics<minimal> at -O0 and lower-matrix-intrinsics and an
+early-cse after lower-constant-intrinsics at -O1 to -Oz, for every target, while the matrix types stay off
+(-fenable-matrix). The extra early-cse changes what later passes see: moonlight's ConnectionTester.c at -Os keeps a
+loop's address live out of it, so the loop vectorizer leaves the loop, and the object has no __literal16 and
+__literal8, as Xcode's.
+--- a/llvm/lib/Passes/PassBuilderPipelines.cpp
++++ b/llvm/lib/Passes/PassBuilderPipelines.cpp
+@@ -268,7 +268,7 @@
+              "no inline hierarchy exists in the profile"));
+ 
+ static cl::opt<bool>
+-    EnableMatrix("enable-matrix", cl::init(false), cl::Hidden,
++    EnableMatrix("enable-matrix", cl::init(true), cl::Hidden,
+                  cl::desc("Enable lowering of the matrix intrinsics"));
+ 
+ static cl::opt<bool> EnableConstraintElimination(

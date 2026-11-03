@@ -1,0 +1,22 @@
+--- a/cctools/ld64/src/ld/HeaderAndLoadCommands.hpp
++++ b/cctools/ld64/src/ld/HeaderAndLoadCommands.hpp
+@@ -215,7 +215,7 @@
+ 	_hasRoutinesLoadCommand = (opts.initFunctionName() != NULL) && (state.entryPoint != NULL);
+ 	_hasSymbolTableLoadCommand = true;
+ 	_hasUUIDLoadCommand = (opts.UUIDMode() != Options::kUUIDNone);
+-	_hasOptimizationHints = (_state.someObjectHasOptimizationHints && (opts.outputKind() == Options::kObjectFile));
++	_hasOptimizationHints = false; /* nomac: Xcode's ld writes no optimization hints into relocatable objects */
+ 	_hasExportsTrieLoadCommand = opts.makeChainedFixups() && !state.cantUseChainedFixups && opts.dyldLoadsOutput();
+ 	_hasCodeSignature = opts.adHocSign();
+ 	_hasChainedFixupsLoadCommand = opts.makeChainedFixups() && !state.cantUseChainedFixups && opts.dyldOrKernelLoadsOutput() && opts.outputSlidable();
+--- a/cctools/ld64/src/ld/OutputFile.cpp
++++ b/cctools/ld64/src/ld/OutputFile.cpp
+@@ -116,7 +116,7 @@
+ 		_hasDynamicSymbolTable(true),
+ 		_hasLocalRelocations(!_hasDyldInfo && !_hasChainedFixups && !opts.makeThreadedStartsSection() && !_options.makeRebaseSection()),
+ 		_hasExternalRelocations(!_hasDyldInfo && !_hasChainedFixups && !opts.makeThreadedStartsSection()),
+-		_hasOptimizationHints(opts.outputKind() == Options::kObjectFile),
++		_hasOptimizationHints(false), /* nomac: Xcode's ld writes no optimization hints into relocatable objects */
+ 		_hasCodeSignature(opts.adHocSign()),
+ 		_encryptedTEXTstartOffset(0),
+ 		_encryptedTEXTendOffset(0),

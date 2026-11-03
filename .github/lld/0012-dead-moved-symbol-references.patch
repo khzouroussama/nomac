@@ -1,0 +1,63 @@
+--- a/lld/MachO/InputFiles.cpp
++++ b/lld/MachO/InputFiles.cpp
+@@ -2055,6 +2055,7 @@
+   auto *dylib = make<DylibFile>(umbrella == this ? nullptr : umbrella);
+   dylib->installName = saver().save(installName);
+   dylib->ldPreviousName = LDPreviousName::Synthetic;
++  dylib->resolvedThrough = exportingFile;
+   dylib->ldPreviousOrigin = this;
+   dylib->currentVersion = currentVersion;
+   dylib->compatibilityVersion = compatVersion;
+--- a/lld/MachO/InputFiles.h
++++ b/lld/MachO/InputFiles.h
+@@ -255,6 +255,11 @@
+   uint32_t currentVersion = 0;
+   int64_t ordinal = 0; // Ordinal numbering starts from 1, so 0 is a sentinel
+   unsigned numReferencedSymbols = 0;
++  // Whether code or data that dead stripping keeps refers to its symbols.
++  bool liveReferenced = false;
++  // For a synthetic dylib, the dylib its symbols resolve through: the dylib
++  // with the $ld$previous symbols, or the umbrella that alone may use it.
++  DylibFile *resolvedThrough = nullptr;
+   RefState refState;
+   bool reexport = false;
+   bool forceNeeded = false;
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -730,8 +730,12 @@
+         if (auto *undefined = dyn_cast<Undefined>(sym))
+           treatUndefinedSymbol(*undefined, isec, r.offset);
+         // treatUndefinedSymbol() can replace sym with a DylibSymbol; re-check.
+-        if (!isa<Undefined>(sym) && validateSymbolRelocation(sym, isec, r))
++        if (!isa<Undefined>(sym) && validateSymbolRelocation(sym, isec, r)) {
+           prepareSymbolRelocation(sym, isec, r);
++          if (auto *dysym = dyn_cast<DylibSymbol>(sym))
++            if (DylibFile *file = dysym->getFile())
++              file->liveReferenced = true;
++        }
+       } else {
+         if (!r.pcrel) {
+           if (config->emitChainedFixups)
+@@ -898,7 +902,21 @@
+   // FIXME: `isReferenced()` is currently computed before dead code
+   // stripping, so references from dead code keep a dylib alive. This
+   // matches ld64, but it's something we should do better.
+-  auto needsLoadCommand = [](const DylibFile *dylibFile) {
++  // Xcode's ld counts the references to symbols that $ld$previous moves to
++  // another install name only from code and data that dead stripping keeps.
++  // A dylib whose only use is resolving such symbols, explicitly linked or
++  // not, has the load command only for them, with their versions.
++  DenseSet<const DylibFile *> resolvingMovedSymbols;
++  for (const DylibFile *dylibFile : dylibFiles)
++    if (dylibFile->ldPreviousName == DylibFile::LDPreviousName::Synthetic &&
++        dylibFile->isReferenced() && dylibFile->resolvedThrough)
++      resolvingMovedSymbols.insert(dylibFile->resolvedThrough);
++  auto needsLoadCommand = [&](const DylibFile *dylibFile) {
++    if (dylibFile->ldPreviousName == DylibFile::LDPreviousName::Synthetic)
++      return config->deadStrip ? dylibFile->liveReferenced
++                               : dylibFile->isReferenced();
++    if (resolvingMovedSymbols.contains(dylibFile) && !dylibFile->isReferenced())
++      return false;
+     return dylibFile->isReferenced() || dylibFile->forceNeeded ||
+            (dylibFile->isExplicitlyLinked() && !dylibFile->deadStrippable &&
+             !config->deadStripDylibs);

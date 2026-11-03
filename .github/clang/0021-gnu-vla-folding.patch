@@ -1,0 +1,22 @@
+For Apple targets, an array bound that is not an integer constant expression but can be evaluated is folded to a
+constant in GNU modes (gnu11, gnu++17, ...), with -Wgnu-folding-constant, instead of forming a variable length array,
+as Xcode 27.0's clang does (vendor feature enableAggressiveVLAFolding; B-170, docs/formats/build.md "Clang's driver").
+--- a/clang/lib/Sema/SemaType.cpp
++++ b/clang/lib/Sema/SemaType.cpp
+@@ -2071,8 +2071,14 @@
+     }
+   } Diagnoser(VLADiag, VLAIsError);
+ 
+-  ExprResult R =
+-      S.VerifyIntegerConstantExpression(ArraySize, &SizeVal, Diagnoser);
++  // For Apple targets, Xcode 27.0's clang folds a bound it can evaluate to a
++  // constant in GNU modes, with -Wgnu-folding-constant, instead of forming a
++  // VLA.
++  bool Folds = S.getLangOpts().GNUMode &&
++               S.Context.getTargetInfo().getTriple().isOSDarwin();
++  ExprResult R = S.VerifyIntegerConstantExpression(
++      ArraySize, &SizeVal, Diagnoser,
++      Folds ? AllowFoldKind::Allow : AllowFoldKind::No);
+   if (Diagnoser.IsVLA)
+     return ExprResult();
+   return R;

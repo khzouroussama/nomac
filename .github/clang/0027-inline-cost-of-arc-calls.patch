@@ -1,0 +1,82 @@
+The inliner charges each Objective-C ARC intrinsic that becomes a runtime call (objc_retain, objc_release,
+objc_autoreleaseReturnValue, objc_initWeak, ...) as a lowered call (the call penalty and 5 per argument), and 30 more
+for the objc_retainAutoreleasedReturnValue call an attached-call bundle becomes, as Xcode 27.0's inliner costs them
+(-Rpass-missed=inline: a function with three messages, two releases and an autoreleased return costs 235 against
+swiftlang's 55). swiftlang counts them as free intrinsics, and so inlines small ARC functions Xcode's clang calls,
+such as SVGKit's getCurrentlyParsingParser, whose definition the linker then strips (B-170, docs/formats/build.md
+"Objective-C literals, runtime entrypoints and `this`").
+--- a/llvm/lib/Analysis/InlineCost.cpp
++++ b/llvm/lib/Analysis/InlineCost.cpp
+@@ -339,6 +339,10 @@
+   virtual void onLoweredCall(Function *F, CallBase &Call, bool IsIndirectCall) {
+   }
+ 
++  /// Called to account for an Objective-C runtime call with \p NumArgs
++  /// arguments that ARC code becomes once lowered.
++  virtual void onARCRuntimeCall(CallBase &Call, unsigned NumArgs) {}
++
+   /// Account for a jump table of given size. Return false to stop further
+   /// processing the switch instruction
+   virtual bool onJumpTable(unsigned JumpTableSize) { return true; }
+@@ -753,6 +757,14 @@
+       // Otherwise simply add the cost for merely making the call.
+       addCost(TTI.getInlineCallPenalty(CandidateCall.getCaller(), Call,
+                                        CallPenalty));
++  }
++
++  // As Xcode 27.0's inliner: the call an ARC intrinsic or an attached-call
++  // bundle becomes costs as a lowered call.
++  void onARCRuntimeCall(CallBase &Call, unsigned NumArgs) override {
++    addCost(NumArgs * InstrCost);
++    addCost(TTI.getInlineCallPenalty(CandidateCall.getCaller(), Call,
++                                     CallPenalty));
+   }
+ 
+   void onFinalizeSwitch(unsigned JumpTableSize, unsigned NumCaseCluster,
+@@ -2532,6 +2544,35 @@
+       return simplifyIntrinsicCallIsConstant(Call);
+     case Intrinsic::objectsize:
+       return simplifyIntrinsicCallObjectSize(Call);
++    case Intrinsic::objc_autorelease:
++    case Intrinsic::objc_autoreleasePoolPop:
++    case Intrinsic::objc_autoreleasePoolPush:
++    case Intrinsic::objc_autoreleaseReturnValue:
++    case Intrinsic::objc_copyWeak:
++    case Intrinsic::objc_destroyWeak:
++    case Intrinsic::objc_initWeak:
++    case Intrinsic::objc_loadWeak:
++    case Intrinsic::objc_loadWeakRetained:
++    case Intrinsic::objc_moveWeak:
++    case Intrinsic::objc_release:
++    case Intrinsic::objc_retain:
++    case Intrinsic::objc_retainAutorelease:
++    case Intrinsic::objc_retainAutoreleaseReturnValue:
++    case Intrinsic::objc_retainAutoreleasedReturnValue:
++    case Intrinsic::objc_claimAutoreleasedReturnValue:
++    case Intrinsic::objc_retainBlock:
++    case Intrinsic::objc_storeStrong:
++    case Intrinsic::objc_storeWeak:
++    case Intrinsic::objc_unsafeClaimAutoreleasedReturnValue:
++    case Intrinsic::objc_retainedObject:
++    case Intrinsic::objc_unretainedObject:
++    case Intrinsic::objc_unretainedPointer:
++    case Intrinsic::objc_retain_autorelease:
++    case Intrinsic::objc_sync_enter:
++    case Intrinsic::objc_sync_exit:
++      onARCRuntimeCall(Call, Call.arg_size());
++      disableLoadElimination();
++      return Base::visitCallBase(Call);
+     }
+   }
+ 
+@@ -2546,6 +2587,10 @@
+   if (isLoweredToCall(F, Call)) {
+     onLoweredCall(F, Call, IsIndirectCall);
+   }
++
++  // The objc_retainAutoreleasedReturnValue (or claim) call the bundle becomes.
++  if (Call.getOperandBundle(LLVMContext::OB_clang_arc_attachedcall))
++    onARCRuntimeCall(Call, 1);
+ 
+   if (!(Call.onlyReadsMemory() || (IsIndirectCall && F->onlyReadsMemory())))
+     disableLoadElimination();

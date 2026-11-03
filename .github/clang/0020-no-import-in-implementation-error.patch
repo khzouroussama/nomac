@@ -1,0 +1,20 @@
+No "@import of module 'X' in implementation of 'Y'; use #import" error where a file of module Y's implementation
+(-fmodule-name=Y, as Swift Build passes for framework targets) imports Y or its private module, as Xcode 27.0's clang
+(vendor feature disableAtImportPrivateFrameworkInImplementationError; B-170, docs/formats/build.md "Clang's driver").
+--- a/clang/lib/Sema/SemaModule.cpp
++++ b/clang/lib/Sema/SemaModule.cpp
+@@ -670,10 +670,10 @@
+   // of the same top-level module. Until we do, make it an error rather than
+   // silently ignoring the import.
+   // FIXME: Should we warn on a redundant import of the current module?
+-  if (Mod->isForBuilding(getLangOpts())) {
+-    Diag(ImportLoc, getLangOpts().isCompilingModule()
+-                        ? diag::err_module_self_import
+-                        : diag::err_module_import_in_implementation)
++  // Xcode 27.0's clang accepts the module (or its private module) being
++  // implemented without "@import of module in implementation" errors.
++  if (Mod->isForBuilding(getLangOpts()) && getLangOpts().isCompilingModule()) {
++    Diag(ImportLoc, diag::err_module_self_import)
+         << Mod->getFullModuleName() << getLangOpts().CurrentModule;
+   }
+ 

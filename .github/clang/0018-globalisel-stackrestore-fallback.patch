@@ -1,0 +1,18 @@
+GlobalISel leaves functions with llvm.stackrestore (variable length arrays) to SelectionDAG, as Xcode 27.0's clang
+does at -O0 ("unable to legalize instruction: G_STACKRESTORE"; B-170, docs/formats/build.md "Stack checks"):
+swiftlang's lowers it, and its -O0 code for such functions differs from Xcode's.
+--- a/llvm/lib/Target/AArch64/GISel/AArch64LegalizerInfo.cpp
++++ b/llvm/lib/Target/AArch64/GISel/AArch64LegalizerInfo.cpp
+@@ -1254,7 +1254,11 @@
+ 
+   getActionDefinitionsBuilder(G_DYN_STACKALLOC).custom();
+ 
+-  getActionDefinitionsBuilder({G_STACKSAVE, G_STACKRESTORE}).lower();
++  getActionDefinitionsBuilder(G_STACKSAVE).lower();
++
++  // Xcode 27.0's clang leaves functions that restore the stack pointer (variable
++  // length arrays) to SelectionDAG at -O0.
++  getActionDefinitionsBuilder(G_STACKRESTORE).unsupported();
+ 
+   if (ST.hasMOPS()) {
+     // G_BZERO is not supported. Currently it is only emitted by

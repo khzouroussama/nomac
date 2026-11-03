@@ -1,0 +1,32 @@
+--- a/lld/MachO/MarkLive.cpp
++++ b/lld/MachO/MarkLive.cpp
+@@ -257,8 +257,10 @@
+           dyn_cast_or_null<DylibSymbol>(symtab->find("dyld_stub_binder")))
+     marker->addSym(stubBinder);
+   for (ConcatInputSection *isec : inputSections) {
+-    // Sections marked no_dead_strip
+-    if (isec->getFlags() & S_ATTR_NO_DEAD_STRIP) {
++    // Sections marked no_dead_strip, but for the class references Xcode's ld
++    // strips with the code that uses them (its selector references it keeps).
++    if ((isec->getFlags() & S_ATTR_NO_DEAD_STRIP) &&
++        isec->getName() != section_names::objcClassRefs) {
+       marker->enqueue(isec, 0);
+       continue;
+     }
+--- a/lld/MachO/SyntheticSections.h
++++ b/lld/MachO/SyntheticSections.h
+@@ -556,7 +556,13 @@
+   void addInput(CStringInputSection *);
+   uint64_t getSize() const override { return size; }
+   virtual void finalizeContents();
+-  bool isNeeded() const override { return !inputs.empty(); }
++  // Xcode's ld writes no section of strings that are all dead-stripped.
++  bool isNeeded() const override {
++    return llvm::any_of(inputs, [](const CStringInputSection *isec) {
++      return llvm::any_of(isec->pieces,
++                          [](const StringPiece &piece) { return piece.live; });
++    });
++  }
+   void writeTo(uint8_t *buf) const override;
+ 
+   std::vector<CStringInputSection *> inputs;

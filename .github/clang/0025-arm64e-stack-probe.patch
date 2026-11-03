@@ -1,0 +1,81 @@
+For arm64e, Apple's stack probe is called through an authenticated pointer as Xcode 27.0's clang calls it: adrp and
+add of l___chkstk_darwin$auth_ptr$ia$0$addr into x17 (with an AdrpAdd linker optimization hint), ldr x16, [x17] and
+blraa x16, x17; the slot in __DATA,__auth_ptr holds ___chkstk_darwin@AUTH(ia,0,addr) (B-170, docs/formats/build.md
+"Stack checks").
+--- a/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
++++ b/llvm/lib/Target/AArch64/AArch64AsmPrinter.cpp
+@@ -322,7 +322,7 @@
+   MInstToMCSymbol LOHInstToLabel;
+ 
+   /// The labels of the GOT loads of Apple's stack probe in this function.
+-  SmallVector<std::pair<MCSymbol *, MCSymbol *>, 1> StackProbeLOHs;
++  SmallVector<std::tuple<MCLOHType, MCSymbol *, MCSymbol *>, 1> StackProbeLOHs;
+ 
+   bool shouldEmitWeakSwiftAsyncExtendedFramePointerFlags() const override {
+     return ShouldEmitWeakSwiftAsyncExtendedFramePointerFlags;
+@@ -1129,9 +1129,9 @@
+ void AArch64AsmPrinter::emitFunctionBodyEnd() {
+   if (!AArch64FI->getLOHRelated().empty())
+     emitLOHs();
+-  for (auto [Adrp, Ldr] : StackProbeLOHs) {
+-    SmallVector<MCSymbol *, 3> Args = {Adrp, Ldr};
+-    OutStreamer->emitLOHDirective(MCLOH_AdrpLdrGot, Args);
++  for (auto [Kind, First, Second] : StackProbeLOHs) {
++    SmallVector<MCSymbol *, 3> Args = {First, Second};
++    OutStreamer->emitLOHDirective(Kind, Args);
+   }
+   StackProbeLOHs.clear();
+ }
+@@ -3135,7 +3135,42 @@
+   case AArch64::StkChkIndirectCall: {
+     // As Xcode 27.0's clang: x16 loaded from the GOT, with a linker
+     // optimization hint at every optimization level, after the function's
+-    // other hints.
++    // other hints; for arm64e, from an authenticated pointer (key IA,
++    // discriminator 0, address diversity) whose address x17 holds.
++    if (TM.getTargetTriple().isArm64e()) {
++      const auto &TLOF =
++          static_cast<const AArch64_MachoTargetObjectFile &>(getObjFileLowering());
++      MCSymbol *Slot = TLOF.getAuthPtrSlotSymbol(
++          TM, MMI, GetExternalSymbolSymbol("__chkstk_darwin"), AArch64PACKey::IA,
++          0, 0, /*HasAddressDiversity=*/true);
++      MCOperand SlotPage, SlotPageOffset;
++      MCInstLowering.lowerOperand(
++          MachineOperand::CreateMCSymbol(Slot, AArch64II::MO_PAGE), SlotPage);
++      MCInstLowering.lowerOperand(
++          MachineOperand::CreateMCSymbol(Slot, AArch64II::MO_PAGEOFF |
++                                                   AArch64II::MO_NC),
++          SlotPageOffset);
++      MCSymbol *AdrpLabel = createTempSymbol("loh");
++      OutStreamer->emitLabel(AdrpLabel);
++      EmitToStreamer(MCInstBuilder(AArch64::ADRP)
++                         .addReg(AArch64::X17)
++                         .addOperand(SlotPage));
++      MCSymbol *AddLabel = createTempSymbol("loh");
++      OutStreamer->emitLabel(AddLabel);
++      EmitToStreamer(MCInstBuilder(AArch64::ADDXri)
++                         .addReg(AArch64::X17)
++                         .addReg(AArch64::X17)
++                         .addOperand(SlotPageOffset)
++                         .addImm(0));
++      EmitToStreamer(MCInstBuilder(AArch64::LDRXui)
++                         .addReg(AArch64::X16)
++                         .addReg(AArch64::X17)
++                         .addImm(0));
++      EmitToStreamer(
++          MCInstBuilder(AArch64::BLRAA).addReg(AArch64::X16).addReg(AArch64::X17));
++      StackProbeLOHs.push_back({MCLOH_AdrpAdd, AdrpLabel, AddLabel});
++      return;
++    }
+     MCOperand Page, PageOffset;
+     MCInstLowering.lowerOperand(
+         MachineOperand::CreateES("__chkstk_darwin",
+@@ -3157,7 +3192,7 @@
+                        .addReg(AArch64::X16)
+                        .addOperand(PageOffset));
+     EmitToStreamer(MCInstBuilder(AArch64::BLR).addReg(AArch64::X16));
+-    StackProbeLOHs.push_back({AdrpLabel, LdrLabel});
++    StackProbeLOHs.push_back({MCLOH_AdrpLdrGot, AdrpLabel, LdrLabel});
+     return;
+   }
+   case AArch64::TCRETURNdi: {

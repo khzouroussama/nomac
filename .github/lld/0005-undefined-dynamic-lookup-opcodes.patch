@@ -1,0 +1,18 @@
+--- a/lld/MachO/Driver.cpp
++++ b/lld/MachO/Driver.cpp
+@@ -1805,6 +1805,15 @@
+   config->emitChainedFixups = shouldEmitChainedFixups(args);
+   config->emitInitOffsets =
+       config->emitChainedFixups || args.hasArg(OPT_init_offsets);
++  // Xcode's ld writes dyld's opcodes instead of chained fixups when any
++  // -undefined leaves symbols to dyld's lookup, unless -fixup_chains asks for
++  // them, and keeps the initializer offsets the deployment target allows.
++  if (config->emitChainedFixups && !args.hasArg(OPT_fixup_chains) &&
++      llvm::any_of(args.filtered(OPT_undefined), [](const Arg *arg) {
++        StringRef treatment = arg->getValue();
++        return treatment == "dynamic_lookup" || treatment == "suppress";
++      }))
++    config->emitChainedFixups = false;
+   config->emitRelativeMethodLists = shouldEmitRelativeMethodLists(args);
+   config->icfLevel = getICFLevel(args);
+   config->keepICFStabs = args.hasArg(OPT_keep_icf_stabs);
