@@ -71,4 +71,6 @@ as Xcode's do.
   `-stack-check`, swift.org's frontend's bytes for modules, and for objects but for a function with
   a dynamic stack allocation at `-Onone`, which the clang workstream's LLVM compiles as Xcode's
   (`.github/clang` 0018). retro-rampage's Engine built by nomac on Linux: Xcode's probe calls in all
-  31 objects.
+  31 objects. With 0002 and 0003, against the clang workstream's 29 patches:
+  `swift_runtime_call_experiments.py run` gives Xcode's messengers, selector references, stubs and
+  module flag in the 12 cases the SDK subset's Swift modules compile (iOS devices).

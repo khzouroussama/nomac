@@ -13,13 +13,15 @@ interface; rn-bare Debug's `__preview.dylib`.
 
 ## Just finished
 
-- Swift runtime calls (in progress): icecubes and mastodon on Linux with the patched frontend
-  have no stack-check differences left (31 and 33 items before); their top Swift class is
-  Objective-C messages through selector stubs (25 and 20 items). `.github/swift` 0002 sends them
-  as Xcode's frontend does and 0003 writes the "Swift DirectReg Version" flag
-  (`swift_runtime_call_experiments.py`, 28 cases); the frontend with them is being rebuilt
-  against clang-1's tree at main's patches (0029 included). The `_xN` entry points themselves
-  need the clang workstream's LLVM.
+- Swift runtime calls: icecubes and mastodon on Linux with the patched frontend have no
+  stack-check differences left (31 and 33 items before); their top Swift class was Objective-C
+  messages through selector stubs (25 and 20 items). `.github/swift` 0002 sends them as Xcode's
+  frontend does and 0003 writes the "Swift DirectReg Version" flag
+  (`swift_runtime_call_experiments.py`). The frontend with 0001-0003, rebuilt against clang-1's
+  tree at main's 29 clang patches, is published in `nomac-build:/work/llvm-tools` (stamp
+  `abbe5674`); on Linux its 12 compilable runtime-call cases are Xcode's, the stack experiment
+  as before. The `_xN` calls and two linker items went to clang-1 (handoff in
+  `~/nomac-out/handoff/build3-to-clang1`).
 - llbuild from the owner's fork (`b0afd154`, B-137 done): `.github/upstream/swift-llbuild/0001`
   applied, the root dependency replacing Swift Build's and SwiftPM's (ADR 0002).
 - Swift stack checks, step 1 (B-100): `swift_stack_experiments.py` records when Xcode's driver
@@ -311,7 +313,12 @@ from the Linux runs and the readiness survey; build references in `wt-scratch/bu
 
 ## Next actions
 
-1. The Linux-corpus reports' build-driver classes, one at a time (icecubes).
+1. icecubes and mastodon through `nomac verify --build` on Linux again with the published
+   frontend (`~/nomac-out/wt-scratch/build/swift-corpus`: `verify.sh` in a container with the
+   developer directory `nomac-build:/work/devdir`, as on 2026-11-03), to measure 0002 on the
+   selector stub items, then rank the next Swift class. The runtime-call experiment's 16
+   non-iOS-device cases need an SDK subset with those platforms' Swift modules to run on Linux.
+2. The Linux-corpus reports' other build-driver classes, one at a time.
 2. rn-bare Debug's `__preview.dylib`, whose `__TEXT,__text` only Xcode's has.
 3. ExpoModulesJSI's `.swiftinterface` and `.abi.json` on Linux against Xcode's.
 4. B-132: enforce user script sandboxing with Linux namespaces or Landlock.
@@ -320,6 +327,11 @@ from the Linux runs and the readiness survey; build references in `wt-scratch/bu
 6. B-060: a Linux build records the reference Mac's identity by default.
 7. `nomac verify --build` compares universal Mach-O files slice by slice.
 8. B-122 (`ONLY_ACTIVE_ARCH` for autocreated schemes), B-117.
+
+The frontend's build tree is kept for incremental rebuilds (`nomac-build:/work/sf`, 9 GB):
+`build-swift-frontend.sh` with `WORK=/work/sf`, clang-1's llvm-project read-only (see ADR 0106),
+when `.github/clang` or `.github/swift` changes; republish into `/work/llvm-tools` by deleting
+the old three files first.
 
 ## How to reproduce
 
