@@ -10,8 +10,8 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 
 Batch 1 (10 of Expo's examples, 5 apps) done on main `b225fc0c` and routed (Results, Classes).
 Running: the 106 apps of the manifest; 46 passed every step on main `a9b571ab`, the other 60 run on
-the gate's build of main `ad202e5b` (each result names its nomac), graysky and obytes-template last
-(the `cp -X` stand-in, d2e7cff7, is merging). Next: the round's table, B-043.
+the gate's build of main `ad202e5b` (each result names its nomac; it has B-200's image-set
+appearances, the nib fixes and React Native 0.81's `cp -X` stand-in, bcd98eaf). Next: the round's table, B-043.
 
 The manifest records what an app asks of a build machine (`env`, `{checkout}` standing for its
 checkout: bluesky's `SENTRY_XCFRAMEWORK_CACHE_DIR`, inside the checkout so that the container sees
