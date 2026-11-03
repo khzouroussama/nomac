@@ -44,9 +44,10 @@ JavaScript import of a package the app does not install). Up to 3 apps install o
 Linux (`--builders`, each with a NOMAC_HOME of its own; one at a time while Docker's disk was small):
 an install waits on the network for minutes to an hour, a build takes 2 to 7 minutes; each app's Mac copy is deleted once copied into the container, the
 container's copy and build folders after its run, the logs gzipped; results stay in
-`~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). The Mac checkout of an app
-that fails after its install is kept for 6 hours (`--keep-failed`), for other agents to look at,
-then deleted (sooner when the Mac runs short of space); its result names it. Builds wait for 10 GB free on
+`~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). The Mac copy of an app goes as
+soon as it is in the container; the container's copy of an app that fails after its install stays
+6 hours (`--keep-failed`) at its Mac path in `nomac-sweep-run`, for other agents to look at (sooner
+gone when Docker's volume runs short); its result names it. Builds wait for 10 GB free on
 the Mac and 15 GB in Docker (agent-common.md, after the VM filled up on 2026-11-02).
 
 The container has no network, so what a build would download is provided: the Linux Node, and

@@ -904,7 +904,7 @@ def volume_free(container):
 
 
 def mac_steps(root, entry, args, env):
-    purge_kept(root, args.keep_failed)
+    purge_kept(root, args)
     install(root, entry, env)
     survey(root, entry, args.survey)
 
@@ -923,31 +923,36 @@ def linux_steps(root, entry, args, slot):
                                stdout=subprocess.PIPE)
         docker("exec", "-i", args.container, "tar", "-xf", "-", "-C", str(top.parent), stdin=tar.stdout, check=True)
         tar.wait()
+        if not args.keep:
+            shutil.rmtree(top, ignore_errors=True)
         with open(root / "results" / app_id / "linux.log", "ab") as out:
             docker("exec", args.container, "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
                    "--slot", str(slot), app_id, stdout=out, stderr=subprocess.STDOUT)
-        docker("exec", args.container, "rm", "-rf", str(top))
+    elif not args.keep:
+        shutil.rmtree(top, ignore_errors=True)
     result = load_result(root, app_id)
     result["finished"] = True
     first = next((s for s in STEPS if s in result["steps"] and not result["steps"][s]["ok"]), None)
-    if args.keep or (first and first != "install" and args.keep_failed > 0):
-        result["kept"] = {"path": str(top), "since": time.time()}
+    if first and first != "install" and args.keep_failed > 0:
+        result["kept"] = {"path": str(top), "container": args.container, "since": time.time()}
     else:
         result.pop("kept", None)
-        shutil.rmtree(top, ignore_errors=True)
+        docker("exec", args.container, "rm", "-rf", str(top))
     save_result(root, result)
     log(f"{app_id}: " + (f"stopped at {first}: {result['steps'][first].get('class') or result['steps'][first].get('error', '')[:120]}"
                          if first else "every step passed"))
 
 
-def purge_kept(root, hours):
-    """Deletes the checkouts kept for a look at their failure: those kept more than `hours`, then
-    the oldest while the Mac has less than 5 GB above its minimum."""
-    kept = sorted((r["kept"]["since"], r) for path in (root / "results").glob("*.json")
+def purge_kept(root, args):
+    """Deletes the checkouts kept in the container for a look at their failure: those kept more
+    than --keep-failed hours, then the oldest while Docker's volume has less than 20 GB above its
+    minimum."""
+    kept = sorted((r["kept"]["since"], r["id"]) for path in (root / "results").glob("*.json")
                   if "kept" in (r := json.loads(path.read_text())))
-    for since, result in kept:
-        if time.time() - since > hours * 3600 or free_bytes(root) < MIN_FREE_MAC + (5 << 30):
-            shutil.rmtree(result["kept"]["path"], ignore_errors=True)
+    for since, app_id in kept:
+        if time.time() - since > args.keep_failed * 3600 or volume_free(args.container) < MIN_FREE + (20 << 30):
+            result = load_result(root, app_id)
+            docker("exec", result["kept"].get("container", args.container), "rm", "-rf", result["kept"]["path"])
             result.pop("kept")
             save_result(root, result)
 
@@ -1018,9 +1023,10 @@ def report(root, names):
                     any_classes[(first, cls)][1].add(r["id"])
         rows.append(f"| {r['id']} | {r.get('kind', '')} | {versions.get('react-native') or ''} | {versions.get('expo') or ''} | "
                     + " | ".join(cells) + f" | {failure.replace('|', '/')} |")
-    kept = [f"{r['id']} ({Path(r['kept']['path']).name})" for r in results if "kept" in r]
+    kept = [r["id"] for r in results if "kept" in r]
     if kept:
-        rows += ["", "Checkouts kept on the Mac for a look at their failure (under the root's apps folder): " + ", ".join(kept) + "."]
+        rows += ["", "Checkouts kept in the container for a look at their failure (`<root>/apps/<app>`, at its Mac path): "
+                 + ", ".join(kept) + "."]
     rows += ["", "| failure class (first failure) | step | apps blocked | apps |", "|---|---|---|---|"]
     for (name, cls), apps in sorted(first_classes.items(), key=lambda item: -len(item[1])):
         rows.append(f"| {cls.replace('|', '/')} | {name} | {len(apps)} | {', '.join(apps)} |")
@@ -1074,7 +1080,7 @@ def main():
     parser.add_argument("--builders", type=int, default=1, help="run: apps building on Linux at once")
     parser.add_argument("--slot", type=int, default=0, help="linux: the build's slot (its NOMAC_HOME)")
     parser.add_argument("--keep-failed", type=float, default=6, metavar="HOURS",
-                        help="run: keep the Mac's checkout of an app that fails after its install for HOURS (0: none)")
+                        help="run: keep the container's checkout of an app that fails after its install for HOURS (0: none)")
     args = parser.parse_intermixed_args()
     root = args.root.resolve() if args.command != "linux" else args.root
     if args.command == "container":
