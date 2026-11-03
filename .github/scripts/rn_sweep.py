@@ -27,15 +27,15 @@ stays under --root, outside the repository; each app's build folders are deleted
 
 Usage (Mac):
   rn_sweep.py container [--root R]           create the Linux container (the volume's layout below)
-  rn_sweep.py run [--root R] [--keep] [--keep-failed H] [--resume] [--installers N] [app ...]
-                                             every step; the Linux steps one app after the other, N apps
-                                             installing ahead; --resume leaves out the apps that finished,
-                                             except installs the network stopped
+  rn_sweep.py run [--root R] [--keep] [--keep-failed H] [--resume] [--installers N] [--builders M] [app ...]
+                                             every step: N apps installing on the Mac, M building on Linux;
+                                             --resume leaves out the apps that finished, except installs the
+                                             network stopped
   rn_sweep.py prepare [--keep] [app ...]     the Mac steps only (install, survey), the copy deleted after
   rn_sweep.py install|survey [app ...]       one Mac step, the copy kept
   rn_sweep.py report [--root R]              tables: steps, apps, failure classes, survey, requirements
   rn_sweep.py reclassify [app ...]           the kept logs' failures classified again
-In the container: rn_sweep.py linux [--root R] app
+In the container: rn_sweep.py linux [--root R] [--slot S] app
 
 The volume (nomac-sweep) holds bin/current/nomac (a Linux build of nomac), devdir/Xcode_27.app (the
 SDK subset with `nomac toolchain install`'s toolchain), node-linux (the pinned Node for Linux),
@@ -48,6 +48,7 @@ import base64
 import concurrent.futures
 import contextlib
 import gzip
+import queue
 import hashlib
 import json
 import os
@@ -505,10 +506,10 @@ def survey(root, entry, script):
 
 # The Linux steps (in the container).
 
-def linux_environment(root):
+def linux_environment(root, slot):
     return {"PATH": f"{root}/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root",
             "LANG": "C.UTF-8", "TMPDIR": "/tmp", "DEVELOPER_DIR": str(DEVELOPER_DIR), "NOMAC_DEVELOPER_DIR": str(DEVELOPER_DIR),
-            "NOMAC_HOME": str(WORK / "nomac-home"),
+            "NOMAC_HOME": str(WORK / f"nomac-home-{slot}"),
             "CI": "1", "EXPO_NO_TELEMETRY": "1"}
 
 
@@ -535,11 +536,13 @@ def scheme_of(container):
     return container.stem
 
 
-def linux(root, entry):
+def linux(root, entry, slot):
+    """The Linux steps of one app, in the container; `slot` names its own NOMAC_HOME, as up to
+    --builders builds run at once."""
     result = load_result(root, entry["id"])
     out = root / "results" / entry["id"]
     top, app = checkout(root, entry), app_folder(root, entry)
-    env = linux_environment(root)
+    env = linux_environment(root, slot)
     container = container_of(app)
     if container is None:
         step(result, "check", False, time.time(), **{"class": "no Xcode project in ios/"})
@@ -906,7 +909,7 @@ def mac_steps(root, entry, args, env):
     survey(root, entry, args.survey)
 
 
-def linux_steps(root, entry, args):
+def linux_steps(root, entry, args, slot):
     """Copies the installed app into the container at its Mac path, runs the Linux steps there and
     deletes both copies."""
     app_id, top = entry["id"], checkout(root, entry)
@@ -921,8 +924,8 @@ def linux_steps(root, entry, args):
         docker("exec", "-i", args.container, "tar", "-xf", "-", "-C", str(top.parent), stdin=tar.stdout, check=True)
         tar.wait()
         with open(root / "results" / app_id / "linux.log", "ab") as out:
-            docker("exec", args.container, "python3", str(Path(__file__).resolve()), "linux", "--root", str(root), app_id,
-                   stdout=out, stderr=subprocess.STDOUT)
+            docker("exec", args.container, "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
+                   "--slot", str(slot), app_id, stdout=out, stderr=subprocess.STDOUT)
         docker("exec", args.container, "rm", "-rf", str(top))
     result = load_result(root, app_id)
     result["finished"] = True
@@ -950,19 +953,34 @@ def purge_kept(root, hours):
 
 
 def run_all(root, apps, args, env):
-    """Every step of each app, the Linux steps one app after the other; up to `--installers` apps
-    install on the Mac ahead of the one building on Linux (installs wait on the network, builds on
-    the CPU), one `pod install` at a time (CocoaPods' cache is shared)."""
+    """Every step of each app, in the manifest's order: up to `--installers` apps install on the Mac
+    (installs wait on the network; one `pod install` at a time, CocoaPods' cache being shared) while
+    up to `--builders` build on Linux, each in a slot of its own. At most installers + builders
+    apps are installed and not yet built, which bounds the Mac's disk."""
     if args.resume:
         apps = [entry for entry in apps if not load_result(root, entry["id"]).get("finished")
                 or load_result(root, entry["id"])["steps"].get("install", {}).get("network")]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.installers) as mac:
-        installs = []
-        for index, entry in enumerate(apps):
-            while len(installs) < min(index + 1 + args.installers, len(apps)):
-                installs.append(mac.submit(mac_steps, root, apps[len(installs)], args, env))
-            installs[index].result()
-            linux_steps(root, entry, args)
+    slots = queue.Queue()
+    for slot in range(args.builders):
+        slots.put(slot)
+
+    def build(entry, installing):
+        installing.result()
+        slot = slots.get()
+        try:
+            linux_steps(root, entry, args, slot)
+        finally:
+            slots.put(slot)
+
+    with (concurrent.futures.ThreadPoolExecutor(args.installers) as mac,
+          concurrent.futures.ThreadPoolExecutor(args.builders) as linux_pool):
+        builds = []
+        for entry in apps:
+            while sum(not b.done() for b in builds) >= args.installers + args.builders:
+                concurrent.futures.wait([b for b in builds if not b.done()], return_when=concurrent.futures.FIRST_COMPLETED)
+            builds.append(linux_pool.submit(build, entry, mac.submit(mac_steps, root, entry, args, env)))
+        for done in builds:
+            done.result()
 
 
 # Report.
@@ -1052,7 +1070,9 @@ def main():
                         help="script_phase_survey.py (default: beside this script)")
     parser.add_argument("--keep", action="store_true", help="run: keep the Mac's copy of each app")
     parser.add_argument("--resume", action="store_true", help="run: leave out the apps whose run finished")
-    parser.add_argument("--installers", type=int, default=3, help="run: apps installing on the Mac at once, ahead of the Linux build")
+    parser.add_argument("--installers", type=int, default=3, help="run: apps installing on the Mac at once")
+    parser.add_argument("--builders", type=int, default=1, help="run: apps building on Linux at once")
+    parser.add_argument("--slot", type=int, default=0, help="linux: the build's slot (its NOMAC_HOME)")
     parser.add_argument("--keep-failed", type=float, default=6, metavar="HOURS",
                         help="run: keep the Mac's checkout of an app that fails after its install for HOURS (0: none)")
     args = parser.parse_intermixed_args()
@@ -1065,7 +1085,7 @@ def main():
         return reclassify(root, args.apps)
     if args.command == "linux":
         for entry in entries(args.apps):
-            linux(root, entry)
+            linux(root, entry, args.slot)
         return
     env = mac_environment(root)
     if args.command == "run":

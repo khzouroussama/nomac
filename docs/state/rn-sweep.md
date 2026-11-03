@@ -40,8 +40,9 @@ name its input when its own output has none (actool's messages print under the c
 task), and for a script phase the errors left in tasks that succeeded (nomac streams a script's
 output as it runs, between other tasks' output). Classes starting `app:` fail with Xcode too (a
 JavaScript import of a package the app does not install). Up to 3 apps install on the Mac
-(`--installers`; one `pod install` at a time, CocoaPods' cache being shared) while one builds: an
-install waits on the network for minutes to an hour, a build takes 2 to 7 minutes; each app's Mac copy is deleted once copied into the container, the
+(`--installers`; one `pod install` at a time, CocoaPods' cache being shared) while up to 3 build on
+Linux (`--builders`, each with a NOMAC_HOME of its own; one at a time while Docker's disk was small):
+an install waits on the network for minutes to an hour, a build takes 2 to 7 minutes; each app's Mac copy is deleted once copied into the container, the
 container's copy and build folders after its run, the logs gzipped; results stay in
 `~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). The Mac checkout of an app
 that fails after its install is kept for 6 hours (`--keep-failed`), for other agents to look at,
