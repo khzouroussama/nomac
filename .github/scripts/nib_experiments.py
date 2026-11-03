@@ -6363,6 +6363,29 @@ SIMULATED_BARS = {
 STORYBOARDS.update(SIMULATED_BARS)
 
 
+
+# Round 113: accessibility of a table view cell's content view, and of prototype cells in
+# storyboards.
+A11Y_CELL = '<accessibility key="accessibilityConfiguration" label="Row" identifier="row">\n    <bool key="isElement" value="YES"/>\n</accessibility>\n'
+
+
+def indented(text, indent):
+    return "".join(indent + line + "\n" for line in text.splitlines())
+
+
+CELL_A11Y = {
+    "cell-content-a11y": cell_xib("", content=indented(A11Y_CELL, "                ")),
+    "cell-content-a11y-id": cell_xib("", content='                <accessibility key="accessibilityConfiguration" identifier="content"/>\n'),
+    "cell-both-a11y": cell_xib("", content='                <accessibility key="accessibilityConfiguration" identifier="content"/>\n',
+                               cell_extra=indented(A11Y_CELL, "            ")),
+}
+EXPERIMENTS.update(CELL_A11Y)
+STORYBOARDS["sb-cell-a11y"] = storyboard(tvc_scene(prototypes(tvc_cell(1).replace("                            </tableViewCell>",
+    indented(A11Y_CELL, "                                ") + "                            </tableViewCell>"))), initial="tvc-aa-aaa")
+STORYBOARDS["sb-cell-content-a11y"] = storyboard(tvc_scene(prototypes(tvc_cell(1).replace("                                </tableViewCellContentView>",
+    indented(A11Y_CELL, "                                    ") + "                                </tableViewCellContentView>"))), initial="tvc-aa-aaa")
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

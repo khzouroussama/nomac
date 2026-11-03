@@ -689,7 +689,9 @@ A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClas
 `clearsContextBeforeDrawing="NO"`: `cell-clears-*`, `cell-content-clears-no`;
 `UIViewLayoutMarginsFollowReadableWidth` true for the cell's or its content view's
 `layoutMarginsFollowReadableWidth="YES"`, before the preserved margins: `cell-readable*`,
-`cell-content-readable`; an accessibility configuration as a view's: `cell-a11y*`;
+`cell-content-readable`; an accessibility configuration as a view's, the content view's too, and
+in a storyboard's prototype cell, whose nested nib keeps it: `cell-a11y*`, round 113
+`cell-content-a11y*`, `cell-both-a11y`, `sb-cell-a11y`, `sb-cell-content-a11y`;
 `UIViewLayoutMarginsFollowReadableWidth` true for the cell's or its content view's
 `layoutMarginsFollowReadableWidth="YES"`, before the preserved margins: `cell-readable*`,
 `cell-content-readable`; `UIViewPreservesSuperviewMargins` true and

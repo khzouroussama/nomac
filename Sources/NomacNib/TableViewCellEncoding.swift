@@ -130,7 +130,7 @@ extension DocumentCompiler {
                                         "layoutMarginsFollowReadableWidth",
                                         "preservesSuperviewLayoutMargins", "insetsLayoutMarginsFromSafeArea", "ambiguous"],
                   children: ["rect", "frame", "autoresizingMask", "subviews", "constraints", "color", "variation", "edgeInsets", "directionalEdgeInsets",
-                             "userDefinedRuntimeAttributes"])
+                             "userDefinedRuntimeAttributes", "accessibility"])
         let contentElement = XIBElement(name: "view", attributes: content.attributes.filter { !["key", "tableViewCell"].contains($0.key) })
         contentElement.children = try content.children.map { child in
             // Xcode 8's `<frame key="frameInset">` of a width and height is the frame at 0, 0 of that

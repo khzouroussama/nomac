@@ -268,6 +268,7 @@ extension DocumentCompiler {
         nested.relationshipStorages = []
         nested.keyValuePairs = []
         nested.settledTies = false
+        nested.accessibilityConfigurations = []
         nested.cellSegueOutlets = []
         nested.emptyArray = NibArray([])
         let owner = NibProxy(identifier: "IBFilesOwner"), responder = NibProxy(identifier: "IBFirstResponder")
@@ -281,6 +282,7 @@ extension DocumentCompiler {
         let all = Self.allObjects(topLevel)
         let nib = try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: all,
                                                  connections: try nested.outletConnections(allObjects: all, extra: nested.cellSegueOutlets),
+                                                 accessibilityConfigurations: nested.takeAccessibilityConfigurations(),
                                                  traitStorageLists: try nested.traitStorageLists(topLevel), keyValuePairs: nested.takeKeyValuePairs(allObjects: all),
                                                  empty: nested.emptyArray))
         strings = nested.strings
