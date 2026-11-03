@@ -324,14 +324,14 @@ extension DocumentCompiler {
     }
 
     /// Marks a view that takes part in a constraint: one that does not translate its mask writes so
-    /// (`order-sibling`, `constraint-root-height`).
+    /// (`order-sibling`, `constraint-root-height`), with the mask its document gives, or the
+    /// default one (`no-translate-mask-*`, round 64).
     mutating func constrained(_ id: String) throws {
         guard let entry = documentViews[id], !entry.translates else { return }
-        guard !entry.hasMask || entry.parent == nil else {
-            throw unsupportedConstraints("a constrained subview with an autoresizing mask that does not translate it")
-        }
         entry.view.flags.doesNotTranslateAutoresizingMask = true
-        entry.view.autoresizingMask = NibView.defaultAutoresizingMask
+        if !entry.hasMask {
+            entry.view.autoresizingMask = NibView.defaultAutoresizingMask
+        }
     }
 
     /// The groups in order: the view's own constraints, then the others by how far their frames'

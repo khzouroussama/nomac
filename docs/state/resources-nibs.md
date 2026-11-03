@@ -23,6 +23,9 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- Round 64 (`no-translate-mask-*`): a constrained subview that does not translate its mask keeps
+  the mask its document gives; the refusal is lifted. Paused again after it.
+
 - Rounds 61 to 63: colors' ColorSync pipeline not reproduced yet (B-281, the grids recorded);
   Xcode 8's `<simulatedMetricsContainer>`, Xcode 5's `<development>`, the multipliers capability
   change nothing; a scene's view keeps its origin (below an opaque bar at 64), a device resizing it.
