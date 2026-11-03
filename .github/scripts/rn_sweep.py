@@ -606,9 +606,10 @@ def reclassify(root, names):
             if not s or not (log_path.exists() or Path(f"{log_path}.gz").exists()):
                 continue
             s["missingCommands"] = missing_commands(log_path)
-            failures = [] if s["ok"] else classify(log_path)
+            failures = [] if s["ok"] else ([{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
+                                           if s.get("exit") == -9 else classify(log_path))
             if failures:
-                s.update(failures[0], failures=failures[:30])
+                s.update(failures[0], failures=failures[:30], resource=any(f["class"] == KILLED for f in failures))
         if result["steps"]:
             save_result(root, result)
 
@@ -624,9 +625,10 @@ def guarded_step(result, name, argv, cwd, env, log_path, produced=None):
     if outputs:
         details["ipaBytes"] = outputs[0].stat().st_size
     if not ok:
-        failures = classify(log_path)
+        failures = classify(log_path) if status != -9 else [{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
         details.update(failures[0] if failures else {"class": f"exit {status}", "error": tail_error(log_path)})
         details["failures"] = failures[:30]
+        details["resource"] = any(f["class"] == KILLED for f in failures)
     return step(result, name, ok, started, **details)
 
 
@@ -715,6 +717,7 @@ def elf_machine(path):
 # Classification of a failed step's log.
 
 DIAGNOSTIC = re.compile(r"(^|: )(fatal )?error: ")
+KILLED = "killed: the build machine ran out of memory (a process ended on SIGKILL without its diagnostics)"
 GENERIC = re.compile(r"(?i)linker command failed with exit code|failed with a nonzero exit code")
 
 
@@ -775,6 +778,8 @@ def classify(log_path):
     diagnostics = [index for index, line in enumerate(lines) if DIAGNOSTIC.search(line)]
     headers = {line.strip(): index for index, line in enumerate(lines) if line and not line[0].isspace()}
     used, failures = set(), []
+    killed = {m.group(1) for line in lines
+              if (m := re.search(r"/([^/]+)\.build/Objects-normal/[^/]+/[^/]+\.dia: warning: Could not read serialized diagnostics", line))}
     for task in failed:
         if re.fullmatch(r"[A-Za-z0-9+/=]{40,}", task):
             continue
@@ -800,6 +805,10 @@ def classify(log_path):
                 chosen = [i for i in diagnostics if header - 3000 < i < header and i not in used][-5:][::-1]
             used.update(chosen)
             evidence = [[lines[i] for i in chosen], above]
+        target = re.search(r"\(in target '([^']+)'", task)
+        if target and target.group(1) in killed and not any(evidence):
+            failures.append({"class": KILLED, "detail": f"{target.group(1)}'s compiler wrote no diagnostics", "task": task.split(" ", 1)[0]})
+            continue
         failures.append(classify_task(task, output, evidence))
     if not failures:
         if diagnostics:
@@ -838,6 +847,8 @@ def known_class(text):
     error lines are tried before the task's whole output, which holds other tasks' lines too."""
     if m := re.search(r"(\S+): cannot execute binary file|exec format error|Exec format error", text):
         return "prebuilt Mach-O tool" + (f" ({Path(m.group(1)).name})" if m.group(1) else "")
+    if re.search(r"Could not read serialized diagnostics file", text) and not re.search(r"(^|: )error: ", text, re.M):
+        return KILLED
     if m := re.search(r"unable to spawn process '([^']+)'", text):
         return f"nomac's developer directory lacks a tool ({m.group(1)})"
     if m := re.search(r"env: [‘'`]?([\w.+-]+)[’'`]?: No such file or directory", text):
@@ -963,8 +974,9 @@ def run_all(root, apps, args, env):
     up to `--builders` build on Linux, each in a slot of its own. At most installers + builders
     apps are installed and not yet built, which bounds the Mac's disk."""
     if args.resume:
-        apps = [entry for entry in apps if not load_result(root, entry["id"]).get("finished")
-                or load_result(root, entry["id"])["steps"].get("install", {}).get("network")]
+        apps = [entry for entry in apps if not (result := load_result(root, entry["id"])).get("finished")
+                or result["steps"].get("install", {}).get("network")
+                or any(s.get("resource") for s in result["steps"].values())]
     slots = queue.Queue()
     for slot in range(args.builders):
         slots.put(slot)
