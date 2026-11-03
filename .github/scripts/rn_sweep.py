@@ -200,7 +200,8 @@ def mac_environment(root):
     env = {"PATH": f"{root}/node/bin:{shims}:{Path.home()}/.rbenv/shims:/usr/bin:/bin:/usr/sbin:/sbin",
            "HOME": str(Path.home()), "LANG": "en_US.UTF-8", "TMPDIR": os.environ.get("TMPDIR", "/tmp/"),
            "RBENV_VERSION": expo.PINS["ruby"], "CI": "1", "EXPO_NO_TELEMETRY": "1",
-           "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.version",
+           "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0", "npm_config_prefer_offline": "true",
+           "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.version",
            "GIT_CONFIG_VALUE_0": "HTTP/1.1"}
     if not (shims / "yarn").exists():
         shims.mkdir(exist_ok=True)
@@ -349,6 +350,10 @@ def install(root, entry, env):
         if status != 0 and stage == "packages" and argv[0] == "npm" and "ERESOLVE" in log_path.read_text(errors="replace")[-20000:]:
             notes.append("npm --legacy-peer-deps (the packages' peer dependencies conflict: ERESOLVE)")
             status = run_online(argv + ["--legacy-peer-deps"], cwd, stage_env, log_path)
+        elif status != 0 and cwd.is_dir():
+            notes.append(f"{stage} again after a failure")
+            with POD_LOCK if stage == "pods" else contextlib.nullcontext():
+                status = run_online(argv, cwd, stage_env, log_path)
         timings[stage] = round(time.time() - stage_started)
         if status != 0:
             save_versions(result, app, top, manager, declared, lockfile)
