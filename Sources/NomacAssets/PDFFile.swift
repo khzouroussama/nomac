@@ -159,7 +159,7 @@ struct PDFFile {
         throw NomacError("the PDF's page tree is too deep", path: path)
     }
 
-    /// A stream's data, decoded by its filters (FlateDecode with PNG or TIFF predictors).
+    /// A stream's data, decoded by its filters (FlateDecode with PNG predictors or TIFF predictor 2).
     func decodedStream(_ value: PDFValue) throws -> [UInt8] {
         guard case .stream(let dictionary, let raw) = value else { throw NomacError("expected a PDF stream", path: path) }
         var data = raw
@@ -208,13 +208,34 @@ struct PDFFile {
 
     private static func unpredict(_ data: [UInt8], parameters: [String: PDFValue], path: String) throws -> [UInt8] {
         let predictor = parameters["Predictor"]?.number.map(Int.init) ?? 1
-        guard predictor >= 10 else {
-            guard predictor == 1 else { throw NomacError("PDF TIFF predictors are not supported yet (BACKLOG B-215)", path: path) }
-            return data
-        }
         let colors = parameters["Colors"]?.number.map(Int.init) ?? 1
         let bits = parameters["BitsPerComponent"]?.number.map(Int.init) ?? 8
         let columns = parameters["Columns"]?.number.map(Int.init) ?? 1
+        if predictor == 2 {
+            // TIFF predictor 2: each sample the one a pixel to its left plus the difference stored
+            // (`images-3`: Quartz writes the samples decoded).
+            guard bits == 8 || bits == 16 else { throw NomacError("PDF TIFF predictors of \(bits)-bit samples are not supported yet (BACKLOG B-215)", path: path) }
+            let size = bits / 8, row = colors * columns * size
+            guard row > 0 else { return data }
+            var output = data
+            for start in stride(from: 0, to: output.count - row + 1, by: row) {
+                for sample in stride(from: colors * size, to: row, by: size) {
+                    let at = start + sample, left = at - colors * size
+                    if size == 1 {
+                        output[at] = output[at] &+ output[left]
+                    } else {
+                        let value = (Int(output[at]) << 8 | Int(output[at + 1])) + (Int(output[left]) << 8 | Int(output[left + 1]))
+                        output[at] = UInt8((value >> 8) & 0xFF)
+                        output[at + 1] = UInt8(value & 0xFF)
+                    }
+                }
+            }
+            return output
+        }
+        guard predictor >= 10 else {
+            guard predictor == 1 else { throw NomacError("PDF images with predictor \(predictor) are not supported yet (BACKLOG B-215)", path: path) }
+            return data
+        }
         let bytesPerPixel = max(1, colors * bits / 8)
         let rowLength = (colors * bits * columns + 7) / 8
         var output: [UInt8] = []

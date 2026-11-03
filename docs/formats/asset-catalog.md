@@ -828,7 +828,8 @@ The content (`paths`, `colors`, `clips`, `details`, `extgstate`, `state-changes`
   `/ImageMask true` or `/ColorSpace n 0 R` (DeviceRGB's sRGB, DeviceGray's gray, an ICC
   profile byte for byte, as for colors) and the image's own `/Intent`, `/SMask n 0 R`, `/Decode [ … ]`, `/BitsPerComponent`
   `>>`, the samples compressed again (only the rows the size holds), a JPEG's bytes kept as
-  they are with `/DCTDecode`. A soft mask follows its image, `/ColorSpace /DeviceGray
+  they are with `/DCTDecode`; TIFF predictor 2 samples decoded (`images-3`). A soft mask follows its image (its `/Matte` dropped,
+  its samples as they are), `/ColorSpace /DeviceGray
   /BitsPerComponent 8`, and makes the catalog `/Version /1.4`. Numbered when first drawn,
   before a stencil's color space; written after the stream that draws it, as forms are, its
   color space numbered then and its soft mask after it. nomac draws each pixel with the sample

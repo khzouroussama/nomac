@@ -1244,7 +1244,8 @@ struct PDFPage {
     /// An image's `/SMask`: an 8-bit DeviceGray image Quartz keeps as it is (`images` rgb-smask).
     private static func softMask(_ value: PDFValue, file: PDFFile) throws -> Samples {
         let mask = try samples(value, file: file, resources: [:])
-        guard mask.space == .gray, mask.bitsPerComponent == 8, mask.decode == nil, value.dictionary?["Matte"] == nil else {
+        // A `/Matte` is dropped, the samples kept as they are (`images-3` smask-matte).
+        guard mask.space == .gray, mask.bitsPerComponent == 8, mask.decode == nil else {
             throw NomacError("PDF images with soft masks other than 8-bit gray ones are not supported yet (BACKLOG B-215)", path: file.path)
         }
         return mask

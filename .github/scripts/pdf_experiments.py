@@ -259,6 +259,12 @@ def image(data, width, height, space=b"/DeviceRGB", bits=8, extra=b"", compress=
 
 
 RGB4 = bytes([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0])
+
+
+def tiff_predicted(samples, width, colors):
+    """8-bit samples as TIFF predictor 2 writes them: each sample less the one a pixel to its left."""
+    row = width * colors
+    return bytes((samples[i] - (samples[i - colors] if i % row >= colors else 0)) & 0xFF for i in range(len(samples)))
 GRAY4 = bytes([0, 85, 170, 255])
 
 
@@ -1168,6 +1174,23 @@ EXPERIMENT_CASES = {
         "exponents": objects_pdf(b"/Sh1 sh", [b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [2 0 18 0] /Function 6 0 R /Extend [true true] >>",
                                     b"<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length %d >>\nstream\n" % len(b'{ pop 1000000.25 0.000000 99.9999996 }') + b'{ pop 1000000.25 0.000000 99.9999996 }' + b"\nendstream"],
                           b"/Shading << /Sh1 5 0 R >>"),
+    },
+    "images-3": {
+        # TIFF predictor 2 (horizontal differences) and soft masks with a /Matte.
+        "tiff-gray": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(tiff_predicted(GRAY4, 2, 1), 2, 2, b"/DeviceGray",
+                                                                        extra=b" /DecodeParms << /Predictor 2 /Colors 1 /Columns 2 >>")],
+                                 b"/XObject << /Im1 5 0 R >>"),
+        "tiff-rgb": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(tiff_predicted(RGB4, 2, 3), 2, 2,
+                                                                       extra=b" /DecodeParms << /Predictor 2 /Colors 3 /Columns 2 >>")],
+                                b"/XObject << /Im1 5 0 R >>"),
+        "smask-matte": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(RGB4, 2, 2, extra=b" /SMask 6 0 R"),
+                                                                    image(GRAY4, 2, 2, b"/DeviceGray", extra=b" /Matte [1 1 1]")], b"/XObject << /Im1 5 0 R >>"),
+        "smask-matte-black": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(RGB4, 2, 2, extra=b" /SMask 6 0 R"),
+                                                                          image(GRAY4, 2, 2, b"/DeviceGray", extra=b" /Matte [0 0 0]")], b"/XObject << /Im1 5 0 R >>"),
+        "smask-matte-tiff": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(RGB4, 2, 2, extra=b" /SMask 6 0 R"),
+                                                                         image(tiff_predicted(GRAY4, 2, 1), 2, 2, b"/DeviceGray",
+                                                                               extra=b" /Matte [1 1 1] /DecodeParms << /Predictor 2 /Colors 1 /Columns 2 >>")],
+                                        b"/XObject << /Im1 5 0 R >>"),
     },
     "images-2": {
         # What an image is drawn with besides its matrix: the rendering intent, overprinting.

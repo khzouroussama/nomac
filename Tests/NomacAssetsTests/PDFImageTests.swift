@@ -505,6 +505,13 @@ import Testing
         #expect(masked.text.contains("/Width 2 /Height 2 /ColorSpace 6 0 R /SMask\n7 0 R /BitsPerComponent 8"))
         #expect(masked.text.contains("/ColorSpace /DeviceGray\n/BitsPerComponent 8"))
         #expect(masked.text.contains("/Version /1.4"))
+        // TIFF predictor 2: the samples decoded; a soft mask's `/Matte` dropped (`images-3`).
+        let predicted = QuartzPDF.deflate([0, 85, 120, 7])
+        let tiff = try file(draw, resources: xobject, objects: [Self.image(rgb, width: 2, height: 2, entries: " /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 6 0 R"),
+                                                               Self.image(predicted, width: 2, height: 2, entries: " /ColorSpace /DeviceGray /BitsPerComponent 8 /Matte [1 1 1] "
+                                                                          + "/Filter /FlateDecode /DecodeParms << /Predictor 2 /Colors 1 /Columns 2 >>")])
+        #expect(PDFPage.images(tiff.page.items).first?.mask?.data == [0, 85, 120, 127])
+        #expect(!tiff.text.contains("/Matte") && !tiff.text.contains("/Predictor"))
         let stencil = try file("0 0 1 rg " + draw, resources: xobject, objects: [Self.image([0x40, 0x80], width: 2, height: 2, entries: " /ImageMask true")])
         #expect(try Self.content(stencil.page) == "q Q q /Cs1 cs 0 0 1 sc q 16 0 0 8 2 1 cm /Im1 Do Q Q")
         #expect(stencil.order == ["4", "1", "3", "5", "7", "6", "2", "8", "9"])
