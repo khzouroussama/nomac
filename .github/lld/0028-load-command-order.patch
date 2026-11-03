@@ -1,0 +1,116 @@
+Load commands in Xcode 27.0's ld order and LC_SOURCE_VERSION (docs/formats/build.md "Load commands and dylibs"):
+LC_ID_DYLIB right after the segments, then the linkedit commands, the dylinker, LC_UUID, the build version,
+LC_SOURCE_VERSION (0, for executables, dylibs and bundles), LC_MAIN, the encryption info, the dylibs and the runtime
+paths after them; the dylibs of the command line in its order, then the others, those of the objects' linker
+options, by install name (ld_layout_experiments.py). lld wrote the encryption info and the runtime paths before the
+dylinker, LC_ID_DYLIB after them, no LC_SOURCE_VERSION, and the linker options' dylibs as it loaded them
+(mastodon's load commands and library order).
+--- a/lld/MachO/Writer.cpp
++++ b/lld/MachO/Writer.cpp
+@@ -532,6 +532,20 @@
+ // contents. In order to hash the contents, we must first write them, but
+ // LC_UUID itself must be part of the written contents in order for all the
+ // offsets to be calculated correctly. We resolve this circular paradox by
++// Xcode 27.0's ld writes LC_SOURCE_VERSION, version 0, into every executable,
++// dylib and bundle.
++class LCSourceVersion final : public LoadCommand {
++public:
++  uint32_t getSize() const override { return sizeof(source_version_command); }
++
++  void writeTo(uint8_t *buf) const override {
++    auto *c = reinterpret_cast<source_version_command *>(buf);
++    c->cmd = LC_SOURCE_VERSION;
++    c->cmdsize = getSize();
++    c->version = 0;
++  }
++};
++
+ // first writing an LC_UUID with an all-zero UUID, then updating the UUID with
+ // its real value later.
+ class LCUuid final : public LoadCommand {
+@@ -838,6 +852,17 @@
+     seg->index = segIndex++;
+   }
+ 
++  // In Xcode 27.0's ld order: an LC_ID_DYLIB right after the segments, the
++  // linkedit commands, then the dylinker, the UUID, the build and source
++  // versions, the entry point and the encryption info, the dylibs, and the
++  // runtime paths after them.
++  if (config->outputType == MH_DYLIB) {
++    in.header->addLoadCommand(make<LCDylib>(LC_ID_DYLIB, config->installName,
++                                            config->dylibCompatibilityVersion,
++                                            config->dylibCurrentVersion));
++    for (StringRef client : config->allowableClients)
++      in.header->addLoadCommand(make<LCSubClient>(client));
++  }
+   if (config->emitChainedFixups) {
+     in.header->addLoadCommand(make<LCChainedFixups>(in.chainedFixups));
+     in.header->addLoadCommand(make<LCExportsTrie>(in.exports));
+@@ -850,27 +875,9 @@
+       make<LCDysymtab>(symtabSection, indirectSymtabSection));
+   if (!config->umbrella.empty())
+     in.header->addLoadCommand(make<LCSubFramework>(config->umbrella));
+-  if (config->emitEncryptionInfo)
+-    in.header->addLoadCommand(make<LCEncryptionInfo<LP>>());
+-  for (StringRef path : config->runtimePaths)
+-    in.header->addLoadCommand(make<LCRPath>(path));
+ 
+-  switch (config->outputType) {
+-  case MH_EXECUTE:
++  if (config->outputType == MH_EXECUTE)
+     in.header->addLoadCommand(make<LCLoadDylinker>());
+-    break;
+-  case MH_DYLIB:
+-    in.header->addLoadCommand(make<LCDylib>(LC_ID_DYLIB, config->installName,
+-                                            config->dylibCompatibilityVersion,
+-                                            config->dylibCurrentVersion));
+-    for (StringRef client : config->allowableClients)
+-      in.header->addLoadCommand(make<LCSubClient>(client));
+-    break;
+-  case MH_BUNDLE:
+-    break;
+-  default:
+-    llvm_unreachable("unhandled output file type");
+-  }
+ 
+   if (config->generateUuid) {
+     uuidCommand = make<LCUuid>();
+@@ -886,10 +893,12 @@
+     in.header->addLoadCommand(
+         make<LCBuildVersion>(*config->secondaryPlatformInfo));
+   }
++  in.header->addLoadCommand(make<LCSourceVersion>());
+ 
+-  // This is down here to match ld64's load command order.
+   if (config->outputType == MH_EXECUTE)
+     in.header->addLoadCommand(make<LCMain>());
++  if (config->emitEncryptionInfo)
++    in.header->addLoadCommand(make<LCEncryptionInfo<LP>>());
+ 
+   // See ld64's OutputFile::buildDylibOrdinalMapping for the corresponding
+   // library ordinal computation code in ld64.
+@@ -904,6 +913,15 @@
+   for (size_t i = 0; i < dylibFiles.size(); ++i)
+     dylibFiles.insert(dylibFiles.end(), dylibFiles[i]->extraDylibs.begin(),
+                       dylibFiles[i]->extraDylibs.end());
++  // Xcode's ld lists the dylibs of the command line in its order, then the
++  // others, such as those of the objects' linker options, by install name.
++  auto others = std::stable_partition(
++      dylibFiles.begin(), dylibFiles.end(),
++      [](const DylibFile *file) { return file->isExplicitlyLinked(); });
++  std::stable_sort(others, dylibFiles.end(),
++                    [](const DylibFile *a, const DylibFile *b) {
++                      return a->installName < b->installName;
++                    });
+ 
+   // Don't emit load commands for a dylib that is not referenced if:
+   // - it was added implicitly (via a reexport, an LC_LOAD_DYLINKER --
+@@ -1013,6 +1031,8 @@
+                                             versions->currentVersion));
+   }
+ 
++  for (StringRef path : config->runtimePaths)
++    in.header->addLoadCommand(make<LCRPath>(path));
+   for (const auto &dyldEnv : config->dyldEnvs)
+     in.header->addLoadCommand(make<LCDyldEnv>(dyldEnv));
+ 

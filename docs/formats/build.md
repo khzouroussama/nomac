@@ -606,6 +606,22 @@ What Xcode 27.0's `ld` links otherwise than lld, on the same objects
   up, a function more than 16 MiB on). lld made every encoding common, ordered ties descending,
   gave each page 4096 bytes and put the sentinel at the end (0021).
 
+## Load commands and dylibs
+
+Xcode 27.0's `ld` writes the load commands in one order (`ld_layout_experiments.py`'s `load
+commands` cases: executables, a dylib, a bundle, iOS 18 and iOS 12): the segments; `LC_ID_DYLIB`
+for a dylib; `LC_DYLD_CHAINED_FIXUPS` and `LC_DYLD_EXPORTS_TRIE` (`LC_DYLD_INFO_ONLY` before iOS
+15); `LC_SYMTAB`, `LC_DYSYMTAB`; `LC_LOAD_DYLINKER` for an executable; `LC_UUID`,
+`LC_BUILD_VERSION`, `LC_SOURCE_VERSION`; `LC_MAIN` for an executable; `LC_ENCRYPTION_INFO_64`; the
+dylibs; `LC_RPATH`; `LC_FUNCTION_STARTS`, `LC_DATA_IN_CODE`. `LC_SOURCE_VERSION` is there in every
+image with version 0.0 (netnewswire's too). The dylibs named on the command line come in its order,
+`libSystem` among them where the driver puts it, then those of the objects' linker options (the
+`-framework` and `-l` a Swift or Objective-C module autolinks) sorted by install name:
+`/System/Library/Frameworks/...`, then `/usr/lib/...`, then `@rpath/...`, weak ones among them (a
+Swift app's `libSystem`, AVFoundation, CoreData, Foundation, UIKit, `libobjc`, the Swift overlays).
+lld wrote `LC_ENCRYPTION_INFO_64` and `LC_RPATH` after `LC_DYSYMTAB` and `LC_ID_DYLIB` after them, no
+`LC_SOURCE_VERSION`, and the linker options' dylibs in its own order (`.github/lld` 0028).
+
 ## Stripping
 
 Swift Build's Strip task runs `strip -D` (`STRIP_DETERMINISTIC_MODE`), then `-S` (`STRIP_STYLE =
@@ -765,12 +781,28 @@ take the object in x<N>, `objc_retain_x<N>` returning it in x0. Its MIR after in
 (`-stop-after=finalize-isel`) shows how: the object is copied into a new register, of class
 `gpr64noip` for a call (`BL_DIRECTREG`, allocation order from x8) and `tcgpr64` for a tail call
 (`TCRETURN_DIRECTREG`, from x0), and the register allocator picks it; a call to `objc_retain` keeps
-the ordinary register mask, not upstream's this-return one, and later code takes the result from x0.
+the ordinary register mask, not upstream's this-return one (below).
 `.github/clang` 0015 does the same in swiftlang's AArch64 backend (with x16 and x17, which have no
 entry point, left out). netnewswire's RSDatabaseObjC (Xcode's flags, iOS 17.0): the seven objects call
 the same ARC entry points as Xcode's (0 of 7 without the patch, every Xcode object calling some
 `_x<N>`), five have Xcode's code and data byte for byte, and one differs by a jump table;
 `clang_objc_experiments.py`'s iOS 17.0 cases have Xcode's code in 11 of 12 (blocks at -O0 aside).
+
+The same happens to `swift_retain` and `swift_release` (`swift_retain_x<N>` and
+`swift_release_x<N>`, libswiftCore's N 1 to 15 and 19 to 28) when the module has the flag `"Swift
+DirectReg Version"` with a value other than 0, for every arm64 target, macOS and iOS 16 included:
+the frontend decides where the flag goes ("Swift runtime entry points by register"), the backend
+only reads it; never without the flag or with 0, nor for x86_64 (`clang_arc_register_experiments.py`,
+self-written IR and Swift's own). Both kinds follow SelectionDAG: they are called above -O0 and for
+arm64_32 at -O0 too, the releases only (neither GlobalISel nor FastISel selects it there), and not
+in a function GlobalISel selected (`-global-isel`); the allocated register stays, no copy
+propagation moves the object back to x0. The code after the call uses what the IR uses: Xcode's
+`PreISelIntrinsicLowering` does not mark the object of an `objc_retain` lowered from
+`llvm.objc.retain` `returned` (upstream's does), so it is no this-return call and the uses that
+`objc-arc-contract` moved to its result take x0, on every target (macOS too); after `swift_retain`,
+whose uses are its object's, the object stays in its register (`swift_retain_x19`, then `mov x1,
+x19`). `.github/clang` 0030 adds the Swift entry points to 0015's and these conditions, and drops
+0015's rewriting of the later uses, which stood in for the missing attribute.
 
 **Non-escaping blocks.** A block passed to a non-escaping parameter (`NS_NOESCAPE`,
 `__attribute__((noescape))`; `enumerateKeysAndObjectsUsingBlock:` among Foundation's) is, for

@@ -358,6 +358,49 @@ MEMBER_ORDER = {f"member-{name}.c": text for name, text in {
 }.items()}
 MEMBER_LINKS = {"members": ["main", "lib", "other", "lib2"],
                 "members second archive first": ["main", "lib2", "lib", "other"]}
+LOAD_COMMANDS = {
+    "lc-main.c": """void *z(void); int main(void) { return z() != 0; }
+""",
+    "lc-use.m": """#include <zlib.h>
+#include <sqlite3.h>
+#import <UIKit/UIKit.h>
+#import <AVFoundation/AVFoundation.h>
+void *z(void) { (void)zlibVersion(); (void)sqlite3_libversion(); [UIView new]; return (__bridge void *)[AVPlayer new]; }
+""",
+    "lc-autolink.s": """	.linker_option "-framework", "Zzz"
+	.linker_option "-lz"
+	.linker_option "-framework", "UIKit"
+	.linker_option "-framework", "AAA"
+	.linker_option "-lsqlite3"
+	.linker_option "-framework", "AVFoundation"
+	.globl _main
+	.p2align 2
+_main:
+	bl _AAA
+	bl _Zzz
+	bl _zlibVersion
+	bl _sqlite3_libversion
+	mov w0, #0
+	ret
+	.section __DATA,__data
+	.p2align 3
+	.quad _OBJC_CLASS_$_UIView
+	.quad _OBJC_CLASS_$_AVPlayer
+	.subsections_via_symbols
+""",
+    "lc-lib.m": "#import <Foundation/Foundation.h>\nint lib(void) { return (int)[NSObject new].hash; }\n",
+}
+LOAD_COMMAND_LINKS = {
+    "load commands explicit": ["lc-main", "lc-use", "-lz", "-lsqlite3", "-framework", "UIKit", "-framework",
+                               "AVFoundation", "-framework", "Foundation"],
+    "load commands explicit reordered": ["lc-use", "lc-main", "-framework", "Foundation", "-framework", "AVFoundation",
+                                         "-lsqlite3", "-framework", "UIKit", "-lz"],
+    "load commands autolinked": ["lc-autolink", "-Wl,-rpath,@executable_path/Frameworks"],
+    "load commands dylib": ["lc-lib", "-dynamiclib", "-install_name", "@rpath/L.framework/L",
+                            "-Wl,-rpath,@executable_path/Frameworks", "-framework", "Foundation", "-lobjc"],
+    "load commands bundle": ["lc-main", "lc-use", "-bundle", "-framework", "UIKit", "-framework", "AVFoundation",
+                             "-framework", "Foundation", "-lz", "-lsqlite3"],
+}
 LITERALS = {"literals-1.c": """double f1(double x) { return x * 3.14159; }
 float g1(float x) { return x * 1.1f; }
 extern const int c1[3]; const int c1[3] = {1, 2, 3};
@@ -403,11 +446,15 @@ def compile_objects(developer, out):
         run([tool(developer, "clang"), "-target", target, "-isysroot", sdk_for(developer, target), "-fobjc-arc", "-Os",
              "-c", str(objects / "objc.m"), "-o", str(objects / f"objc.{target}.o")])
     for name, text in {**ARCHIVE, **HINTS, **CATEGORIES, **LOAD_CATEGORIES, **METADATA, **GOT,
-                       **CLASS_REFERENCES}.items():
+                       **CLASS_REFERENCES, **LOAD_COMMANDS}.items():
         (objects / name).write_text(text)
         run([tool(developer, "clang"), "-target", ARCHIVE_TARGET, "-isysroot", sdk_for(developer, ARCHIVE_TARGET), "-Os",
              "-fobjc-arc", "-c", str(objects / name), "-o", str(objects / (Path(name).stem + ".o"))])
     entry = "int main(void) { return 0; }\n"
+    for name in ("lc-main.c", "lc-use.m"):
+        run([tool(developer, "clang"), "-target", "arm64-apple-ios12.0", "-isysroot",
+             sdk_for(developer, ARCHIVE_TARGET), "-Os", "-fobjc-arc", "-c", str(objects / name),
+             "-o", str(objects / (Path(name).stem + "-ios12.o"))])
     sources = {f"unwind-{name.replace(' ', '-')}.c": "\n".join(["void g(int);", *lines, entry])
                for name, lines in UNWIND.items()}
     sources.update({"unwind-callee.c": UNWIND_CALLEE, "unwind-cxx.cpp": UNWIND_CXX, **LITERALS, **MEMBER_ORDER})
@@ -486,6 +533,20 @@ def link_all(developer, out, products):
     for name, (stems, flags) in GOT_LINKS.items():
         run([clang, "-target", ARCHIVE_TARGET, "-isysroot", sdk] + [str(objects / f"{stem}.o") for stem in stems] +
             flags + ["-o", str(products / name.replace(" ", "-"))])
+    for framework in ("AAA", "Zzz"):
+        (products / f"F/{framework}.framework").mkdir(parents=True, exist_ok=True)
+        (products / f"{framework}.c").write_text(f"int {framework}(void) {{ return 1; }}\n")
+        run([clang, "-target", ARCHIVE_TARGET, "-isysroot", sdk, "-dynamiclib", str(products / f"{framework}.c"),
+             "-install_name", f"@rpath/{framework}.framework/{framework}",
+             "-o", str(products / f"F/{framework}.framework/{framework}")])
+    for name, inputs in LOAD_COMMAND_LINKS.items():
+        paths = [str(objects / f"{i}.o") if i.startswith("lc-") else i for i in inputs]
+        run([clang, "-target", ARCHIVE_TARGET, "-isysroot", sdk, *paths, "-F", str(products / "F"),
+             "-o", str(products / name.replace(" ", "-"))])
+    run([clang, "-target", "arm64-apple-ios12.0", "-isysroot", sdk, str(objects / "lc-main-ios12.o"),
+         str(objects / "lc-use-ios12.o"), "-framework", "UIKit", "-framework", "AVFoundation", "-framework",
+         "Foundation", "-lz", "-lsqlite3",
+         "-Wl,-rpath,@executable_path/Frameworks", "-o", str(products / "load-commands-ios12")])
     run([clang, "-target", ARCHIVE_TARGET, "-isysroot", sdk, str(objects / "class-references.o"),
          str(objects / "class-references-own.o"), "-framework", "Foundation", "-o", str(products / "class-references")])
     for name, members in {"lib": ["a", "b", "c"], "lib2": ["d"]}.items():
@@ -645,6 +706,19 @@ def describe(objdump, products):
     for name in MEMBER_LINKS:
         symbols = run([str(Path(objdump).with_name("llvm-nm")), "-n", str(products / name.replace(" ", "-"))])
         report[name] = [line.split()[-1] for line in symbols.splitlines() if " T " in line]
+    for name in list(LOAD_COMMAND_LINKS) + ["load commands ios12"]:
+        headers = run([objdump, "--macho", "--private-headers", str(products / name.replace(" ", "-"))])
+        commands, command = [], None
+        for line in headers.splitlines():
+            fields = line.split()
+            if fields[:1] == ["cmd"]:
+                command = fields[1]
+                commands.append(command)
+            elif fields[:1] == ["name"] and command and "DYLIB" in command or fields[:1] == ["path"]:
+                commands[-1] += " " + fields[1].rsplit("/", 1)[-1]
+            elif fields[:1] == ["version"] and command == "LC_SOURCE_VERSION":
+                commands[-1] += " " + fields[1]
+        report[name] = commands
     references = str(products / "class-references")
     disassembly = run([objdump, "--macho", "--disassemble-symbols=_main", "--no-show-raw-insn", references])
     report["class references"] = {

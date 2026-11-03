@@ -84,13 +84,13 @@ public enum LinuxToolchain {
     /// `build-llvm-tools.sh` and `build-cctools.sh` write them next to the tools they build: tools
     /// built with other patches link and strip otherwise than this nomac's rules (an lld from before
     /// the seventh patch left package frameworks' dSYMs empty), so the installation refuses them.
-    static let builtPatches = ["lld.patches.sha256": "dc16e9d19265906eecd0034d190206d829af4369c4cef97069fe036c6f32913b",
+    static let builtPatches = ["lld.patches.sha256": "3f6ced3d46f2181746af2d6b98561b7de733df36e529ce75d4086bf7b8ded314",
                                "cctools.patches.sha256": "538cc1d8ed37a00d764e61640b24ee6fb468c7914cd29b75bb937b081de5f177"]
 
     /// The SHA-256 of `.github/clang`'s patches, which `build-llvm-tools.sh` with `CLANG=1` writes
     /// next to the patched clang: one built with other patches compiles otherwise than this
     /// nomac's rules, so the installation refuses it.
-    static let builtClangPatches = ("clang.patches.sha256", "2b69bc70347139078ea2587e3574e7f645727551392564e329fcc95a3f48eabd")
+    static let builtClangPatches = ("clang.patches.sha256", "158b56e9e3f7a7579f4ecd41a6bd07cf49329380a385208d6675fb63214ef875")
 
     /// Apple's license and cctools-port's notices for `ld64`, which `build-cctools.sh` writes next
     /// to it and the toolchain keeps in `share/ld64` (docs/adr/0104-relocatable-links.md).

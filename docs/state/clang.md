@@ -9,7 +9,7 @@ C++ ABI" and "Objective-C literals, runtime entrypoints and `this`".
 ## Current step
 
 The patched clang (`build-llvm-tools.sh` with `CLANG=1`: clang and libclang with `.github/clang`'s
-twenty-nine patches) compiles Objective-C literals, the `objc_opt_` messages, `this`, non-escaping
+thirty patches) compiles Objective-C literals, the `objc_opt_` messages, `this`, non-escaping
 blocks, selector stubs, the register-specific ARC entry points, Apple's stack probe (arm64e too),
 the exception tables of stack-protected functions and the effects of Xcode's driver defaults and
 vendor features and arm64e's lr checks before tail calls as Xcode's, and `nomac toolchain install`
@@ -18,6 +18,14 @@ actions).
 
 ## Just finished
 
+- `.github/clang` 0030: `swift_retain_x<N>`/`swift_release_x<N>` with the "Swift DirectReg Version"
+  flag (every arm64 target), both kinds also at arm64_32 -O0 (releases only), no copy propagation
+  into the register, and `objc_retain` lowered from `llvm.objc.retain` no longer marked `returned`
+  (0015's rewriting of later uses dropped); `clang_arc_register_experiments.py` 238 of 244 (the
+  others: arm64_32 -O0's pointer zero-extension, below), `clang_objc_experiments.py` 56 of 56
+  objects with Xcode's code (39 before), stack 56 of 60.
+- `.github/lld` 0028: Xcode's load command order, `LC_SOURCE_VERSION` 0.0, command-line dylibs in
+  order then the rest by install name (mastodon's items); `ld_layout_experiments.py` 50 of 50.
 - `.github/clang` 0029: matrix intrinsic lowering on by default, as Xcode's LLVM (the extra
   `early-cse` it brings kept moonlight's `ConnectionTester.c` loop scalar at -Os, so no
   `__literal16`/`__literal8`); `ConnectionTester.o` byte-identical to Xcode's at -Os and -O2,
@@ -130,11 +138,22 @@ actions).
 
 ## Next actions
 
-1. The linker differences of the next Linux corpus round (measured with lld 0001 to 0027).
-2. The alloca rounding order (B-170): find an observable of Xcode's DAG order (other shapes, `-O1`,
-   `-mllvm` scheduler options Xcode's release clang accepts) before another construction.
-3. arm64e's -O0 register choices (`ldrsw x10` for `ldrsw x9` in leaf functions).
-4. Remeasure the corpus with the Linux-corpus workstream once this batch is on main.
+1. After this branch merges: republish nomac-build's `/ref/llvm-tools` (lld, clang, libclang.so and
+   both stamps) from nomac-clang's `/work/llvm-out`, built by b49 at this branch's patches; check
+   that main's `.github/lld` and `.github/clang` stamps equal `/work/llvm-out`'s first.
+2. build-3's handoff (`~/nomac-out/handoff/build3-to-clang1/`): `__objc_classrefs` only in nomac's
+   icecubes and mastodon images (iOS 18.5). Not reproduced: the handoff object (Xcode's
+   swift-frontend) and the same source from the Linux frontend, with and without `-g`, lose their
+   class references with lld 0001 to 0028. Ask build/driver for one icecubes run with the derived
+   data kept, then link its objects with lld and look for class-reference uses 0014 and 0026 do not
+   fold (`/tmp/classref_scan.py`-style relocation scan).
+3. The handoff's "section order" items: 20 icecubes and 45 mastodon `.o` are `ld -r` products
+   (cctools' ld64), judged equivalent; a self-written `ld -r` (Swift, Objective-C) gives Xcode's
+   order with ld64. The 3 mastodon images and the dSYM lack `__objc_stubs` (build/driver's
+   `.github/swift` 0002); recheck them once that lands.
+4. arm64_32 at -O0: Xcode's code zero-extends pointer arguments otherwise (`and x0, x1,
+   #0xffffffff`), independently of the ARC entry points (B-170).
+5. The alloca rounding order (B-170); arm64e's -O0 register choices.
 
 ## Reproduce
 
