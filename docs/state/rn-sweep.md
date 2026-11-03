@@ -9,8 +9,15 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 ## Current step
 
 Batch 1 (10 of Expo's examples, 5 apps) done on main `b225fc0c` and routed (Results, Classes).
-Running: all 106 apps of the manifest on main `c2ad7afd` (`results-batch1-b225fc0c/` keeps batch
-1's records). Next: its table, B-043.
+Running: the 106 apps of the manifest; 46 passed every step on main `a9b571ab`, the other 60 run on
+the gate's build of main `ad202e5b` (each result names its nomac), graysky and obytes-template last
+(the `cp -X` stand-in, d2e7cff7, is merging). Next: the round's table, B-043.
+
+The manifest records what an app asks of a build machine (`env`, `{checkout}` standing for its
+checkout: bluesky's `SENTRY_XCFRAMEWORK_CACHE_DIR`, inside the checkout so that the container sees
+the Sentry.xcframework that @sentry/react-native's podspec downloads at `pod install` and names by
+its absolute path) and failures observed with Xcode 27.0 too (`failsWithXcode`: graysky's
+RevenueCat 5.50.1, which the owner found does not compile with Xcode 27), reported as `app:`.
 
 ## The apps
 

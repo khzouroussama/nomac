@@ -327,7 +327,14 @@ def set_bundle_identifier(app, app_id):
         config.write_text(json.dumps(data, indent=2) + "\n")
 
 
+def app_environment(root, entry, env):
+    """env with the app's own variables from the manifest (`env`, `{checkout}` standing for its
+    checkout's path): what its README or its packages ask a build machine to set."""
+    return dict(env, **{key: value.replace("{checkout}", str(checkout(root, entry))) for key, value in entry.get("env", {}).items()})
+
+
 def install(root, entry, env):
+    env = app_environment(root, entry, env)
     result = load_result(root, entry["id"])
     result.update({"kind": "expo-example" if entry.get("source") else "app",
                    "commit": manifest()["sources"][entry["source"]]["commit"] if entry.get("source") else entry["commit"]})
@@ -561,7 +568,8 @@ def linux(root, entry, slot, separate_build=False):
     result = load_result(root, entry["id"])
     out = root / "results" / entry["id"]
     top, app = checkout(root, entry), app_folder(root, entry)
-    env = linux_environment(root, slot)
+    env = app_environment(root, entry, linux_environment(root, slot))
+    result["nomac"] = Path(os.path.realpath(NOMAC)).parent.name.removeprefix("nomac-")
     container = container_of(app)
     if container is None:
         step(result, "check", False, time.time(), **{"class": "no Xcode project in ios/"})
@@ -597,7 +605,7 @@ def linux(root, entry, slot, separate_build=False):
     try:
         if separate_build:
             if not guarded_step(result, "build", [NOMAC, "build", *common, *keep_going, "CODE_SIGNING_ALLOWED=NO", *settings],
-                                app, env, out / "build.log"):
+                                app, env, out / "build.log", known=entry.get("failsWithXcode", ())):
                 return
             shutil.rmtree(scratch, ignore_errors=True)
             if not guarded_step(result, "archive", [NOMAC, "archive", *common, "-archivePath", archive, *capture.ADHOC, *settings],
@@ -605,7 +613,7 @@ def linux(root, entry, slot, separate_build=False):
                 return
         else:
             if not guarded_step(result, "build", [NOMAC, "archive", *common, "-archivePath", archive, *keep_going,
-                                                   *capture.ADHOC, *settings], app, env, out / "build.log"):
+                                                   *capture.ADHOC, *settings], app, env, out / "build.log", known=entry.get("failsWithXcode", ())):
                 return
             step(result, "archive", True, time.time(), note="the build's archive (nomac archive)")
         shutil.rmtree(scratch / "DerivedData", ignore_errors=True)
@@ -635,13 +643,14 @@ def reclassify(root, names):
             s["missingCommands"] = missing_commands(log_path)
             failures = [] if s["ok"] else ([{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
                                            if s.get("exit") == -9 else classify(log_path))
+            failures = [with_known_failures(f, entry.get("failsWithXcode", ())) for f in failures]
             if failures:
                 s.update(failures[0], failures=failures[:30], resource=any(f["class"] == KILLED for f in failures))
         if result["steps"]:
             save_result(root, result)
 
 
-def guarded_step(result, name, argv, cwd, env, log_path, produced=None):
+def guarded_step(result, name, argv, cwd, env, log_path, produced=None, known=()):
     if not wait_for_space(lambda: free_bytes(WORK), "in the volume"):
         return step(result, name, False, time.time(), **{"class": f"not run: less than {MIN_FREE >> 30} GB free in the volume"})
     started = time.time()
@@ -653,10 +662,20 @@ def guarded_step(result, name, argv, cwd, env, log_path, produced=None):
         details["ipaBytes"] = outputs[0].stat().st_size
     if not ok:
         failures = classify(log_path) if status != -9 else [{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
+        failures = [with_known_failures(f, known) for f in failures]
         details.update(failures[0] if failures else {"class": f"exit {status}", "error": tail_error(log_path)})
         details["failures"] = failures[:30]
         details["resource"] = any(f["class"] == KILLED for f in failures)
     return step(result, name, ok, started, **details)
+
+
+def with_known_failures(failure, known):
+    """A failure the manifest records as Xcode's too (`failsWithXcode`: what a failed task or its
+    message contains, and the reason, observed with Xcode 27.0) is the app's, not nomac's."""
+    for note in known:
+        if note["match"] in failure.get("line", "") + " " + failure.get("detail", ""):
+            return dict(failure, **{"class": f"app: fails with Xcode too ({note['reason']})"})
+    return failure
 
 
 def missing_commands(log_path):
@@ -836,7 +855,7 @@ def classify(log_path):
         if target and target.group(1) in killed and not any(evidence):
             failures.append({"class": KILLED, "detail": f"{target.group(1)}'s compiler wrote no diagnostics", "task": task.split(" ", 1)[0]})
             continue
-        failures.append(classify_task(task, output, evidence))
+        failures.append(dict(classify_task(task, output, evidence), line=task[:300]))
     if not failures:
         if diagnostics:
             failures.append(classify_task("nomac", [lines[i] for i in diagnostics[:5]]))
@@ -1042,8 +1061,8 @@ def report(root, names):
     built = sum(1 for r in results if r["steps"].get("build", {}).get("ok"))
     exported = sum(1 for r in results if r["steps"].get("export", {}).get("ok"))
     rows += ["", f"{len(results)} apps: {built} build on Linux ({100 * built // max(len(results), 1)}%), {exported} export an IPA.", "",
-             "| app | kind | React Native | Expo | install | check: outside | fixes | build | archive | export | first failure |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| app | kind | nomac | React Native | Expo | install | check: outside | fixes | build | archive | export | first failure |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     first_classes, any_classes = {}, {}
     for r in results:
         steps, versions = r["steps"], r.get("versions", {})
@@ -1063,7 +1082,7 @@ def report(root, names):
                 any_classes.setdefault((first, cls), [set(), set()])[0].add(r["id"])
                 if len(classes) == 1:
                     any_classes[(first, cls)][1].add(r["id"])
-        rows.append(f"| {r['id']} | {r.get('kind', '')} | {versions.get('react-native') or ''} | {versions.get('expo') or ''} | "
+        rows.append(f"| {r['id']} | {r.get('kind', '')} | {r.get('nomac', '')} | {versions.get('react-native') or ''} | {versions.get('expo') or ''} | "
                     + " | ".join(cells) + f" | {failure.replace('|', '/')} |")
     kept = [r["id"] for r in results if "kept" in r]
     if kept:
