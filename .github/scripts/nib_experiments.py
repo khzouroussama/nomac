@@ -6502,6 +6502,66 @@ XIB_OUTLET_DESTINATIONS = {
 EXPERIMENTS.update(XIB_OUTLET_DESTINATIONS)
 
 
+# Round 115: a collection view's section header and footer views in prototypes mode: empty, with
+# subviews and constraints, a custom class, an outlet to the controller, in a collection view
+# controller, without a reuse identifier; the flow layout has reference sizes.
+def section_view(key="sectionFooterView", identifier="sfv-aa-aa1", reuse="Footer", y=128, content="", attributes=""):
+    reuse_attribute = f' reuseIdentifier="{reuse}"' if reuse else ""
+    return (f'<collectionReusableView key="{key}" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center"{reuse_attribute}{attributes} id="{identifier}">\n'
+            f'    <rect key="frame" x="0.0" y="{y}" width="393" height="50"/>\n'
+            '    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+            f'{content}</collectionReusableView>\n')
+
+
+SECTION_LABEL = ('    <subviews>\n        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Label" textAlignment="natural" '
+                 'lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="sfl-aa-aa1">\n'
+                 '            <rect key="frame" x="10" y="10" width="42" height="21"/>\n'
+                 f'            {SYSTEM_17}\n            <nil key="textColor"/>\n            <nil key="highlightedColor"/>\n        </label>\n    </subviews>\n')
+SECTION_CONSTRAINTS = ('    <constraints>\n        <constraint firstItem="sfl-aa-aa1" firstAttribute="leading" secondItem="sfv-aa-aa1" secondAttribute="leading" constant="10" id="sfc-aa-aa1"/>\n'
+                       '        <constraint firstItem="sfl-aa-aa1" firstAttribute="top" secondItem="sfv-aa-aa1" secondAttribute="top" constant="10" id="sfc-aa-aa2"/>\n    </constraints>\n')
+SECTION_HOLDER_OUTLET = '    <connections>\n        <outlet property="owner" destination="BYZ-38-t0r" id="sfo-aa-aa1"/>\n    </connections>\n'
+
+
+def sb_sections(*views, outlets=False, sizes=True):
+    document = sb_collection(sb_cv_cell("cel-aa-aa1", "Cell"), outlets=outlets)
+    inner = "".join(f"                                {line}\n" for line in "".join(views).splitlines())
+    document = document.replace("                                </cells>\n", "                                </cells>\n" + inner, 1)
+    if sizes:
+        for size in ("header", "footer"):
+            document = document.replace(f'<size key="{size}ReferenceSize" width="0.0" height="0.0"/>', f'<size key="{size}ReferenceSize" width="50" height="50"/>')
+    return document
+
+
+SECTION_VIEWS = {
+    "sb-section-footer": sb_sections(section_view()),
+    "sb-section-footer-no-sizes": sb_sections(section_view(), sizes=False),
+    "sb-section-header": sb_sections(section_view("sectionHeaderView", reuse="Header", y=0)),
+    "sb-section-header-footer": sb_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Header", 0), section_view()),
+    "sb-section-footer-reversed": sb_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Zzz", 0), section_view(reuse="Aaa")),
+    "sb-section-footer-same-reuse": sb_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Same", 0), section_view(reuse="Same")),
+    "sb-section-footer-label": sb_sections(section_view(content=SECTION_LABEL)),
+    "sb-section-footer-constraints": sb_sections(section_view(content=SECTION_LABEL + SECTION_CONSTRAINTS)),
+    "sb-section-footer-custom": sb_sections(section_view(attributes=' customClass="Footer" customModule="T" customModuleProvider="target"', content=SECTION_LABEL + SECTION_CONSTRAINTS)),
+    "sb-section-footer-no-reuse": sb_sections(section_view(reuse=None)),
+    "sb-section-footer-outlet": sb_sections(section_view(attributes=' customClass="Footer" customModule="T" customModuleProvider="target"', content=SECTION_HOLDER_OUTLET), outlets=True),
+    "sb-section-footer-outlets": sb_sections(section_view(), outlets=True),
+    "sb-section-footer-background": sb_sections(section_view(content='    ' + gray(0.5, 1) + '\n')),
+}
+SECTION_VIEWS["sb-section-footer-no-cells"] = sb_collection("").replace("<cells/>\n", section_view().replace("\n", "\n                                ").rstrip(" "), 1)
+SECTION_VIEWS["sb-section-footer-outlet-only"] = sb_sections(section_view(attributes=' customClass="Footer" customModule="T" customModuleProvider="target"', content=SECTION_HOLDER_OUTLET))
+def cvc_sections(*views):
+    inner = "".join(f"    {line}\n" for line in "".join(views).splitlines())
+    return storyboard(cvc_scene(sb_cv_cell("cel-aa-aa1", "Cell")).replace("</cells>\n", "</cells>\n" + inner), initial="cvc-aa-aaa")
+
+
+SECTION_VIEWS["sb-cvc-section-footer"] = cvc_sections(section_view())
+SECTION_VIEWS["sb-cvc-section-footer-constraints"] = cvc_sections(section_view(content=SECTION_LABEL + SECTION_CONSTRAINTS))
+SECTION_VIEWS["sb-cvc-section-header-footer"] = cvc_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Header", 0), section_view())
+SECTION_VIEWS["sb-cvc-section-footer-outlet"] = cvc_sections(section_view(attributes=' customClass="Footer" customModule="T" customModuleProvider="target"',
+                                                                          content=SECTION_HOLDER_OUTLET.replace("BYZ-38-t0r", "cvc-aa-aaa")))
+STORYBOARDS.update(SECTION_VIEWS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
