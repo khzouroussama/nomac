@@ -100,10 +100,19 @@ extension DocumentCompiler {
         return name
     }
 
-    /// An outlet's or action's destination: a placeholder, a view or a constraint of the nib.
+    /// An outlet's or action's destination: a placeholder, a view, a constraint, a gesture recognizer,
+    /// a navigation bar's item or bar button item of the nib (`outlet-nav-bar-*`), or the placeholder
+    /// of an object of its controller's nib (`sb-outlet-*-from-view*`). The refusal names the
+    /// destination's element.
     func outletDestination(_ element: XIBElement) throws -> NibArchivable {
         guard let id = element.attributes["destination"] else { throw unsupported("an outlet without a destination") }
-        if let object = placeholders[id] ?? documentViews[id]?.view ?? documentConstraints[id] ?? gestureRecognizers[id] { return object }
-        throw unsupported("an outlet to an object outside its nib or of a kind nomac does not compile")
+        if let object = placeholders[id] ?? documentViews[id]?.view ?? documentConstraints[id] ?? gestureRecognizers[id] ?? navigationBarItems[id]
+            ?? controllerNibPlaceholders.first(where: { $0.id == id })?.placeholder { return object }
+        let name = document.flatMap { Self.element(id: id, in: $0) }.map { "<\($0.name)>" } ?? "an object not in the document"
+        throw unsupported("an outlet to \(name) (\(id)) outside its nib or of a kind nomac does not compile")
+    }
+
+    private static func element(id: String, in root: XIBElement) -> XIBElement? {
+        root.attributes["id"] == id ? root : root.children.lazy.compactMap { element(id: id, in: $0) }.first
     }
 }

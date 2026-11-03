@@ -256,6 +256,7 @@ extension DocumentCompiler {
     /// (`sb-cellseg-prototype-*`, `sb-cellseg-accessory-*`).
     mutating func prototypeNib(_ element: XIBElement, segues: [Bool]) throws -> Data {
         var nested = self
+        nested.controllerNibPlaceholders = []
         nested.documentViews = [:]
         nested.safeAreaGuides = [:]
         nested.scrollGuides = [:]

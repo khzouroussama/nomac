@@ -6386,7 +6386,7 @@ STORYBOARDS["sb-cell-content-a11y"] = storyboard(tvc_scene(prototypes(tvc_cell(1
     indented(A11Y_CELL, "                                    ") + "                                </tableViewCellContentView>"))), initial="tvc-aa-aaa")
 
 
-# Round 110: outlets to objects of a controller's own nib: a controller's bar button items and
+# Round 114: outlets to objects of a controller's own nib: a controller's bar button items and
 # navigation item, standing alone and as a navigation controller's root; from a view of its scene;
 # and, in xibs, to a navigation bar's and a toolbar's items.
 def controller_connections(*outlets):

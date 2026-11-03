@@ -18,6 +18,7 @@ public enum StoryboardCompiler {
         let deploymentTarget = try XIBCompiler.check(options, path: path)
         let document = try XIBReader.read(data, path: path)
         var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
+        compiler.document = document
         let files = try compiler.compileStoryboard(document)
         return (files, try compiler.documentWarnings())
     }
@@ -595,7 +596,7 @@ extension DocumentCompiler {
         let nibName = sceneController.nibName
         let empty = NibArray([])
         let item = NibNavigationItem()
-        let (declared, _, barActions) = try navigationItem(controller, into: item, empty: empty)
+        let (declared, barItems, barActions) = try navigationItem(controller, into: item, empty: empty)
         guard !sceneController.segues.contains(where: { $0.barItem != nil && $0.kind == .popoverPresentation }) else {
             throw unsupportedScene("a bar button item's popover segue outside a navigation controller")
         }
@@ -607,9 +608,11 @@ extension DocumentCompiler {
             throw unsupportedScene("gesture recognizers beside views or cells' segues in a scene")
         }
         let controlTemplates = zip(sceneController.segues, templates).filter { $0.0.control != nil }
-        let view = try controllerView(controller, objects: objects, owner: owner, excluded: Set(extraElements.compactMap { $0.attributes["id"] }),
+        let view = try controllerView(controller, objects: objects, owner: owner, excluded: Set(barItems.keys).union(extraElements.compactMap { $0.attributes["id"] }),
                                       recognizer: recognizer, controlSegues: controlTemplates.map(\.0))
+        let reached = controllerObjectsReached
         let extras = try extraViews(extraElements)
+        let destinations = barItems.merging(extras.map { ($0.id, $0.view) }) { _, extra in extra }
         guard cellTemplates.isEmpty || view.usesUpstream else { throw unsupportedScene("cells' segues of a table view without outlets to its controller") }
         let customClass = try customClass(controller, original: baseClass)
         let className = customClass ?? (string(baseClass), string(baseClass))
@@ -627,6 +630,8 @@ extension DocumentCompiler {
         if let recognizer {
             viewController.externalObjects.entries = recognizer.externalObjects(controller: view.usesUpstream ? viewController : nil,
                                                                                 controllerFirst: recognizerAfterController)
+        } else if !reached.isEmpty {
+            viewController.externalObjects.entries = externalObjects(reached, controller: viewController, destinations: destinations)
         } else if view.usesUpstream || !controlTemplates.isEmpty {
             viewController.externalObjects.entries = externalObjects(view.usesUpstream ? viewController : nil, cellTemplates, controlTemplates: controlTemplates)
         }
@@ -634,7 +639,7 @@ extension DocumentCompiler {
         let topLevel: [NibArchivable] = [owner, view.responder, placeholder]
             + (kind == "viewController" ? extraTopLevel + [viewController] : [viewController] + extraTopLevel)
         let outlets = [NibOutletConnection(label: NibString("storyboard"), source: viewController, destination: placeholder)]
-            + (try controllerOutlets(controller, source: viewController, destinations: Dictionary(uniqueKeysWithValues: extras.map { ($0.id, $0.view) })))
+            + (try controllerOutlets(controller, source: viewController, destinations: destinations))
             + [NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: viewController)]
             + Self.templateOutlets(templates, controller: viewController, label: NibString("viewController"))
         let connections: [NibArchivable] = outlets
@@ -729,6 +734,7 @@ extension DocumentCompiler {
         let upstream = NibProxy(identifier: "UpstreamPlaceholder-\(recognizer == nil ? 1 : 2)")
         upstreamIdentifier = upstream.identifier
         placeholders = [id: upstream]
+        controllerNibPlaceholders = excluded.map { ($0, NibProxy(identifier: "")) }
         if let recognizer {
             placeholders[recognizer.id] = recognizer.placeholder
         }
@@ -786,6 +792,13 @@ extension DocumentCompiler {
             + controlTemplates.enumerated().map { (string("UpstreamPlaceholder-\($0.offset + first.count + 1)"), $0.element.1) }
     }
 
+    /// The external objects of a view nib whose connections reach objects of its controller's nib:
+    /// those objects and the controller, as the connections' placeholders number them
+    /// (`sb-outlet-*-from-view*`).
+    mutating func externalObjects(_ reached: [String?], controller: NibArchivable, destinations: [String: NibArchivable]) -> [(NibArchivable, NibArchivable)] {
+        reached.enumerated().map { (string("UpstreamPlaceholder-\($0.offset + 1)"), $0.element.flatMap { destinations[$0] } ?? controller) }
+    }
+
     /// The templates' `viewController` outlets: by template class, byte by byte, those of one class
     /// last first (`sb-segorder-*`, `sb-button-two`, `sb-bar-popover-and-cell`; the corpus's
     /// uncloudnotes CreateNoteWithImages, a button's show and a bar button item's unwind segue).
@@ -827,11 +840,11 @@ extension DocumentCompiler {
     }
 
     /// A controller's `<navigationItem>`, if it declares one, read into `item`: its title, the nib's
-    /// empty array as center item groups, its large-title mode, its left and right system or titled
-    /// bar button items by id, and their actions, which must target the controller, and segues, by
-    /// segue id (`sb-nav-item-*`, `sb-bar-*`).
+    /// empty array as center item groups, its large-title mode, itself and its left and right system
+    /// or titled bar button items by id (`sb-outlet-*`), and their actions, which must target the
+    /// controller, and segues, by segue id (`sb-nav-item-*`, `sb-bar-*`).
     mutating func navigationItem(_ controller: XIBElement, into item: NibNavigationItem, empty: NibArray) throws
-        -> (declared: Bool, barItems: [String: NibBarButtonItem], actions: [(selector: String, item: NibBarButtonItem, segue: String?)]) {
+        -> (declared: Bool, barItems: [String: NibArchivable], actions: [(selector: String, item: NibBarButtonItem, segue: String?)]) {
         let itemElements = controller.children(named: "navigationItem")
         guard let itemElement = itemElements.first else { return (false, [:], []) }
         try check(itemElement, attributes: ["key", "title", "largeTitleDisplayMode", "id"], children: ["barButtonItem"])
@@ -841,7 +854,8 @@ extension DocumentCompiler {
         let mode = itemElement.attributes["largeTitleDisplayMode"] ?? "automatic"
         guard let largeTitleDisplayMode = ["automatic": 0, "never": 2][mode] else { throw unsupported("largeTitleDisplayMode=\"\(mode)\"") }
         item.largeTitleDisplayMode = largeTitleDisplayMode
-        var barItems: [String: NibBarButtonItem] = [:]
+        var barItems: [String: NibArchivable] = [:]
+        if let id = itemElement.attributes["id"] { barItems[id] = item }
         var actions: [(selector: String, item: NibBarButtonItem, segue: String?)] = []
         for element in itemElement.children {
             try check(element, attributes: ["key", "systemItem", "title", "enabled", "style", "image", "catalog", "id"],
@@ -886,6 +900,8 @@ extension DocumentCompiler {
         guard item.back == nil || item.left == nil && item.right == nil else {
             throw unsupportedScene("a back bar button item beside a left or right one")
         }
+        // Of one selector, the right item's action comes first (`sb-bar-same-selector*`).
+        actions = actions.filter { $0.item === item.right } + actions.filter { $0.item !== item.right }
         return (true, barItems, actions)
     }
 
@@ -895,9 +911,9 @@ extension DocumentCompiler {
     struct InlinedNavigation {
         let navigation: NibNavigationController
         let root: NibRootViewController
-        let rootElement: XIBElement
         let view: (nibName: String, nib: Data, usesUpstream: Bool, responder: NibProxy)
         let extras: [(id: String, view: NibView)]
+        let outlets: [NibOutletConnection]
         let barItems: [String: NibArchivable]
         /// The bar button items' actions and segues' `perform:` events, by selector, byte by byte
         /// (`sb-bar-segue-then-action`, `sb-bar-segue-then-zzz`).
@@ -912,14 +928,15 @@ extension DocumentCompiler {
                                     templates: [NibSegueTemplate], empty: NibArray, sharedExternals: NibDictionary?) throws -> InlinedNavigation {
         try checkNavigation(navigation, inContainer: sharedExternals != nil)
         let bar = try navigationBar(navigation)
-        let rootKind = rootScene.children(named: "objects").first?.children(named: "tableViewController").isEmpty == false ? "tableViewController" : "viewController"
+        let rootObjects = Set(rootScene.children(named: "objects").first?.children.map(\.name) ?? [])
+        let rootKind = ["tableViewController", "collectionViewController"].first { rootObjects.contains($0) } ?? "viewController"
         let (controller, objects) = try sceneObjects(rootScene, controller: rootKind)
         try check(controller, attributes: ["id", "sceneMemberID", "customClass", "customModule", "customModuleProvider", "definesPresentationContext",
                                            "storyboardIdentifier", "clearsSelectionOnViewWillAppear", "userLabel"] + ControllerSettings.attributes,
-                  children: ["layoutGuides", "view", "tableView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value",
+                  children: ["layoutGuides", "view", "tableView", "collectionView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value",
                              "refreshControl", "simulatedTabBarMetrics", "simulatedToolbarMetrics"])
         try emptyToolbarItems(controller)
-        let rootClass = rootKind == "tableViewController" ? "UITableViewController" : "UIViewController"
+        let rootClass = ["tableViewController": "UITableViewController", "collectionViewController": "UICollectionViewController"][rootKind] ?? "UIViewController"
         let item = NibNavigationItem()
         let (declared, barItems, actions) = try navigationItem(controller, into: item, empty: empty)
         let cellTemplates = cellSegueTemplates(rootController, templates)
@@ -928,11 +945,13 @@ extension DocumentCompiler {
         let view = try controllerView(controller, objects: objects, owner: NibProxy(identifier: "IBFilesOwner"),
                                       excluded: Set(barItems.keys).union(extraElements.compactMap { $0.attributes["id"] }), controlSegues: controlTemplates.map(\.0))
         guard cellTemplates.isEmpty || view.usesUpstream else { throw unsupportedScene("cells' segues of a table view without outlets to its controller") }
+        let reached = controllerObjectsReached
         let extras = try extraViews(extraElements)
+        let destinations = barItems.merging(extras.map { ($0.id, $0.view) }) { _, extra in extra }
         let rootCustomClass = try customClass(controller, original: rootClass)
         let rootViewController = NibRootViewController(item: item, viewNibName: view.nibName, segueTemplates: templates, baseClass: rootClass,
                                                        customClass: rootCustomClass ?? (rootController.isEntryPoint ? (string(rootClass), string(rootClass)) : nil),
-                                                       externalObjects: view.usesUpstream || !controlTemplates.isEmpty ? NibDictionary() : sharedExternals ?? NibDictionary())
+                                                       externalObjects: view.usesUpstream || !controlTemplates.isEmpty || !reached.isEmpty ? NibDictionary() : sharedExternals ?? NibDictionary())
         rootViewController.definesPresentationContext = try bool(controller, "definesPresentationContext", default: false)
         rootViewController.storyboardIdentifier = rootController.identifier.map { string($0) }
         rootViewController.title = controller.attributes["title"].map { text($0, id: controller.attributes["id"], property: "title") }
@@ -949,7 +968,9 @@ extension DocumentCompiler {
                 && !rootViewController.settings.presents else {
             throw unsupportedScene("a navigation controller's root keeping its selection with objects kept alive, a presentation context or an identifier")
         }
-        if view.usesUpstream || !controlTemplates.isEmpty {
+        if !reached.isEmpty {
+            rootViewController.externalObjects.entries = externalObjects(reached, controller: rootViewController, destinations: destinations)
+        } else if view.usesUpstream || !controlTemplates.isEmpty {
             rootViewController.externalObjects.entries = externalObjects(view.usesUpstream ? rootViewController : nil, cellTemplates, controlTemplates: controlTemplates)
         }
         let navigationController = try self.navigationController(navigation, root: rootViewController, bar: bar, swapsClass: swapsClass, empty: empty)
@@ -960,7 +981,9 @@ extension DocumentCompiler {
         let anchors = zip(rootController.segues, templates).compactMap { segue, template in
             segue.kind == .popoverPresentation ? segue.barItem.flatMap { barItems[$0] }.map { NibOutletConnection(label: anchorLabel, source: template, destination: $0) } : nil
         }
-        return InlinedNavigation(navigation: navigationController, root: rootViewController, rootElement: controller, view: view, extras: extras,
+        let outlets = try controllerOutlets(controller, source: rootViewController, destinations: destinations)
+        guard outlets.isEmpty || anchors.isEmpty else { throw unsupportedScene("a root's outlets beside a bar button item's popover segue") }
+        return InlinedNavigation(navigation: navigationController, root: rootViewController, view: view, extras: extras, outlets: outlets,
                                  barItems: barItems, actions: Self.barItemEvents(actions, rootController, templates, controller: rootViewController),
                                  anchors: anchors)
     }
@@ -1039,13 +1062,7 @@ extension DocumentCompiler {
         let storyboard = NibString("storyboard")
         var connections: [NibArchivable] = [NibOutletConnection(label: storyboard, source: inlined.navigation, destination: navigationPlaceholder),
                                             NibOutletConnection(label: storyboard, source: inlined.root, destination: placeholder)]
-        var destinations: [String: NibArchivable] = inlined.barItems
-        for extra in inlined.extras {
-            destinations[extra.id] = extra.view
-        }
-        let outlets = try controllerOutlets(inlined.rootElement, source: inlined.root, destinations: destinations)
-        guard outlets.isEmpty || inlined.anchors.isEmpty else { throw unsupportedScene("a root's outlets beside a bar button item's popover segue") }
-        connections += outlets + inlined.anchors
+        connections += inlined.outlets + inlined.anchors
         connections.append(NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: inlined.navigation))
         connections += Self.templateOutlets(templates, controller: inlined.root, label: NibString("viewController"))
         connections += inlined.actions
@@ -1081,8 +1098,11 @@ extension DocumentCompiler {
     static func barItemEvents(_ actions: [(selector: String, item: NibBarButtonItem, segue: String?)], _ sceneController: SceneController,
                               _ templates: [NibSegueTemplate], controller: NibArchivable) -> [NibEventConnection] {
         let templateOf = Dictionary(uniqueKeysWithValues: zip(sceneController.segues.map(\.id), templates))
+        var selectors: [String: NibString] = [:]
         let events = actions.map { action in
-            NibEventConnection(selector: NibString(action.selector), source: action.item, destination: action.segue.flatMap { templateOf[$0] } ?? controller)
+            let selector = selectors[action.selector] ?? NibString(action.selector)
+            selectors[action.selector] = selector
+            return NibEventConnection(selector: selector, source: action.item, destination: action.segue.flatMap { templateOf[$0] } ?? controller)
         }
         return events.enumerated().sorted { left, right in
             let (a, b) = (Array(left.element.selector.value.utf8), Array(right.element.selector.value.utf8))
@@ -1210,6 +1230,29 @@ extension DocumentCompiler {
             [(connection as? NibOutletConnection)?.source, (connection as? NibOutletConnection)?.destination,
              (connection as? NibOutletCollectionConnection)?.source, (connection as? NibEventConnection)?.destination].contains { $0 === upstream }
         }
+        // Objects of the controller's nib are numbered with the controller as the sorted connections
+        // first reach them, like a gesture recognizer (`sb-outlet-bar-from-view*`).
+        var reached: [NibProxy] = []
+        let candidates = controllerNibPlaceholders
+        for end in connections.flatMap(Self.ends) {
+            guard let proxy = end as? NibProxy, !reached.contains(where: { $0 === proxy }),
+                  proxy === upstream || candidates.contains(where: { $0.placeholder === proxy }) else { continue }
+            reached.append(proxy)
+        }
+        controllerNibPlaceholders = []
+        controllerObjectsReached = []
+        if reached.contains(where: { $0 !== upstream }) {
+            guard recognizer == nil, seguePlaceholders.isEmpty, controlSeguePlaceholders.isEmpty else {
+                throw unsupportedScene("a view's connections to objects of its controller's nib beside a gesture recognizer's or segues' placeholders")
+            }
+            guard !view.kind.isTableView && !view.kind.isCollection || reached.first === upstream else {
+                throw unsupportedScene("a table or collection view's connections numbering an object of its controller's nib before the controller")
+            }
+            controllerObjectsReached = reached.map { proxy in candidates.first { $0.placeholder === proxy }?.id }
+            for (number, proxy) in reached.enumerated() where proxy !== upstream || number > 0 {
+                proxy.identifier = NibString("UpstreamPlaceholder-\(number + 1)")
+            }
+        }
         // Buttons' segues' placeholders follow the controller's, when the view refers to it, in
         // document order (`sb-button-two*`, `sb-button-outlet`).
         // With a gesture recognizer, the upstream placeholders are numbered as the sorted
@@ -1219,10 +1262,7 @@ extension DocumentCompiler {
         var controllerFirst = false
         if let recognizer, usesUpstream {
             func reaches(_ connection: NibArchivable, _ object: NibArchivable) -> Bool {
-                let ends: [NibArchivable?] = [(connection as? NibOutletConnection)?.source, (connection as? NibOutletConnection)?.destination,
-                                              (connection as? NibOutletCollectionConnection)?.source, (connection as? NibEventConnection)?.source,
-                                              (connection as? NibEventConnection)?.destination]
-                return ends.contains { $0 === object } || ((connection as? NibOutletCollectionConnection)?.destinations.contains { $0 === object } ?? false)
+                Self.ends(connection).contains { $0 === object }
             }
             if let first = connections.first(where: { reaches($0, upstream) || reaches($0, recognizer) }), !reaches(first, recognizer) {
                 guard !view.kind.isTableView, !view.kind.isCollection else {
@@ -1239,7 +1279,7 @@ extension DocumentCompiler {
             placeholder.identifier = NibString("UpstreamPlaceholder-\(offset + (usesUpstream ? 2 : 1))")
         }
         controlSeguePlaceholders = []
-        let upstreams: [NibArchivable] = (usesUpstream ? [upstream] + seguePlaceholders : []) + controlPlaceholders
+        let upstreams: [NibArchivable] = controllerObjectsReached.isEmpty ? (usesUpstream ? [upstream] + seguePlaceholders : []) + controlPlaceholders : reached
         let recognizers: [NibArchivable] = recognizer.map { [$0] } ?? []
         let topLevel: [NibArchivable] = [owner, responder] + (controllerFirst ? upstreams + recognizers : recognizers + upstreams) + [view] + dataSource
         let allObjects = Self.allObjects(topLevel)
@@ -1248,6 +1288,16 @@ extension DocumentCompiler {
                                                traitStorageLists: try traitStorageLists(topLevel), keyValuePairs: try takeKeyValuePairs(allObjects: allObjects),
                                                empty: takeEmptyArray())),
                 usesUpstream)
+    }
+
+    /// The objects a connection names.
+    private static func ends(_ connection: NibArchivable) -> [NibArchivable] {
+        switch connection {
+        case let outlet as NibOutletConnection: [outlet.source, outlet.destination]
+        case let collection as NibOutletCollectionConnection: [collection.source] + collection.destinations
+        case let event as NibEventConnection: [event.source, event.destination]
+        default: []
+        }
     }
 
     /// The size a controller's scene view takes: its freeform size, else its container view's when

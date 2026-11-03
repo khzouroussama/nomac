@@ -27,6 +27,7 @@ extension DocumentCompiler {
                 item.title = itemElement.attributes["title"].map { text($0, id: itemElement.attributes["id"], property: "title") }
                 item.centerItemGroups = emptyArray
                 item.bar = view
+                if let id = itemElement.attributes["id"] { navigationBarItems[id] = item }
                 for barItem in itemElement.children {
                     try check(barItem, attributes: ["key", "style", "systemItem", "id"], children: [])
                     try value(barItem, "style", in: ["plain", "done"])
@@ -35,6 +36,7 @@ extension DocumentCompiler {
                     }
                     let button = NibBarButtonItem(systemItem: system, enabled: true)
                     button.style = barItem.attributes["style"] == "done" ? 2 : 1
+                    if let id = barItem.attributes["id"] { navigationBarItems[id] = button }
                     switch barItem.attributes["key"] {
                     case "leftBarButtonItem" where item.left == nil: item.left = button
                     case "rightBarButtonItem" where item.right == nil: item.right = button

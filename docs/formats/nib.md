@@ -1068,8 +1068,11 @@ then by their sources' original classes, byte by byte (`UIImageView`, `UIScrollV
 custom class counts as its original: `oc-class-*`, the corpus's pocket-casts
 SharePublishViewController), then by their sources' order in all objects (`outlet-from-both`,
 `outlet-same-name-*`), whatever the document's order or ids. Names are one
-string object each. Sources are File's Owner and views; destinations views, placeholders and
-constraints. The corpus's 483 nibs with plain outlets all follow this. Outlet collections of one
+string object each. Sources are File's Owner and views; destinations views, placeholders,
+constraints, gesture recognizers and a navigation bar's item and bar button items
+(`outlet-nav-bar-*`). A prototype cell's outlet to an object of its controller's nib is not
+compiled yet (`sb-outlet-bar-tvc-from-cell`), and nomac's refusal of a destination names its
+element. The corpus's 483 nibs with plain outlets all follow this. Outlet collections of one
 name from several sources follow the same order (`oc-class-collections`, `oc-names-two-sources`,
 the corpus's wikipedia WMFImageGalleryDetailOverlayView). Collections of several names from one
 source keep the order of their names' first connections in the document, whatever the names or
@@ -1377,6 +1380,30 @@ overFullScreen 5, overCurrentContext 6), `UIHidesBottomBarWhenPushed` true,
 `UIKeyExtendedLayoutIncludesOpaqueBars` the integer 1 and `UIKeyAutomaticallyAdjustsScrollViewInsets`
 the integer 0. Segue templates' strings are the document's (shared with equal strings). A navigation
 root's title also titles its navigation item (`sb-vc-title-nav`), which nomac refuses.
+
+## Outlets to a controller's navigation item and bar button items
+
+A controller's outlets to its `<navigationItem>` and its bar button items are in the controller's
+nib, by name, between `storyboard` and `sceneViewController`, whatever the controller: a table,
+collection or plain view controller, of a custom class or not, standing alone, a navigation
+controller's root or a tab bar controller's navigation child's root, where the roots' outlets of
+all children go by name after the `storyboard` outlets (`sb-outlet-bar-*`, `sb-outlet-item-*`,
+`sb-outlet-bar-tab-*`). The item's action is an event connection as usual.
+
+A view of the scene that has an outlet to such an object, or to a view beside the controller, lives
+in another nib: the view nib has an `UpstreamPlaceholder-<n>` for it, and the controller's
+`UIExternalObjectsTableForViewLoading` maps that name to the object. The placeholders of these
+objects and of the controller are numbered as the sorted connections first reach them, so an outlet
+`aaa` to the controller makes it `-1` and an outlet `owner` beside `doneButton` makes it `-2`
+(`sb-outlet-bar-from-view*`, `sb-outlet-two-bars-from-view*`, `sb-outlet-item-*-from-view`,
+`sb-outlet-extra-from-view`), as with a gesture recognizer. nomac refuses them beside a gesture
+recognizer's or segues' placeholders, and when a table or collection view's connections would
+number one before the controller: neither is observed.
+
+Bar button items' actions go by selector, the strings shared; of one selector, the right item's
+comes first, whatever the document's order, ids and system items (`sb-bar-same-selector*`). A tab
+bar controller sorts its navigation children's actions together, children in order within a
+selector (`sb-outlet-bar-tab-two-navs*`).
 
 ## Navigation controllers
 

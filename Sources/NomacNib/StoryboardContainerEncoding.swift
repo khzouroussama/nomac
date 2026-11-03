@@ -179,8 +179,9 @@ extension DocumentCompiler {
     /// controllers', each depth first (`sb-tab-order`, `sb-tab-nav-two`, `sb-tab-plain-then-nav`,
     /// `sb-split-swapped`, `sb-split-nav-both`); after `sceneViewController`, the view controllers'
     /// segue templates' `viewController` outlets in the same order (`sb-tab-two-show`); navigation
-    /// roots' popover anchors before `sceneViewController`, their bar button items' events last, as
-    /// in a navigation controller's nib (`sb-split-bar-*`). Views beside children are refused.
+    /// roots' outlets by name and popover anchors before `sceneViewController`, their bar button
+    /// items' events last, by selector, as in a navigation controller's nib (`sb-split-bar-*`,
+    /// `sb-outlet-bar-tab-*`). Views beside children are refused.
     mutating func compileContainerScene(_ scene: XIBElement, controller sceneController: SceneController, children: [ContainerChild]) throws -> [String: Data] {
         let isTabBar = scene.children(named: "objects").first?.children(named: "tabBarController").isEmpty == false
         let (container, _) = try sceneObjects(scene, controller: isTabBar ? "tabBarController" : "splitViewController")
@@ -204,8 +205,9 @@ extension DocumentCompiler {
         var containers: [NibArchivable] = [containerController]
         var viewControllers: [NibArchivable] = []
         var templateOutlets: [NibArchivable] = []
+        var outlets: [NibOutletConnection] = []
         var anchors: [NibArchivable] = []
-        var events: [NibArchivable] = []
+        var events: [NibEventConnection] = []
         var inlined: [NibArchivable] = []
         var childrenByID: [String: NibArchivable] = [:]
         for child in children {
@@ -239,6 +241,7 @@ extension DocumentCompiler {
                 let navigation = try inlinedNavigation(controller, swapsClass: false, rootScene: root.scene, root: root.controller, templates: root.templates,
                                                        empty: empty, sharedExternals: sharedExternals)
                 guard navigation.extras.isEmpty else { throw unsupportedScene("views beside a tab bar or split view controller's navigation child's root") }
+                outlets += navigation.outlets
                 anchors += navigation.anchors
                 events += navigation.actions
                 files["\(navigation.view.nibName).nib"] = navigation.view.nib
@@ -287,9 +290,21 @@ extension DocumentCompiler {
         let owner = NibProxy(identifier: "IBFilesOwner")
         let topLevel: [NibArchivable] = placeholders.reversed() + [owner, NibProxy(identifier: "IBFirstResponder"), placeholder, containerController]
         let storyboard = NibString("storyboard")
-        let connections: [NibArchivable] = (containers + viewControllers).map {
+        let storyboardOutlets: [NibArchivable] = (containers + viewControllers).map {
             NibOutletConnection(label: storyboard, source: $0, destination: placeholderOf[ObjectIdentifier($0)] ?? placeholder)
-        } + anchors + [NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: containerController)] + templateOutlets + events
+        }
+        let rootOutlets = outlets.sorted { Array($0.label.value.utf8).lexicographicallyPrecedes(Array($1.label.value.utf8)) }
+        var selectors: [String: NibString] = [:]
+        let sortedEvents: [NibArchivable] = events.enumerated().sorted { left, right in
+            let (a, b) = (Array(left.element.selector.value.utf8), Array(right.element.selector.value.utf8))
+            return a == b ? left.offset < right.offset : a.lexicographicallyPrecedes(b)
+        }.map { event in
+            let selector = selectors[event.element.selector.value] ?? event.element.selector
+            selectors[selector.value] = selector
+            return NibEventConnection(selector: selector, source: event.element.source, destination: event.element.destination)
+        }
+        let connections: [NibArchivable] = storyboardOutlets + rootOutlets + anchors
+            + [NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: containerController)] + templateOutlets + sortedEvents
         files["\(sceneController.nibName).nib"] = try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: Self.allObjects(topLevel),
                                                                                  connections: connections, empty: empty))
         return files

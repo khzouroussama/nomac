@@ -72,6 +72,7 @@ public enum XIBCompiler {
         let deploymentTarget = try check(options, path: path)
         let document = try XIBReader.read(data, path: path)
         var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
+        compiler.document = document
         let nib = try compiler.compile(document)
         return (nib, compiler.deploymentWarning.map { ["\(path):global: warning: \($0)"] } ?? [])
     }
@@ -189,6 +190,15 @@ struct DocumentCompiler {
     var embeddedSizes: [String: (width: Double, height: Double)] = [:]
     var cellSegueOutlets: [NibOutletConnection] = []
     var upstreamIdentifier: NibString?
+    /// The navigation bars' items and bar button items, by id, as outlets' destinations.
+    var navigationBarItems: [String: NibArchivable] = [:]
+    /// The placeholders a scene's view nib may use for the objects of its controller's nib, by id.
+    var controllerNibPlaceholders: [(id: String, placeholder: NibProxy)] = []
+    /// What the last scene view nib's placeholders stand for, numbered from 1, when any stands for an
+    /// object of its controller's nib: that object's id, or nil for the controller.
+    var controllerObjectsReached: [String?] = []
+    /// The document, whose elements a refusal names.
+    var document: XIBElement?
     /// Whether the last scene view nib numbered its controller before its gesture recognizer.
     var recognizerAfterController = false
     /// The controllers of a storyboard's other scenes, whose actions from this scene ibtool drops
