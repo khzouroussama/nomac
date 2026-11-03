@@ -69,7 +69,13 @@
       "source": "expo-examples",
       "path": "with-clerk",
       "react-native": "0.86.3",
-      "expo": "57.0.31"
+      "expo": "57.0.31",
+      "failsWithXcode": [
+        {
+          "match": "anchorPopover",
+          "reason": "expo-web-browser 58.0.7, which @clerk/clerk-expo's range pulls in, calls Expo 58's SceneGeometry.anchorPopover; the app is on Expo 57"
+        }
+      ]
     },
     {
       "id": "expo-with-convex",
