@@ -57,6 +57,45 @@ bundling itself: `nomac check`'s `build:script=sentry-cli-react-native-xcode` sa
 read no architectures from the stub) is Swift Build's seventh patch, on main since b74cc592, after
 the sweep's nomac (b225fc0c).
 
+## Just finished
+
+- `pod install` on Linux (container `nomac-demo`, ubuntu:24.04, CocoaPods 1.17.0, Node 24.22.2,
+  nomac's launchers on `PATH` as `nomac doctor` says) for sweep apps, as `rn_sweep.py install`
+  does on the Mac: expo-with-maps 437 s, expo-with-sentry 260 s (its Sentry xcframework downloaded
+  on Linux), expo-with-widgets 120 s, bluewallet 1237 s, zeus 1881 s (its install scripts need
+  `python3`): all succeed. expo-with-stripe fails as on the Mac (`[Reanimated] Failed to validate
+  worklets version`: the app). obytes-template's GitHub clones were cut 8 times (the network). No
+  nomac failure beyond the demo's fixes (`xcrun`'s clang target, macOS's `command`, `nomac
+  doctor`'s PATH line) and `/bin/cp -X` (ADR 0183, `bcd98eaf`).
+- The sweep's remaining compile errors are not nomac's: RevenueCat 5.50.1 (graysky) fails with
+  Xcode 27 the same way (`invalid redeclaration of synthesized memberwise
+  'init(stringRepresentation:)'`); bluesky's `Pods/sentry-xcframeworks/9.28.0/Sentry.xcframework`
+  is a symlink into the Mac's `~/Library/Caches/sentry-react-native` (the sweep installs pods on the
+  Mac; `SENTRY_XCFRAMEWORK_CACHE_DIR` or a Linux `pod install` would do); expo-with-router-menus,
+  -clerk, -yarn-workspaces and -video-background mix package versions.
+- ExpoModulesJSI's `.abi.json` lists the same 907 conformances as Xcode's, 10 of 75 types in
+  another order: a self-written module shows swift.org's compiler ordering them so without
+  `AssumeResilientCxxTypes` too (the compiler's, ADR 0101 class; no rule yet).
+
+## Next actions
+
+1. Finish the Linux `pod install` batch, stopped on 2026-11-03 for the owner's usage pause while
+   bluesky's `pnpm install` ran: bluesky, rocketchat, graysky, obytes-template. Runner (outside the
+   repository): `~/nomac-out/demo/scripts/linux_pods.sh` in the `nomac-demo` container (stopped:
+   `docker start nomac-demo`; its volume keeps nomac's release build and `~/.nomac`), one line
+   of `~/nomac-out/demo/in/pod-apps4.txt` per run, driven from the Mac with a 25 GB free check per
+   app and `/work/home/Library/Caches/CocoaPods` cleared between apps; results in
+   `/work/logs/pods/results.txt`, logs in `/work/logs/pods/<app>/`.
+2. Build the Linux-installed apps with nomac (only `pod install` was checked), keeping the
+   checkouts the runner now deletes.
+3. ExpoModulesJSI's `.abi.json`: an experiment on whether the order of a type's conformances
+   carries meaning, then an equivalence rule (the same conformances per type) or a recorded
+   difference.
+4. The Expo upstream description (`~/nomac-out/demo/expo-upstream-pr.md`, its darwin-only module
+   scan) waits for the owner's OK; nothing is filed.
+5. For the device workstream: a launch right after `nomac install` replaced the same running app
+   ends the new process within 3 to 19 s (docs/DEMO.md).
+
 ## The apps
 
 `.github/scripts/expo_experiments.py generate` writes them under `~/nomac-out/wt-scratch/expo/apps`

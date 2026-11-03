@@ -29,7 +29,7 @@ fixes below).
 React Native and Expo need Node and CocoaPods, which the README's install does not list:
 
 ```sh
-sudo apt-get install -y ruby-full build-essential rsync     # CocoaPods copies local pods with rsync
+sudo apt-get install -y ruby-full build-essential rsync python3   # rsync for CocoaPods; python3 for some apps' install scripts
 sudo gem install -N cocoapods bundler
 curl -fsSLO https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-arm64.tar.xz       # Node 24
 sudo mkdir -p /opt/node && sudo tar xJf node-v24.22.2-linux-arm64.tar.xz -C /opt/node --strip-components=1
