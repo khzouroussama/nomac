@@ -18,32 +18,44 @@
     {
       "id": "expo-stickersmash",
       "source": "expo-examples",
-      "path": "stickersmash"
+      "path": "stickersmash",
+      "react-native": "0.88.0-rc.1",
+      "expo": "58.0.21"
     },
     {
       "id": "expo-with-apollo",
       "source": "expo-examples",
-      "path": "with-apollo"
+      "path": "with-apollo",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-app-integrity",
       "source": "expo-examples",
-      "path": "with-app-integrity"
+      "path": "with-app-integrity",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-auth0",
       "source": "expo-examples",
-      "path": "with-auth0"
+      "path": "with-auth0",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-aws-storage-upload",
       "source": "expo-examples",
-      "path": "with-aws-storage-upload"
+      "path": "with-aws-storage-upload",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-better-auth",
       "source": "expo-examples",
-      "path": "with-better-auth"
+      "path": "with-better-auth",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-camera",
@@ -55,27 +67,37 @@
     {
       "id": "expo-with-clerk",
       "source": "expo-examples",
-      "path": "with-clerk"
+      "path": "with-clerk",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-convex",
       "source": "expo-examples",
-      "path": "with-convex"
+      "path": "with-convex",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-custom-font",
       "source": "expo-examples",
-      "path": "with-custom-font"
+      "path": "with-custom-font",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-drawer-navigation",
       "source": "expo-examples",
-      "path": "with-drawer-navigation"
+      "path": "with-drawer-navigation",
+      "react-native": "0.86.0",
+      "expo": "57.0.31"
     },
     {
       "id": "expo-with-e2e",
       "source": "expo-examples",
-      "path": "with-e2e"
+      "path": "with-e2e",
+      "react-native": "0.88.1",
+      "expo": "58.0.21"
     },
     {
       "id": "expo-with-facebook-auth",
