@@ -5192,6 +5192,31 @@ MOVED["moved-cell-mixed"] = moved_cell(constraint(0, "ttt-tt-tt1", "top", "sss-s
                                         + constraint(2, "ttt-tt-tt1", "leading", "sss-ss-ss1", "trailing", ' constant="84"', indent=16),
                                         constraint(3, "sss-ss-ss1", "top", CONTENT, "top", ' constant="11"', indent=24))
 EXPERIMENTS.update(MOVED)
+
+
+# Round 57: subviews whose different frames lie as far from their superview's origin, in both
+# document orders and with their ids swapped.
+def same_distance(frame_a, frame_b, order="AB", ids=("aaa-aa-aa1", "bbb-bb-bb1")):
+    views = {"A": subview(ids[0], frame_a), "B": subview(ids[1], frame_b)}
+    pins = {"A": pin(ids[0], 0, int(frame_a[0]), int(frame_a[1])), "B": pin(ids[1], 1, int(frame_b[0]), int(frame_b[1]))}
+    return constrained("".join(views[k] for k in order), "".join(pins[k] for k in order))
+
+
+SAME_DISTANCE = {
+    "same-distance-axes": same_distance((100, 0, 20, 20), (0, 100, 20, 20)),
+    "same-distance-axes-reversed": same_distance((100, 0, 20, 20), (0, 100, 20, 20), order="BA"),
+    "same-distance-axes-ids-swapped": same_distance((100, 0, 20, 20), (0, 100, 20, 20), ids=("bbb-bb-bb1", "aaa-aa-aa1")),
+    "same-distance-345": same_distance((30, 40, 20, 20), (40, 30, 20, 20)),
+    "same-distance-345-reversed": same_distance((30, 40, 20, 20), (40, 30, 20, 20), order="BA"),
+    "same-distance-345-ids-swapped": same_distance((30, 40, 20, 20), (40, 30, 20, 20), ids=("bbb-bb-bb1", "aaa-aa-aa1")),
+    "same-distance-sizes": same_distance((100, 0, 50, 10), (0, 100, 10, 50)),
+}
+SAME_DISTANCE.update({
+    "same-distance-same-y": same_distance((30, 40, 20, 20), (-30, 40, 20, 20)),
+    "same-distance-same-x": same_distance((30, -40, 20, 20), (30, 40, 20, 20)),
+    "same-distance-diagonal": same_distance((-40, -30, 20, 20), (40, 30, 20, 20)),
+})
+EXPERIMENTS.update(SAME_DISTANCE)
 STORYBOARDS["sb-guide-bottom-position"] = guide_scene(
     guide_sub("gsb-aa-aa1", (20, 600, 100, 100)) + guide_sub("gs2-aa-aa1", (100, 845, 5, 5)) + guide_sub("gs3-aa-aa1", (200, 830, 5, 5)),
     GUIDE_LEADING + constraint(1, BOTTOM_GUIDE, "top", "gsb-aa-aa1", "bottom", ' constant="152"')
