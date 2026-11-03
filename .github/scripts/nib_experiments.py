@@ -6796,9 +6796,19 @@ NAMED_FONTS.update({
     "label-named-unknown-15": constrained(label(font=named_font("NotAFont-Regular", "NotAFont")), ""),
     "label-named-sfns": constrained(label(font=named_font(".SFNS-Regular", ".SF NS")), ""),
     "label-named-unknown": constrained(label(font=named_font("NotAFont-Regular", "NotAFont")), ""),
+    "label-named-stheitisc-medium-alias": constrained(label(font=named_font("STHeitiSC-Medium")), ""),
+    "label-named-stheititc-light-alias": constrained(label(font=named_font("STHeitiTC-Light")), ""),
+    "label-named-stheititc-medium-alias": constrained(label(font=named_font("STHeitiTC-Medium")), ""),
+    "label-named-lowercase": constrained(label(font=named_font("helvetica")), ""),
+    "label-named-display-name": constrained(label(font=named_font("Helvetica Neue", "Helvetica Neue")), ""),
+    "label-named-display-name-bold": constrained(label(font=named_font("Helvetica Neue Bold", "Helvetica Neue")), ""),
+    "label-named-times-new-roman": constrained(label(font=named_font("Times New Roman", "Times New Roman")), ""),
+    "label-named-arial-family": constrained(label(font=named_font("Arial", "Arial")), ""),
     "label-named-unknown-bold": constrained(label(font=named_font("NotAFont-Bold", "NotAFont")), ""),
     "label-named-two-sizes": constrained(label(font=named_font("Helvetica")) + label(font=named_font("Helvetica", "Helvetica", "18"), identifier="lll-ll-ll2", frame=(20, 80, 42, 21)), ""),
 })
+NAMED_FONTS["label-named-custom-listed"] = constrained(label(font=named_font("MyApp-Bold", "MyApp")), "").replace(
+    "<objects>", '<customFonts key="customFonts">\n<array key="MyApp-Bold.ttf">\n<string>MyApp-Bold</string>\n</array>\n</customFonts>\n<objects>', 1)
 OPTIONS.update({"label-named-helvetica-15": {"deployment": "15.0", "devices": ["iphone", "ipad"]}, "label-named-unknown-15": {"deployment": "15.0", "devices": ["iphone", "ipad"]}})
 EXPERIMENTS.update(NAMED_FONTS)
 

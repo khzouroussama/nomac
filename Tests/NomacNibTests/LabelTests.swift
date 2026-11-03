@@ -120,6 +120,41 @@ import Testing
         #expect(VariationTests.digest(nib) == digest, "\(name)")
     }
 
+    static func named(_ name: String, family: String? = nil, size: String = "16") -> String {
+        font(["name": name, "family": family ?? String(name.prefix { $0 != "-" }), "pointSize": size])
+    }
+
+    static let namedFontCases: [(String, String, Int, String)] = [
+        ("label-named-helvetica", labelled(label(font: named("Helvetica"))), 1776, "600b117f9720ab45e57dcf91108a1c44c8dd0759e99fdfb3c3eca86289e47af9"),
+        ("label-named-helvetica-wrong-family", labelled(label(font: named("Helvetica", family: "Arial"))), 1776, "600b117f9720ab45e57dcf91108a1c44c8dd0759e99fdfb3c3eca86289e47af9"),
+        ("label-named-helvetica-size-17", labelled(label(font: named("Helvetica", size: "17"))), 1776, "09f5f44d2938edccc6529c0ce7c8436d39f25af233752ea34c7e327325de49ca"),
+        ("label-named-helvetica-size-fraction", labelled(label(font: named("Helvetica", size: "16.5"))), 1776, "1ab9784a3839a701e766c4fae53c72ad14724919a6dd312e4b04f8b4b70a647f"),
+        ("label-named-helvetica-bold", labelled(label(font: named("Helvetica-Bold"))), 1781, "c2ee8fe47345718afbc59e6ee223a0c2ed240dbf9741c1efad19bbf88ab44715"),
+        ("label-named-helvetica-oblique", labelled(label(font: named("Helvetica-Oblique"))), 1784, "6b93334d2045f04d90579274f55b8f646a37b4a75e6e95580cb6e93860b059ce"),
+        ("label-named-helvetica-boldoblique", labelled(label(font: named("Helvetica-BoldOblique"))), 1788, "5f3091cbe3e73da7b079e06b287365a712a111e16bbc06ca66a4ca7de933130e"),
+        ("label-named-arialroundedmtbold", labelled(label(font: named("ArialRoundedMTBold"))), 1785, "381e30b9ad7c66a0aea6f5f480df0aee61d87ce1b07a1b49517a4d485cbbbfbb"),
+        ("label-named-impact", labelled(label(font: named("Impact"))), 1773, "13b400fa127a76664f3bbc48145f6b16b330fe27ed66b7c53667fd753b91d6a9"),
+        ("label-named-stheitisc-light", labelled(label(font: named("STHeitiSC-Light"))), 1783, "2f8d5516d7315c3e0966dd4dd82dd3f1497ac7a9237c28145cd1f4dc61a00bcb"),
+        ("label-named-unknown", labelled(label(font: named("NotAFont-Regular"))), 1667, "1c8ba8edaa748c6b4d163f6c3bc8f8ef1192f7894262b3230cb2b52a912dc6df"),
+        ("label-named-courier-bold", labelled(label(font: named("Courier-Bold"))), 1663, "18aa7b1230d7405d1d86cca1ab0f00fef31cabf54bd79673158d003c17f6c2d2"),
+        ("label-named-lowercase", labelled(label(font: named("helvetica"))), 1660, "d1c9e2331faa8a6047ae598cbec58bc329be32e9af2966cec823f5ac8c6c8f8a"),
+        ("label-named-display-name", labelled(label(font: named("Helvetica Neue", family: "Helvetica Neue"))), 1665, "48e41dba88601a6041419132bda217009baddb8bd6986df326200cd5c4afe96a"),
+        ("label-named-sfns", labelled(label(font: named(".SFNS-Regular", family: ".SF NS"))), 1664, "335e60e9fefcca1be49c8ddda630ae2d39567bcc181b02e1a729b23240fc6cc7"),
+        ("label-named-custom-listed", labelled(label(font: named("MyApp-Bold"))).replacingOccurrences(
+            of: "<objects>", with: "<customFonts key=\"customFonts\">\n<array key=\"MyApp-Bold.ttf\">\n<string>MyApp-Bold</string>\n</array>\n</customFonts>\n<objects>"),
+         1661, "e55b4ffc18550d3789457aefdcf2060d2e610690434bee3ec0f976ec6b743397"),
+    ]
+
+    /// A resolved name has the resolved options, the scaling keys and its traits, not always the
+    /// name's (`Impact` bold, `ArialRoundedMTBold` not); any other name is written with options 0,
+    /// traits 0 and no scaling keys, the family attribute ignored.
+    @Test(arguments: namedFontCases)
+    func compilesNamedFontsAsXcode(name: String, xib: String, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/\(name)/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size, "\(name)")
+        #expect(VariationTests.digest(nib) == digest, "\(name)")
+    }
+
     /// A minimum over the font's size warns, by the labels' ids in a Foundation table's order
     /// (`label-min-20-two`); a text style's default size counts (`label-min-20-yes-style`).
     @Test func warnsOfMinimumsOverTheFontSize() throws {

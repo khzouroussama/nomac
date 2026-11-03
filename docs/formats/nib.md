@@ -310,10 +310,35 @@ is a mutable dictionary of the emphasized usage, `NSCTFontUIUsageOverrideAttribu
 `NSSize` and name of `NibFont.textStyles` (Body 14, Headline semibold 14, Title0 31...). A style
 ibtool does not know (`UICTFontTextStyleSubheadline`, or a made-up one: `label-style-subheadline`,
 `label-style-made-up`) is a font of `UIFontName` and `NSName` nil, a descriptor of attributes nil
-and options 0, point size, traits and `NSSize` 0, `UISystemFont` false. Named
-fonts have `NSFontNameAttribute` (the name string) and the size, `UISystemFont` false, and the
-traits and options `NibFont.namedFonts` records for each of the corpus's fonts; others are
-refused.
+and options 0, point size, traits and `NSSize` 0, `UISystemFont` false.
+
+### Named fonts
+
+Round 115 (`label-named-*`). A named font has `NSFontNameAttribute` (the name string, shared with
+`UIFontName` and `NSName`) and `NSFontSizeAttribute` the document's size, fractions too, and
+`UISystemFont` false; the family attribute changes nothing (`label-named-helvetica-wrong-family`).
+ibtool resolves a name or does not:
+
+- A name it resolves has options 2147483648, the scaling keys and the traits of
+  `NibFont.resolvedFonts` (`ResolvedFonts.swift`): italic 1, bold 2, both 3. They mostly follow the
+  name, with exceptions (`ArialRoundedMTBold` 0, `BodoniSvtyTwoOSITCTT-Bold` 0, `Impact` 2,
+  `HiraginoSans-W5` 2), so they are a table.
+- Any other name has options 0, traits 0 and no scaling keys, and nomac writes it without a refusal:
+  a made-up name (`label-named-unknown`), a name in another case (`label-named-lowercase`), a display
+  name (`label-named-display-name`), `.SFNS-Regular` (`label-named-sfns`, CoreText's note on ibtool's
+  stderr), system fonts ibtool does not find (`Courier-Bold`, `Courier-Oblique`, `GurmukhiMN`), and
+  custom fonts listed in `<customFonts>` (`label-named-custom-listed`); by hand, with the font's
+  file beside the document, the nib was the same.
+- One resolved name is written as another font's: `STHeitiSC-Light` is `PingFangSC-Light`
+  (`label-named-stheitisc-light`, `NibFont.renamedFonts`); `STHeitiSC-Medium`, `STHeitiTC-Light` and
+  `STHeitiTC-Medium` are unresolved.
+
+The table was found by compiling a label of each of about 3,100 names, the fonts CoreText lists on
+the Mac and the fonts of the iOS 18, 26 and 27 simulator runtimes; 309 resolve. `IOS_FONTS` in
+`nib_experiments.py` holds those and some that do not, so the round reproduces the table. A name
+ibtool resolves outside these lists would come out unresolved, and `nomac verify` would report the
+difference. Deployment target and devices do not change the result (`label-named-helvetica-15`,
+`label-named-unknown-15`).
 
 ## Attributed labels
 

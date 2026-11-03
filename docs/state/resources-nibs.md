@@ -299,9 +299,8 @@ in `~/nomac-out/wt-scratch/nibs2` (`btn.py <experiment>...`: a nib's buttons, ne
 inline; `nstruct.py`, `objlist.py`: an experiment's objects and its all-objects list;
 `expdiff.sh`, `corpusdiff.sh`: Xcode's nib against nomac's).
 
-Current step: paused (2026-11-03) after round 113 (table view cells' and content views'
-accessibility, prototype cells' nested nibs keeping it), all committed and marked READY; nothing
-running.
+Current step: paused (2026-11-03) after round 115 (web views, labels' shadows and minimums, named
+fonts), all committed and marked READY; nothing running.
 
 Next actions, by documents blocked (`python3 ~/nomac-out/scripts/nib_refusals.py <nomac>
 /tmp/nomac-corpus /tmp/nomac-holdout --examples`; 637 of 1065 compile at round 112):
@@ -315,6 +314,8 @@ Next actions, by documents blocked (`python3 ~/nomac-out/scripts/nib_refusals.py
    case collide on macOS: `*-mode-*-capital`).
 
 Just finished:
+- Named fonts: every name compiles, by the table of the 309 names ibtool resolves; others as
+  unresolved (round 115, `docs/formats/nib.md` "Named fonts").
 - Labels' shadow colors and offsets, minimum font sizes and scale factors with and without fitting,
   and the warning of a minimum over the font's size (round 115, 25 experiments identical).
 - Web views' configurations, preferences and own attributes (round 114, 44 experiments identical).

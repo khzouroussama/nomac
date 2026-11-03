@@ -131,15 +131,6 @@ final class NibFont: NibArchivable {
         "UICTFontTextStyleFootnote": 13, "UICTFontTextStyleCaption1": 12, "UICTFontTextStyleCaption2": 11, "UICTFontTextStyleTitle0": 34,
         "UICTFontTextStyleTitle1": 28, "UICTFontTextStyleTitle2": 22, "UICTFontTextStyleTitle3": 20,
     ]
-    /// The named fonts of the corpus's documents: their traits and descriptor options.
-    static let namedFonts: [String: (traits: Int, options: Int)] = [
-        "Futura-Medium": (0, 2_147_483_648), "Futura-CondensedMedium": (0, 2_147_483_648), "DINAlternate-Bold": (2, 2_147_483_648),
-        "Courier": (0, 2_147_483_648), "Courier-Bold": (0, 0), "CourierNewPS-BoldMT": (2, 2_147_483_648),
-        "HelveticaNeue": (0, 2_147_483_648), "HelveticaNeue-Bold": (2, 2_147_483_648), "HelveticaNeue-UltraLight": (0, 2_147_483_648),
-        "AvenirNext-Regular": (0, 2_147_483_648), "AvenirNext-DemiBold": (2, 2_147_483_648), "Georgia": (0, 2_147_483_648),
-        "ArialRoundedMTBold": (0, 2_147_483_648), "GillSans-Bold": (2, 2_147_483_648), ".SFNS-Regular": (0, 0),
-        "CourierNewPSMT": (0, 2_147_483_648), "HelveticaNeue-BoldItalic": (3, 2_147_483_648),
-    ]
     static let systemOptions = 2_147_517_444
 }
 

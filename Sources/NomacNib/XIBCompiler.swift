@@ -982,11 +982,11 @@ struct DocumentCompiler {
             if name == ".AppleSystemUIFont" {
                 font = systemFont(NibFont.systemWeights["regular"]!, size: size)
             } else {
-                guard let values = NibFont.namedFonts[name] else { throw unsupported("the font \(name)") }
-                let fontName = string(name)
+                let traits = NibFont.resolvedFonts[name]
+                let fontName = string(NibFont.renamedFonts[name] ?? name)
                 let entries: [(String, NibArchivable)] = [("NSFontNameAttribute", fontName), ("NSFontSizeAttribute", NibNumber(size))]
-                font = NibFont(name: fontName, kind: .descriptor(NibFontDescriptor(attributes: dictionary(entries), options: values.options)),
-                               pointSize: size, traits: values.traits, systemFont: false, size: size, scales: values.options != 0)
+                font = NibFont(name: fontName, kind: .descriptor(NibFontDescriptor(attributes: dictionary(entries), options: traits == nil ? 0 : NibFont.resolvedFontOptions)),
+                               pointSize: size, traits: traits ?? 0, systemFont: false, size: size, scales: traits != nil)
             }
         default:
             throw unsupported("this font description")
