@@ -260,7 +260,13 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Next actions
 
-1. `layoutMarginsFollowReadableWidth` on cells (11); colors (B-281); B-266 (DescriptionWelcome);
+1. Paused 2026-11-03 (usage). Assigned order: `layoutMarginsFollowReadableWidth` on cells (11
+   documents across corpus, holdout and sweep; not started), then colors (B-281: fit ColorSync's
+   pipeline on round 61's grids in `~/nomac-out/wt-scratch/nibs/nib`), then B-266
+   (DescriptionWelcome). nibs2-1 owns control actions and `<archive>` documents. Rank refusals
+   with `python3 ~/nomac-out/scripts/nib_refusals.py .build/debug/nomac /tmp/nomac-corpus
+   /tmp/nomac-holdout ~/nomac-out/sweep/apps`; measure with nib_compare.py on
+   `~/nomac-out/wt-scratch/nibs/nib` and `~/nomac-out/nibs-observations/corpus-merged` (0 different).
    variations of other properties the walk meets (stack views' `axis` and `spacing`).
 2. B-266: the order of `UIViewControllerIdentifiersToNibNames` when segues reach scenes out of
    document order (graph experiments, `sbinfo_sim.py` in scratch); tofu's Info.plist then.
