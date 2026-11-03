@@ -396,7 +396,7 @@
       "id": "expo-with-stripe",
       "source": "expo-examples",
       "path": "with-stripe",
-      "react-native": "0.86.0",
+      "react-native": "0.86.3",
       "expo": "57.0.31"
     },
     {

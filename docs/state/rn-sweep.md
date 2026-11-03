@@ -8,10 +8,27 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 
 ## Current step
 
-Batch 1 (10 of Expo's examples, 5 apps) done on main `b225fc0c` and routed (Results, Classes).
-Running: the 106 apps of the manifest; 46 passed every step on main `a9b571ab`, the other 60 run on
-the gate's build of main `ad202e5b` (each result names its nomac; it has B-200's image-set
-appearances, the nib fixes and React Native 0.81's `cp -X` stand-in, bcd98eaf). Next: the round's table, B-043.
+Paused on 2026-11-03 (the owner saves usage): round 2 is partial, 61 of the manifest's 106 apps
+finished (Round 2 below), the driver stopped with nothing in flight, the volume back to its base
+(3.1 GB: nomac `ad202e5b` at /work/bin/current, its developer directory, the Linux Node, the
+SwiftPM cache) and no checkout kept. Batch 1 (b225fc0c) is in Results and Classes.
+
+Next actions:
+
+1. Resume round 2 on the same nomac (`ad202e5b`; never move /work/bin/nomac-ad202e5b, the developer
+   directory's launchers name it), once the Mac has 30 GB free:
+
+   ```sh
+   docker start nomac-sweep-run
+   cd ~/nomac-out/wt/sweep && nohup python3 .github/scripts/rn_sweep.py run --resume --builders 2 \
+       --installers 3 --keep-failed 6 > ~/nomac-out/sweep/run-round2-resume.log 2>&1 &
+   ```
+
+   `--resume` runs the 45 apps without a finished result; then `rn_sweep.py report` gives the table.
+2. The round's classes routed to their workstreams (Classes), the report pasted here.
+3. A next round on a newer main (its own nomac and developer directory, from /ref/llvm-tools at
+   main's stamps) for the 47 results that came from `a9b571ab`, so that one build produces them all.
+4. B-043.
 
 The manifest records what an app asks of a build machine (`env`, `{checkout}` standing for its
 checkout: bluesky's `SENTRY_XCFRAMEWORK_CACHE_DIR`, inside the checkout so that the container sees
@@ -70,6 +87,97 @@ The container has no network, so what a build would download is provided: the Li
 the SwiftPM cache's swift-syntax repository (copied from the Mac's), which `nomac build` fetches to
 build Expo's macro plugin from the package beside it (ADR 0151). nomac takes the developer
 directory from `NOMAC_DEVELOPER_DIR`.
+
+## Round 2 (partial, 2026-11-03)
+
+The 46 apps that passed every step on main `a9b571ab` kept that result; the others ran on the gate's
+build of main `ad202e5b`. Each row names the nomac build that produced it.
+
+61 of 106 apps finished, 49 build, archive and export on Linux (80% of the finished); results by nomac build: a9b571ab 47, ad202e5b 14.
+
+| step | reached | passed |
+|---|---|---|
+| install | 61 | 60 |
+| check | 60 | 60 |
+| fixes | 60 | 60 |
+| build | 60 | 49 |
+| archive | 49 | 49 |
+| export | 49 | 49 |
+
+| app | nomac | React Native, Expo | result |
+|---|---|---|---|
+| expo-blank | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-stickersmash | a9b571ab | 0.88.0-rc.1, 58.0.21 | passes (export: 13 MB IPA) |
+| expo-with-apollo | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-app-integrity | a9b571ab | 0.86.0, 57.0.31 | passes (export: 9 MB IPA) |
+| expo-with-auth0 | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-aws-storage-upload | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-better-auth | a9b571ab | 0.86.0, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-camera | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-clerk | ad202e5b | 0.86.3, 57.0.31 | build: app: a package for another Expo SDK (expo-crypto@58.0.7, the app's Expo is 57.0.31) |
+| expo-with-convex | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-custom-font | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-drawer-navigation | a9b571ab | 0.86.0, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-e2e | a9b571ab | 0.88.1, 58.0.21 | passes (export: 11 MB IPA) |
+| expo-with-facebook-auth | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-firebase-saml-login | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-firebase-storage-upload | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-formdata-image-upload | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-github-remote-build-cache-provider | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-google-vision | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-graphql | a9b571ab | 0.86.0, 57.0.31 | passes (export: 9 MB IPA) |
+| expo-with-html | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-icons | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-legend-state-supabase | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-libsql | a9b571ab | 0.86.0, 57.0.31 | passes (export: 10 MB IPA) |
+| expo-with-maestro | a9b571ab | 0.86.3, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-magic | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-maps | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-moti | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-nextjs | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-openai | a9b571ab | 0.86.0, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-pdf | ad202e5b | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-processing | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-react-compiler | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-react-flow | a9b571ab | 0.86.0, 57.0.31 | passes (export: 9 MB IPA) |
+| expo-with-react-navigation | a9b571ab | 0.86.0, 57.0.31 | passes (export: 10 MB IPA) |
+| expo-with-react-router | a9b571ab | 0.86.0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-react-strict-dom | a9b571ab | 0.86.0, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-react-three-fiber | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-reanimated | a9b571ab | 0.86.0, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-router | a9b571ab | 0.86.0, 57.0.31 | passes (export: 9 MB IPA) |
+| expo-with-router-ai | a9b571ab | 0.86.0, 57.0.31 | passes (export: 9 MB IPA) |
+| expo-with-router-menus | ad202e5b | 0.86.3, 57.0.31 | build: compile error: cannot find type <q> in scope |
+| expo-with-router-tv | ad202e5b | 0.86.3-0, 57.0.31 | build: nomac refuses: nomac does not compile a constraint with an item that is not the view, its safe area or one of its subviews yet (BACKLOG B-265) |
+| expo-with-router-uniwind | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-rsc | a9b571ab | 0.86.3, 57.0.31 | install: (expo-fix) npm error code ERESOLVE / npm error ERESOLVE unable to resolve dependency tree / npm error |
+| expo-with-s3 | ad202e5b | 0.86.3, 57.0.31 | build: app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) |
+| expo-with-satori | a9b571ab | 0.86.3, 57.0.31 | passes (export: 11 MB IPA) |
+| expo-with-sentry | ad202e5b | 0.86.3, 57.0.31 | build: a tool's Linux build lacks a subcommand (sentry-cli xcode) |
+| expo-with-skia | a9b571ab | 0.86.3, 57.0.31 | passes (export: 13 MB IPA) |
+| expo-with-socket-io | a9b571ab | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-splash-screen | ad202e5b | 0.86.3, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-sqlite | a9b571ab | 0.86.3, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-storybook | ad202e5b | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-styled-components | a9b571ab | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-three | a9b571ab | 0.86.3, 57.0.31 | passes (export: 8 MB IPA) |
+| expo-with-tv | a9b571ab | 0.86.3-0, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-typescript | a9b571ab | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-victory-native | a9b571ab | 0.86.3, 57.0.31 | passes (export: 7 MB IPA) |
+| expo-with-webbrowser-redirect | a9b571ab | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+| expo-with-webgpu | a9b571ab | 0.86.3, 57.0.31 | passes (export: 11 MB IPA) |
+| expo-with-zustand | a9b571ab | 0.86.3, 57.0.31 | passes (export: 6 MB IPA) |
+
+| first failure | step | apps |
+|---|---|---|
+| app: a module the JavaScript imports is not installed (Metro; fails with Xcode too) | build | 7: expo-with-camera, expo-with-convex, expo-with-facebook-auth, expo-with-html, expo-with-legend-state-supabase, expo-with-router-uniwind, expo-with-s3 |
+| app: a package for another Expo SDK (expo-crypto@58.0.7, the app's Expo is 57.0.31) | build | 1: expo-with-clerk |
+| compile error: cannot find type <q> in scope | build | 1: expo-with-router-menus |
+| nomac refuses: nomac does not compile a constraint with an item that is not the view, its safe area or one of its subviews yet (BACKLOG B-265) | build | 1: expo-with-router-tv |
+| install (expo-fix) | install | 1: expo-with-rsc |
+| a tool's Linux build lacks a subcommand (sentry-cli xcode) | build | 1: expo-with-sentry |
+
+Not finished (45): expo-with-shadcn, expo-with-stripe, expo-with-svg, expo-with-tailwindcss, expo-with-tfjs-camera, expo-with-tinybase, expo-with-video-background, expo-with-webrtc, expo-with-widgets, expo-with-workbox, expo-with-yarn-workspaces, bluesky, bluewallet, rocketchat, inaturalist, zeus, expensify, rainbow, jitsi-meet, standard-notes, joplin, notesnook, ignite, tooot, chainreact-2023, graysky, showtime, podverse, metamask, eigen, memmy, olas, obytes-template, zulip-mobile, skia-example, reanimated-example, vision-camera-example, maps-example, webview-example, stripe-example, mmkv-example, lottie-example, video-example, screens-example, gesture-handler-example.
 
 ## Results
 
