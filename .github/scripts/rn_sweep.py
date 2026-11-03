@@ -235,8 +235,17 @@ def fetch(root, entry, env, log_path):
     if not git_fetch(target, entry["repository"], entry["commit"], env, log_path):
         return False
     if (target / ".gitmodules").exists():
-        return run(["git", "submodule", "update", "--init", "--recursive", "--depth", "1"], target, env, log_path) == 0
+        for path in submodule_paths(target):
+            if run_online(["git", "submodule", "update", "--init", "--recursive", "--depth", "1", "--", path], target, env, log_path) != 0:
+                with open(log_path, "a") as out:
+                    out.write(f"submodule {path} left out: it could not be fetched (a private repository, or the network)\n")
     return True
+
+
+def submodule_paths(folder):
+    listing = subprocess.run(["git", "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$"], cwd=folder,
+                             capture_output=True, text=True).stdout
+    return [line.split(" ", 1)[1] for line in listing.splitlines() if " " in line]
 
 
 def git_fetch(folder, url, commit, env, log_path):
@@ -330,7 +339,7 @@ def install(root, entry, env):
     if not wait_for_space(lambda: free_bytes(root), "on the Mac", MIN_FREE_MAC):
         sys.exit(f"error: less than {MIN_FREE_MAC >> 30} GB free on the Mac for 6 hours")
     if not fetch(root, entry, env, log_path):
-        step(result, "install", False, started, stage="fetch", error=tail_error(log_path))
+        step(result, "install", False, started, stage="fetch", error=tail_error(log_path), network=True)
         return save_result(root, result)
     top, app = checkout(root, entry), app_folder(root, entry)
     manager, folder, lockfile = package_manager(app, top)
@@ -352,9 +361,11 @@ def install(root, entry, env):
         stage_started = time.time()
         with POD_LOCK if stage == "pods" else contextlib.nullcontext():
             status = run_online(argv, cwd, stage_env, log_path) if cwd.is_dir() else 1
-        if status != 0 and stage == "packages" and argv[0] == "npm" and "ERESOLVE" in log_path.read_text(errors="replace")[-20000:]:
-            notes.append("npm --legacy-peer-deps (the packages' peer dependencies conflict: ERESOLVE)")
-            status = run_online(argv + ["--legacy-peer-deps"], cwd, stage_env, log_path)
+        if status != 0 and (stage == "expo-fix" or (stage == "packages" and argv[0] == "npm")) \
+                and "ERESOLVE" in log_path.read_bytes()[offset:].decode(errors="replace"):
+            notes.append(f"{stage}: npm --legacy-peer-deps (the packages' peer dependencies conflict: ERESOLVE)")
+            status = run_online(argv + (["--", "--legacy-peer-deps"] if stage == "expo-fix" else ["--legacy-peer-deps"]),
+                                cwd, stage_env, log_path)
         elif status != 0 and cwd.is_dir():
             notes.append(f"{stage} again after a failure")
             with POD_LOCK if stage == "pods" else contextlib.nullcontext():
