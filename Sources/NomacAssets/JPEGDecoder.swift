@@ -271,22 +271,48 @@ enum JPEGDecoder {
             }
         }
 
-        func pixels() throws -> (width: Int, height: Int, components: Int, pixels: [UInt8]) {
-            let maxH = components.map(\.horizontal).max()!, maxV = components.map(\.vertical).max()!
-            var result = [UInt8](repeating: 0, count: width * height * components.count)
+        /// A component's samples at the image's size: as they are at full size, a twice smaller
+        /// one upsampled with a triangle filter, each output sample three quarters its nearest
+        /// sample and a quarter the next one in the same 8×8 block, others by nearest sample. Quartz
+        /// decodes 4:2:0 JPEGs so: sharp at the blocks' edges (`images-4`, ADR 0204).
+        func plane(_ component: Component, maxH: Int, maxV: Int) -> [Int] {
+            let stride = component.blocksWide * 8
+            let (factorH, factorV) = (maxH / component.horizontal, maxV / component.vertical)
+            let wide = (width * component.horizontal + maxH - 1) / maxH, high = (height * component.vertical + maxV - 1) / maxV
+            func sample(_ x: Int, _ y: Int) -> Int { Int(component.samples[min(max(y, 0), high - 1) * stride + min(max(x, 0), wide - 1)]) }
+            func next(_ position: Int, _ sampled: Int) -> Int { min(max(position % 2 == 0 ? sampled - 1 : sampled + 1, sampled & ~7), sampled | 7) }
+            var plane = [Int](repeating: 0, count: width * height)
             for y in 0..<height {
                 for x in 0..<width {
-                    var values = components.map { component -> Double in
-                        let sx = x * component.horizontal / maxH, sy = y * component.vertical / maxV
-                        return Double(component.samples[sy * component.blocksWide * 8 + sx])
+                    let sx = x / factorH, sy = y / factorV
+                    switch (factorH, factorV) {
+                    case (1, 1):
+                        plane[y * width + x] = sample(x, y)
+                    case (2, 1):
+                        plane[y * width + x] = (sample(sx, sy) * 3 + sample(next(x, sx), sy) + (x % 2 == 0 ? 1 : 2)) >> 2
+                    case (2, 2):
+                        let column = { (cx: Int) in sample(cx, sy) * 3 + sample(cx, next(y, sy)) }
+                        plane[y * width + x] = (column(sx) * 3 + column(next(x, sx)) + (x % 2 == 0 ? 8 : 7)) >> 4
+                    default:
+                        plane[y * width + x] = sample(x * component.horizontal / maxH, y * component.vertical / maxV)
                     }
-                    if components.count == 3, adobeTransform != 0 {
-                        let (luma, blue, red) = (values[0], values[1] - 128, values[2] - 128)
-                        values = [luma + 1.402 * red, luma - 0.344136 * blue - 0.714136 * red, luma + 1.772 * blue]
-                    }
-                    for (channel, value) in values.enumerated() {
-                        result[(y * width + x) * components.count + channel] = UInt8(min(max(value.rounded(), 0), 255))
-                    }
+                }
+            }
+            return plane
+        }
+
+        func pixels() throws -> (width: Int, height: Int, components: Int, pixels: [UInt8]) {
+            let maxH = components.map(\.horizontal).max()!, maxV = components.map(\.vertical).max()!
+            let planes = components.map { plane($0, maxH: maxH, maxV: maxV) }
+            var result = [UInt8](repeating: 0, count: width * height * components.count)
+            for index in 0..<(width * height) {
+                var values = planes.map { Double($0[index]) }
+                if components.count == 3, adobeTransform != 0 {
+                    let (luma, blue, red) = (values[0], values[1] - 128, values[2] - 128)
+                    values = [luma + 1.402 * red, luma - 0.344136 * blue - 0.714136 * red, luma + 1.772 * blue]
+                }
+                for (channel, value) in values.enumerated() {
+                    result[index * components.count + channel] = UInt8(min(max(value.rounded(), 0), 255))
                 }
             }
             return (width, height, components.count, result)

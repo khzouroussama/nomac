@@ -396,8 +396,11 @@ enum QuartzPDF {
                 entries += ["/SMask", "\(maskNumber) 0 R"]
             }
             if let decode = samples.decode { entries += ["/Decode", "["] + decode.map(number) + ["]"] }
+            // An RGB JPEG with a soft mask is decoded and compressed with Flate; a gray one, or one
+            // without a mask, kept (`images-4`; corpus: firefox's onboarding images).
+            let jpeg = image.mask != nil && samples.space?.components == 3 ? nil : samples.jpeg
             writer.stream(objectNumber, dictionary: entries + ["/BitsPerComponent", "\(samples.bitsPerComponent)"],
-                          data: samples.jpeg ?? deflate(Self.rows(samples)), filter: samples.jpeg == nil ? "/FlateDecode" : "/DCTDecode")
+                          data: jpeg ?? deflate(Self.rows(samples)), filter: jpeg == nil ? "/FlateDecode" : "/DCTDecode")
             if let mask = image.mask, let maskNumber {
                 writer.stream(maskNumber, dictionary: ["/Type", "/XObject", "/Subtype", "/Image", "/Width", "\(mask.width)", "/Height", "\(mask.height)",
                                                        "/ColorSpace", "/DeviceGray", "/BitsPerComponent", "8"], data: deflate(Self.rows(mask)))

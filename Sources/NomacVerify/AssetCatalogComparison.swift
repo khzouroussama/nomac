@@ -63,11 +63,17 @@ public enum AssetCatalogComparison {
     static func convertsColors(_ png: [UInt8]) -> Bool {
         guard let chunks = pngChunks(png), let chunk = chunks.first(where: { $0.type == "iCCP" }),
               let name = chunk.data.firstIndex(of: 0), name + 2 < chunk.data.count else { return false }
-        var input = Array(chunk.data[(name + 2)...])
+        guard let profile = inflated(Array(chunk.data[(name + 2)...])) else { return false }
+        return !ICCProfile.isStandardSRGB(profile)
+    }
+
+    /// zlib data decompressed, or `nil` when it does not end.
+    static func inflated(_ data: [UInt8]) -> [UInt8]? {
+        var input = data
         var stream = z_stream()
-        guard inflateInit_(&stream, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return false }
+        guard inflateInit_(&stream, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
         defer { inflateEnd(&stream) }
-        var profile: [UInt8] = []
+        var output: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 1 << 14)
         var status = Z_OK
         input.withUnsafeMutableBufferPointer { source in
@@ -79,10 +85,10 @@ public enum AssetCatalogComparison {
                     stream.avail_out = UInt32(target.count)
                     status = inflate(&stream, Z_NO_FLUSH)
                 }
-                profile += buffer[..<(buffer.count - Int(stream.avail_out))]
+                output += buffer[..<(buffer.count - Int(stream.avail_out))]
             } while status == Z_OK
         }
-        return status == Z_STREAM_END && !ICCProfile.isStandardSRGB(profile)
+        return status == Z_STREAM_END ? output : nil
     }
 
     /// The comparison for one of actool's outputs, or `nil` when the file is not one this

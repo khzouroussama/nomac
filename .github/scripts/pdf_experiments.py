@@ -72,6 +72,9 @@ one image set in one catalog per experiment:
   reset.
 - cmyk-k: DeviceCMYK grays, K in quarters of 1/255; the sRGB of actool's rasters read through
   CoreUI into k-table.json.
+- images-4: RGB JPEGs (encoded by sips, 17 × 9 to 160 × 120, quality 20 to 100) drawn with a soft
+  mask, which Quartz decodes, and one without, which it keeps; the largest difference between
+  Quartz's decoded samples and nomac's into jpeg-bounds.json.
 - images-3: TIFF predictor 2 on gray and RGB images, soft masks with a white or black /Matte.
 - entries-2: a PDF per idiom (universal and iPad, iPhone and iPad, one alone) and per scale.
 - smasks-2, smasks-3: luminosity soft masks: gray, RGB and ICC group spaces, a group without a
@@ -263,6 +266,93 @@ def image(data, width, height, space=b"/DeviceRGB", bits=8, extra=b"", compress=
 
 
 RGB4 = bytes([255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0])
+
+
+def sips_jpeg(width, height, quality, seed=1):
+    """An RGB JPEG of a gradient with noise over it, encoded by sips at `quality` (0 to 100) from a
+    PNG written here."""
+    import random
+    generator = random.Random(seed)
+    rows = b""
+    for y in range(height):
+        rows += b"\0" + bytes(min(255, max(0, v)) for x in range(width)
+                              for v in (x * 255 // max(width - 1, 1) + generator.randint(-40, 40), y * 255 // max(height - 1, 1),
+                                        (x + y) * 4 % 256))
+
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:
+        source, target = Path(folder) / "a.png", Path(folder) / "a.jpg"
+        source.write_bytes(png)
+        subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", str(quality), str(source), "--out", str(target)],
+                       capture_output=True, check=True)
+        return target.read_bytes()
+
+
+def jpeg_mask_pdf(width, height, quality, mask=True, space=b"/DeviceRGB"):
+    """A page drawing an RGB JPEG of sips_jpeg's, with a gray soft mask when `mask`."""
+    jpeg = sips_jpeg(width, height, quality)
+    extra = b" /Filter /DCTDecode" + (b" /SMask 6 0 R" if mask else b"")
+    objects = [image(jpeg, width, height, space, extra=extra)]
+    if mask:
+        objects.append(image(bytes((x * 255 // max(width - 1, 1)) for y in range(height) for x in range(width)), width, height, b"/DeviceGray"))
+    return objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", objects, b"/XObject << /Im1 5 0 R >>")
+
+
+DECODED_JPEG_BOUND = 9
+
+
+def masked_images(document):
+    """Each 8-bit image with a soft mask stored with Flate in the PDF: its samples and its mask's."""
+    objects = {int(m.group(1)): m for m in re.finditer(rb"(\d+) 0 obj\n(<<[^>]*>>)\nstream\n", document)}
+
+    def stream(match):
+        return zlib.decompress(document[match.end():document.index(b"\nendstream", match.end())])
+    images = []
+    for match in objects.values():
+        entries = match.group(2).replace(b"\n", b" ")
+        mask = re.search(rb"/SMask (\d+) 0 R", entries)
+        if b"/Subtype /Image " in entries and mask and b"/FlateDecode " in entries and b"/BitsPerComponent 8 " in entries:
+            images.append((stream(match), stream(objects[int(mask.group(1))])))
+    return images
+
+
+def premultiplied_differences(samples, other, alphas):
+    """Each pair of RGB samples' difference once premultiplied by its pixel's alpha (8-bit, rounded)."""
+    return [abs(round(i * alphas[n // 3] / 255) - round(j * alphas[n // 3] / 255)) for n, (i, j) in enumerate(zip(samples, other))]
+
+
+def masked_alike(x, y):
+    """Whether the images with a soft mask in two PDFs, in order, have the same samples, or RGB
+    samples within DECODED_JPEG_BOUND once premultiplied by the mask's alpha (ADR 0204)."""
+    left, right = masked_images(x), masked_images(y)
+    return len(left) == len(right) and all(
+        p == q or len(p) == len(q) == 3 * len(a) and a == b and max(premultiplied_differences(p, q, a), default=0) <= DECODED_JPEG_BOUND
+        for (p, a), (q, b) in zip(left, right))
+
+
+def jpeg_bounds(root):
+    """images-4: for each RGB JPEG drawn with a soft mask, the largest difference between a sample
+    Quartz decodes and nomac's, premultiplied by the mask's alpha, the largest where the mask is
+    opaque, and how many differ (jpeg-bounds.json)."""
+    a = vector_pdfs((root / "actool" / "Assets.car").read_bytes())
+    ours = {}
+    for car in [root / "nomac" / "Assets.car"] + sorted((root / "single").glob("*/nomac/Assets.car")):
+        if car.exists():
+            ours.update(vector_pdfs(car.read_bytes()))
+    bounds = {}
+    for name, document in a.items():
+        p, q = masked_images(document), masked_images(ours.get(name, b""))
+        if not p or not q:
+            continue
+        (samples, alphas), (other, _) = p[0], q[0]
+        premultiplied = premultiplied_differences(samples, other, alphas)
+        opaque = [abs(i - j) for n, (i, j) in enumerate(zip(samples, other)) if alphas[n // 3] == 255]
+        bounds[name] = {"samples": len(samples), "premultiplied": max(premultiplied, default=0),
+                        "opaque": max(opaque, default=0), "differing": sum(1 for d in premultiplied if d)}
+    ae.write_json(root / "jpeg-bounds.json", bounds)
 
 
 def tiff_predicted(samples, width, colors):
@@ -1179,6 +1269,16 @@ EXPERIMENT_CASES = {
                                     b"<< /FunctionType 4 /Domain [0 1] /Range [0 1 0 1 0 1] /Length %d >>\nstream\n" % len(b'{ pop 1000000.25 0.000000 99.9999996 }') + b'{ pop 1000000.25 0.000000 99.9999996 }' + b"\nendstream"],
                           b"/Shading << /Sh1 5 0 R >>"),
     },
+    "images-4": {
+        # RGB JPEGs with a soft mask, which Quartz decodes; the controls it keeps.
+        "q100": jpeg_mask_pdf(64, 48, 100),
+        "q80": jpeg_mask_pdf(64, 48, 80),
+        "q50": jpeg_mask_pdf(64, 48, 50),
+        "q20": jpeg_mask_pdf(64, 48, 20),
+        "odd-size": jpeg_mask_pdf(17, 9, 80),
+        "large": jpeg_mask_pdf(160, 120, 90),
+        "no-mask": jpeg_mask_pdf(64, 48, 80, mask=False),
+    },
     "images-3": {
         # TIFF predictor 2 (horizontal differences) and soft masks with a /Matte.
         "tiff-gray": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [image(tiff_predicted(GRAY4, 2, 1), 2, 2, b"/DeviceGray",
@@ -1496,13 +1596,20 @@ def describe(document):
 def without_profile(document):
     """The PDF with each ICC profile stream's and font program's bytes and lengths, the names
     Quartz gives fonts without a PostScript name, and the byte offsets (xref and startxref) put
-    aside: what ADR 0204 lets differ in a PDF vector rendition."""
+    aside, and the samples of images with a soft mask (masked_alike compares them): what ADR 0204
+    lets differ in a PDF vector rendition."""
     text = re.sub(rb"(/N \d /Alternate /\w+ /Length )\d+( /Filter /FlateDecode >>\nstream\n).*?\nendstream", rb"\1#\2#\nendstream", document, flags=re.S)
+    text = re.sub(rb"(/Subtype /Image [^>]*/SMask[^>]*/Length )\d+( /Filter /FlateDecode >>\nstream\n).*?\nendstream", rb"\1#\2#\nendstream", text, flags=re.S)
     text = re.sub(rb"<< /(Length1 \d+|Subtype /Type1C) /Length \d+ /Filter /FlateDecode >>\nstream\n.*?\nendstream", b"<< /FontFile # >>\nstream\n#\nendstream",
                   text, flags=re.S)
     text = re.sub(rb"\+font[0-9a-f]{16}", b"+font#", text)
     text = re.sub(rb"\n\d{10} 00000 n ", b"\n# n ", text)
     return re.sub(rb"startxref\n\d+", b"startxref\n#", text)
+
+
+def pdfs_alike(x, y):
+    """Whether two vector renditions' PDFs differ only as ADR 0204 allows."""
+    return without_profile(x) == without_profile(y) and masked_alike(x, y)
 
 
 class _Rect(ctypes.Structure):
@@ -1625,7 +1732,7 @@ def compare_car(x, y):
                 continue
             props = struct.unpack_from("<I", p, 168)[0]
             # The payload's storage must match: actool keeps a PDF as it is (flag 0).
-            if p[184:184 + props + 8] == q[184:184 + props + 8] and without_profile(pdf_payload(p)) == without_profile(pdf_payload(q)):
+            if p[184:184 + props + 8] == q[184:184 + props + 8] and pdfs_alike(pdf_payload(p), pdf_payload(q)):
                 b[index] = p
                 profiles = True
     result = ae.compare_pixel_car(ae.serialize(a, va), ae.serialize(b, vb), frozenset())
@@ -1663,7 +1770,7 @@ def run(root, nomac, cases):
             elif mine == document:
                 compare[name] = "identical"
             else:
-                compare[name] = "equivalent" if without_profile(mine) == without_profile(document) else "different"
+                compare[name] = "equivalent" if pdfs_alike(mine, document) else "different"
                 (root / f"{Path(name).stem}.nomac.txt").write_text(describe(mine))
                 if b"/FontFile" in document:
                     alike, differing = rendered_alike(document, mine)
@@ -1697,6 +1804,8 @@ def main():
         summary[name] = run(root, nomac, EXPERIMENT_CASES[name])
         if name == "cmyk-k":
             k_table(root)
+        if name == "images-4" and nomac:
+            jpeg_bounds(root)
         print(name, json.dumps(summary[name]))
     ae.write_json(out / "summary.json", summary)
 

@@ -29,4 +29,30 @@ import Testing
         #expect(!AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Array(Self.pdf(profile: "nomac's").dropLast(2)) + Array("X\n".utf8))))
         #expect(!AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Self.pdf(profile: "nomac's"), flag: 1)))
     }
+
+    /// zlib data of one stored block.
+    static func zlib(_ data: [UInt8]) -> [UInt8] {
+        let (a, b) = data.reduce((1, 0)) { sums, byte in ((sums.0 + Int(byte)) % 65521, (sums.1 + (sums.0 + Int(byte)) % 65521) % 65521) }
+        let length = data.count, adler = b << 16 | a
+        return [0x78, 0x01, 0x01, UInt8(length & 0xFF), UInt8(length >> 8), UInt8(~length & 0xFF), UInt8(~length >> 8 & 0xFF)] + data
+            + [24, 16, 8, 0].map { UInt8(adler >> $0 & 0xFF) }
+    }
+
+    /// A page drawing a 3-pixel RGB image with a soft mask of alphas 255, 128 and 0, both stored
+    /// with Flate, their dictionaries wrapped as Quartz wraps them.
+    static func maskedPDF(_ samples: [UInt8]) -> [UInt8] {
+        let image = zlib(samples), mask = zlib([255, 128, 0])
+        var pdf = Array("%PDF-1.3\n5 0 obj\n<< /Type /XObject /Subtype /Image /Width 3 /Height 1 /ColorSpace /DeviceRGB /SMask\n7 0 R /BitsPerComponent 8 /Length \(image.count) /Filter /FlateDecode >>\nstream\n".utf8)
+        pdf += image + Array("\nendstream\nendobj\n7 0 obj\n<< /Type /XObject /Subtype /Image /Width 3 /Height 1 /ColorSpace /DeviceGray\n/BitsPerComponent 8 /Length \(mask.count) /Filter /FlateDecode >>\nstream\n".utf8)
+        return pdf + mask + Array("\nendstream\nendobj\n".utf8)
+    }
+
+    @Test func decodedJPEGSamplesWithinTheBound() {
+        let quartz: [UInt8] = [100, 100, 100, 200, 200, 200, 0, 0, 0]
+        let xcode = Self.rendition(Self.maskedPDF(quartz))
+        #expect(AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Self.maskedPDF([109, 100, 91, 200, 215, 200, 90, 255, 3]))))
+        #expect(!AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Self.maskedPDF([110, 100, 100, 200, 200, 200, 0, 0, 0]))))
+        #expect(!AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Self.maskedPDF([100, 100, 100, 200, 220, 200, 0, 0, 0]))))
+        #expect(!AssetCatalogComparison.pdfRenditionsMatch(xcode, Self.rendition(Self.maskedPDF(Array(quartz.dropLast(3))))))
+    }
 }

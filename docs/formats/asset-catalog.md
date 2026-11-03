@@ -828,12 +828,17 @@ The content (`paths`, `colors`, `clips`, `details`, `extgstate`, `state-changes`
   `/ImageMask true` or `/ColorSpace n 0 R` (DeviceRGB's sRGB, DeviceGray's gray, an ICC
   profile byte for byte, as for colors) and the image's own `/Intent`, `/SMask n 0 R`, `/Decode [ … ]`, `/BitsPerComponent`
   `>>`, the samples compressed again (only the rows the size holds), a JPEG's bytes kept as
-  they are with `/DCTDecode`; TIFF predictor 2 samples decoded (`images-3`). A soft mask follows its image (its `/Matte` dropped,
+  they are with `/DCTDecode`, but an RGB JPEG with a soft mask's, which Quartz decodes and
+  compresses with Flate, each sample premultiplied by the mask's alpha and divided again in 8
+  bits (0 where the alpha is 0; a gray JPEG with a mask and an RGB one without are kept,
+  `images-4`); TIFF predictor 2 samples decoded (`images-3`). A soft mask follows its image (its `/Matte` dropped,
   its samples as they are), `/ColorSpace /DeviceGray
   /BitsPerComponent 8`, and makes the catalog `/Version /1.4`. Numbered when first drawn,
   before a stencil's color space; written after the stream that draws it, as forms are, its
   color space numbered then and its soft mask after it. nomac draws each pixel with the sample
-  under its center (a baseline JPEG decoded by nomac).
+  under its center (a baseline JPEG decoded by nomac: half-size chroma upsampled with a
+  triangle filter inside each 8×8 block, as Quartz's samples show in `images-4`; within ADR
+  0204's bound of Quartz's own).
 - Alpha soft masks (`smasks`): in force, an ExtGState `<< /Type /ExtGState /SMask << /G n 0 R
   /S /Alpha >> >>` written after everything else a drawing, group or image sets, and `/SMask
   /None` when it goes away; numbered with the stream's other ExtGStates, its form's resources
