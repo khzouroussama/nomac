@@ -1795,6 +1795,24 @@ def converted_subviews(colors, indent=""):
         for index, (space, red, green, blue, alpha) in enumerate(colors))
 
 
+# Round 61: ColorSync's conversion of calibratedRGB and displayP3 colors to extended sRGB, over a
+# grid of 6 levels per channel and ramps of 21 levels per channel and gray, to find its pipeline
+# instead of listing the corpus's colors.
+_LEVELS = [f"{n / 5:g}" for n in range(6)]
+_RAMP = [f"{n / 20:g}" for n in range(21)]
+
+
+def color_grid(space):
+    colors = [(space, r, g, b, "1") for r in _LEVELS for g in _LEVELS for b in _LEVELS]
+    colors += [(space, v, "0", "0", "1") for v in _RAMP] + [(space, "0", v, "0", "1") for v in _RAMP]
+    colors += [(space, "0", "0", v, "1") for v in _RAMP] + [(space, v, v, v, "1") for v in _RAMP]
+    return colors
+
+
+for _space in ("calibratedRGB", "displayP3"):
+    EXPERIMENTS[f"color-grid-{_space}"] = constrained(converted_subviews(color_grid(_space)), "")
+
+
 for space in ("calibratedRGB", "displayP3", "deviceRGB"):
     chosen = [color for color in CORPUS_CONVERTED if color[0] == space]
     EXPERIMENTS[f"converted-{space}"] = constrained(converted_subviews(chosen), "")
@@ -5291,6 +5309,38 @@ for _label in ("17.0", "9.0"):
     OPTIONS[f"sb-document-version-{_label}-target-15.0"] = {"deployment": "15.0"}
 
 
+# Round 62: Xcode 8's `<simulatedMetricsContainer key="defaultSimulatedMetrics">` in storyboards
+# without and with a `<device>` (RxSwift's example storyboards): its screen type against the scene
+# frame and the device's.
+def metrics_container(screen):
+    return ('    <simulatedMetricsContainer key="defaultSimulatedMetrics">\n        <simulatedStatusBarMetrics key="statusBar"/>\n'
+            '        <simulatedOrientationMetrics key="orientation"/>\n'
+            f'        <simulatedScreenMetrics key="destination" type="{screen}"/>\n    </simulatedMetricsContainer>\n')
+
+
+_NO_DEVICE = STORYBOARD.replace('    <device id="retina6_12" orientation="portrait" appearance="light"/>\n', "")
+for _screen, _size in (("retina4_7.fullscreen", ("375", "667")), ("retina4", ("320", "568"))):
+    _matching = _NO_DEVICE.replace('width="393" height="852"', f'width="{_size[0]}" height="{_size[1]}"')
+    STORYBOARDS[f"sb-metrics-{_screen}"] = _matching.replace("</document>", metrics_container(_screen) + "</document>")
+    STORYBOARDS[f"sb-metrics-{_screen}-frame-393"] = _NO_DEVICE.replace("</document>", metrics_container(_screen) + "</document>")
+    STORYBOARDS[f"sb-metrics-{_screen}-device"] = STORYBOARD.replace("</document>", metrics_container(_screen) + "</document>")
+STORYBOARDS["sb-no-device-375"] = _NO_DEVICE.replace('width="393" height="852"', 'width="375" height="667"')
+# Round 63: a scene's view below an opaque simulated navigation bar, at y 64 (RxSwift's example
+# storyboards, with Xcode 8's metrics container).
+_OPAQUE_BAR = '                    <simulatedNavigationBarMetrics key="simulatedTopBarMetrics" translucent="NO" prompted="NO"/>\n'
+for _height in ("603", "667"):
+    STORYBOARDS[f"sb-view-at-64-{_height}"] = _NO_DEVICE.replace('x="0.0" y="0.0" width="393" height="852"', f'x="0.0" y="64" width="375" height="{_height}"').replace(
+        "                </viewController>", _OPAQUE_BAR + "                </viewController>").replace("</document>", metrics_container("retina4_7.fullscreen") + "</document>")
+STORYBOARDS["sb-view-at-64-device"] = STORYBOARD.replace('x="0.0" y="0.0" width="393" height="852"', 'x="0.0" y="64" width="393" height="788"').replace(
+    "                </viewController>", _OPAQUE_BAR + "                </viewController>")
+STORYBOARDS["sb-view-at-20-device"] = STORYBOARD.replace('x="0.0" y="0.0" width="393" height="852"', 'x="0.0" y="20" width="393" height="832"')
+STORYBOARDS["sb-view-at-10-20"] = _NO_DEVICE.replace('x="0.0" y="0.0" width="393" height="852"', 'x="10" y="20" width="375" height="647"')
+# Old documents' headers: Xcode 5's `<development>` and the multipliers capability.
+EXPERIMENTS["development-xcode-5100"] = BASE.replace('        <plugIn', '        <development version="5100" identifier="xcode"/>\n        <plugIn', 1)
+EXPERIMENTS["capability-multipliers"] = BASE.replace('        <plugIn', '        <capability name="Constraints with non-1.0 multipliers" minToolsVersion="5.1"/>\n        <plugIn', 1)
+STORYBOARDS["sb-development-xcode-5100"] = STORYBOARD.replace('        <plugIn', '        <development version="5100" identifier="xcode"/>\n        <plugIn', 1)
+STORYBOARDS["sb-view-opaque-bar-at-0"] = _NO_DEVICE.replace('x="0.0" y="0.0" width="393" height="852"', 'x="0.0" y="0.0" width="375" height="603"').replace(
+    "                </viewController>", _OPAQUE_BAR + "                </viewController>").replace("</document>", metrics_container("retina4_7.fullscreen") + "</document>")
 STORYBOARDS["sb-guide-bottom-position"] = guide_scene(
     guide_sub("gsb-aa-aa1", (20, 600, 100, 100)) + guide_sub("gs2-aa-aa1", (100, 845, 5, 5)) + guide_sub("gs3-aa-aa1", (200, 830, 5, 5)),
     GUIDE_LEADING + constraint(1, BOTTOM_GUIDE, "top", "gsb-aa-aa1", "bottom", ' constant="152"')
