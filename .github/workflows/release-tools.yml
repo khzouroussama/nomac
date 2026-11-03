@@ -16,6 +16,9 @@ on:
       tools_run_id:
         description: "A previous run whose nomac-tools-linux-* artifacts to reuse instead of building the tools (empty: build them)"
         default: ""
+      prebuilt_run_id:
+        description: "A previous run whose cctools, llvm and llvm-project artifacts to reuse, building only the swift-frontend (empty: build them)"
+        default: ""
 
 permissions:
   contents: read
@@ -23,7 +26,7 @@ permissions:
 
 jobs:
   cctools:
-    if: inputs.tools_run_id == ''
+    if: inputs.tools_run_id == '' && inputs.prebuilt_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +43,7 @@ jobs:
           retention-days: 7
 
   llvm:
-    if: inputs.tools_run_id == ''
+    if: inputs.tools_run_id == '' && inputs.prebuilt_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +72,7 @@ jobs:
 
   swift-frontend:
     needs: [cctools, llvm]
+    if: always() && inputs.tools_run_id == '' && (inputs.prebuilt_run_id != '' || (needs.cctools.result == 'success' && needs.llvm.result == 'success'))
     strategy:
       fail-fast: false
       matrix:
@@ -82,6 +86,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: llvm-project-${{ runner.arch }}
+          run-id: ${{ inputs.prebuilt_run_id || github.run_id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}
       - name: Unpack the patched llvm-project
         run: |
@@ -92,10 +98,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: llvm-${{ runner.arch }}
+          run-id: ${{ inputs.prebuilt_run_id || github.run_id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/llvm-tools
       - uses: actions/download-artifact@v4
         with:
           name: cctools-${{ runner.arch }}
+          run-id: ${{ inputs.prebuilt_run_id || github.run_id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/llvm-tools
       - name: Gather the tools
         run: sudo cp -R "$RUNNER_TEMP/llvm-tools/." "$RUNNER_TEMP/r/tools/"
