@@ -23,6 +23,10 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- Rounds 59 and 60 (`safe-tie-grid-*`, `sub-tie-*`): ties of one item to several views, the
+  largest refusal across the corpus, holdout and sweep (62 of 1,071 documents), stay refused. The
+  rule the self-written documents fit fails the corpus's consistent layouts (B-265).
+
 - Round 58 (`document-version-*`): a document's `<deployment version>` changes no nib from 8.0 to
   27.0; below 5888 (23.0) ibtool prints a global document warning, which `nomac ibtool` now prints
   for xibs too. Corpus 426 identical (from 411), 0 different.

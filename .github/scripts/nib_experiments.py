@@ -5217,6 +5217,67 @@ SAME_DISTANCE.update({
     "same-distance-diagonal": same_distance((-40, -30, 20, 20), (40, 30, 20, 20)),
 })
 EXPERIMENTS.update(SAME_DISTANCE)
+
+
+# Round 59: a safe area's ties to two subviews of equal constants, each attribute against the
+# subviews' relative places (round 49 left the rule open; 32 corpus, holdout and sweep documents).
+SAFE_TIE_PLACES = {"above": ((100, 100, 50, 50), (100, 400, 50, 50)), "below": ((100, 400, 50, 50), (100, 100, 50, 50)),
+                   "left": ((50, 300, 50, 50), (250, 300, 50, 50)), "right": ((250, 300, 50, 50), (50, 300, 50, 50))}
+for _attribute in ("top", "bottom", "leading", "trailing"):
+    for _place, _frames in SAFE_TIE_PLACES.items():
+        EXPERIMENTS[f"safe-tie-grid-{_attribute}-{_place}"] = safe_tie(_frames, (0, 0), attribute=_attribute)
+
+
+# Round 60: what orders a safe area's ties of the same constant and perpendicular coordinate (ids,
+# subview order, which subview has more constraints), and a subview's ties to two siblings: the
+# position each implies for the subview's attribute, measured from that attribute's side.
+_below = SAFE_TIE_PLACES["below"]
+EXPERIMENTS["safe-tie-grid-top-below-ids-swapped"] = safe_tie(_below, (0, 0), attribute="top").replace("aaa-aa-aa1", "zzz-zz-zz9").replace("bbb-bb-bb1", "aaa-aa-aa1").replace(
+    "zzz-zz-zz9", "bbb-bb-bb1")
+EXPERIMENTS["safe-tie-grid-top-below-order-swapped"] = safe_tie(_below, (0, 0), order="BA", attribute="top")
+EXPERIMENTS["safe-tie-grid-top-below-subviews-swapped"] = (lambda text: text.replace(
+    subview("aaa-aa-aa1", _below[0]) + subview("bbb-bb-bb1", _below[1]), subview("bbb-bb-bb1", _below[1]) + subview("aaa-aa-aa1", _below[0])))(
+    safe_tie(_below, (0, 0), attribute="top"))
+
+
+def sub_tie(frame_a, frame_b, attribute, other_attribute, constants=(0, 0), relation="", x_frame=(0, 400, 50, 50)):
+    extra = f' relation="{relation}"' if relation else ""
+    return constrained(subview("aaa-aa-aa1", frame_a) + subview("bbb-bb-bb1", frame_b) + subview("xxx-xx-xx1", x_frame),
+                       pin("aaa-aa-aa1", 0, int(frame_a[0]), int(frame_a[1])) + pin("bbb-bb-bb1", 1, int(frame_b[0]), int(frame_b[1]))
+                       + pin("xxx-xx-xx1", 2, int(x_frame[0]), int(x_frame[1]))
+                       + constraint(10, "xxx-xx-xx1", attribute, "aaa-aa-aa1", other_attribute, f'{extra} constant="{constants[0]}"')
+                       + constraint(11, "xxx-xx-xx1", attribute, "bbb-bb-bb1", other_attribute, f'{extra} constant="{constants[1]}"'))
+
+
+SUB_TIES = {
+    "sub-tie-leading-trailing": sub_tie((0, 0, 100, 50), (0, 100, 150, 50), "leading", "trailing"),
+    "sub-tie-leading-trailing-frames-swapped": sub_tie((0, 0, 150, 50), (0, 100, 100, 50), "leading", "trailing"),
+    "sub-tie-leading-trailing-equal": sub_tie((0, 0, 100, 50), (0, 100, 150, 50), "leading", "trailing", (60, 10)),
+    "sub-tie-leading-trailing-ge": sub_tie((0, 0, 100, 50), (0, 100, 150, 50), "leading", "trailing", (8, 8), "greaterThanOrEqual"),
+    "sub-tie-trailing-leading": sub_tie((200, 0, 100, 50), (250, 100, 100, 50), "trailing", "leading", (-20, -20), x_frame=(0, 400, 150, 50)),
+    "sub-tie-trailing-leading-frames-swapped": sub_tie((250, 0, 100, 50), (200, 100, 100, 50), "trailing", "leading", (-20, -20), x_frame=(0, 400, 150, 50)),
+    "sub-tie-top-bottom": sub_tie((0, 0, 50, 100), (100, 0, 50, 150), "top", "bottom", (8, 8)),
+    "sub-tie-top-bottom-equal": sub_tie((0, 0, 50, 100), (100, 0, 50, 150), "top", "bottom", (58, 8)),
+    "sub-tie-center-y": sub_tie((0, 100, 50, 50), (100, 300, 50, 50), "centerY", "centerY", x_frame=(200, 0, 50, 50)),
+    "sub-tie-center-y-frames-swapped": sub_tie((0, 300, 50, 50), (100, 100, 50, 50), "centerY", "centerY", x_frame=(200, 0, 50, 50)),
+    "sub-tie-center-x": sub_tie((100, 0, 50, 50), (300, 100, 50, 50), "centerX", "centerX"),
+    "sub-tie-leading-leading": sub_tie((50, 0, 50, 50), (20, 100, 50, 50), "leading", "leading"),
+}
+_left, _above = SAFE_TIE_PLACES["left"], SAFE_TIE_PLACES["above"]
+EXPERIMENTS["safe-tie-grid-top-left-constants"] = safe_tie(_left, (10, 0), attribute="top")
+EXPERIMENTS["safe-tie-grid-top-left-constants-other"] = safe_tie(_left, (0, 10), attribute="top")
+EXPERIMENTS["safe-tie-grid-top-above-constants"] = safe_tie(_above, (0, 10), attribute="top")
+EXPERIMENTS["safe-tie-grid-top-below-pins-swapped"] = safe_tie((_below[1], _below[0]), (0, 0), attribute="top").replace(
+    "aaa-aa-aa1", "zzz-zz-zz9").replace("bbb-bb-bb1", "aaa-aa-aa1").replace("zzz-zz-zz9", "bbb-bb-bb1")
+EXPERIMENTS["safe-tie-grid-top-below-mention-vs-count"] = constrained(
+    subview("aaa-aa-aa1", _below[0]) + subview("bbb-bb-bb1", _below[1]),
+    constraint(0, "aaa-aa-aa1", "top", SAFE_GUIDE, "top", ' constant="400"')
+    + constraint(1, "bbb-bb-bb1", "leading", SAFE_GUIDE, "leading", ' constant="100"') + constraint(2, "bbb-bb-bb1", "top", SAFE_GUIDE, "top", ' constant="100"')
+    + constraint(10, SAFE_GUIDE, "top", "aaa-aa-aa1", "top", ' constant="0"') + constraint(11, SAFE_GUIDE, "top", "bbb-bb-bb1", "top", ' constant="0"'), safe=True)
+EXPERIMENTS["safe-tie-trailing-origin-vs-center"] = safe_tie(((0, 100, 100, 300), (150, 200, 100, 50)), (0, 0))
+EXPERIMENTS["safe-tie-trailing-origin-vs-end"] = safe_tie(((0, 100, 100, 120), (150, 200, 100, 50)), (0, 0))
+EXPERIMENTS["safe-tie-trailing-center-vs-end"] = safe_tie(((0, 100, 100, 300), (150, 240, 100, 40)), (0, 0))
+EXPERIMENTS.update(SUB_TIES)
 # Round 58: a xib's and a storyboard's `<deployment version>` (IB's deployment target, iOS major x
 # 256 + minor x 16), from 7.0 to 27.0, at the default target and at one below and above it.
 DOCUMENT_VERSIONS = {"7.0": 1792, "8.0": 2048, "8.4": 2112, "9.0": 2304, "15.0": 3840, "17.0": 4352, "18.0": 4608, "18.6": 4704, "18.7": 4720, "19.0": 4864, "21.0": 5376, "22.0": 5632, "22.15.15": 5887, "23.0": 5888, "24.0": 6144, "25.0": 6400, "26.0": 6656, "27.0": 6912}
