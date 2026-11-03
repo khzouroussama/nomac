@@ -394,7 +394,7 @@ def install(root, entry, env):
              network="could not download" in str(error), stages=timings)
         return save_result(root, result)
     step(result, "install", True, started, linuxPackages=len(added), prebuild=any(s[0] == "prebuild" for s in stages), notes=notes,
-         stages=timings)
+         stages=timings, otherSdk=other_sdk_packages(top, result["versions"].get("expo")))
     (out / "linux-packages.txt").write_text("".join(f"{path}\n" for path in added))
     save_result(root, result)
 
@@ -408,6 +408,28 @@ def save_versions(result, app, top, manager, declared, lockfile):
         entry = next(e for e in data["apps"] if e["id"] == result["id"])
         entry.update({key: value for key, value in versions.items() if value})
         write_atomically(MANIFEST, json.dumps(data, indent=2) + "\n")
+
+
+def other_sdk_packages(top, expo):
+    """The installed expo-* packages built for another Expo SDK than the app's: their major version
+    is their SDK's (expo-web-browser 58.0.7 is SDK 58's; @expo/* packages number otherwise, as
+    @expo/metro 56), and an open range can pull one into an app on an older SDK (expo-with-clerk,
+    Expo 57)."""
+    if not expo:
+        return []
+    sdk = expo.split(".")[0]
+    found = []
+    for package in package_manifests(top):
+        if not package.name.startswith("expo-") or package.parent.name.startswith("@"):
+            continue
+        try:
+            version = json.loads((package / "package.json").read_text()).get("version", "")
+        except (OSError, ValueError):
+            continue
+        major = version.split(".")[0]
+        if major.isdigit() and int(major) >= 50 and major != sdk:
+            found.append(f"{package.relative_to(top)}@{version}")
+    return sorted(found)
 
 
 def package_manifests(top):
@@ -605,7 +627,7 @@ def linux(root, entry, slot, separate_build=False):
     try:
         if separate_build:
             if not guarded_step(result, "build", [NOMAC, "build", *common, *keep_going, "CODE_SIGNING_ALLOWED=NO", *settings],
-                                app, env, out / "build.log", known=entry.get("failsWithXcode", ())):
+                                app, env, out / "build.log", known=known_failures(entry, result)):
                 return
             shutil.rmtree(scratch, ignore_errors=True)
             if not guarded_step(result, "archive", [NOMAC, "archive", *common, "-archivePath", archive, *capture.ADHOC, *settings],
@@ -613,7 +635,7 @@ def linux(root, entry, slot, separate_build=False):
                 return
         else:
             if not guarded_step(result, "build", [NOMAC, "archive", *common, "-archivePath", archive, *keep_going,
-                                                   *capture.ADHOC, *settings], app, env, out / "build.log", known=entry.get("failsWithXcode", ())):
+                                                   *capture.ADHOC, *settings], app, env, out / "build.log", known=known_failures(entry, result)):
                 return
             step(result, "archive", True, time.time(), note="the build's archive (nomac archive)")
         shutil.rmtree(scratch / "DerivedData", ignore_errors=True)
@@ -643,7 +665,7 @@ def reclassify(root, names):
             s["missingCommands"] = missing_commands(log_path)
             failures = [] if s["ok"] else ([{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
                                            if s.get("exit") == -9 else classify(log_path))
-            failures = [with_known_failures(f, entry.get("failsWithXcode", ())) for f in failures]
+            failures = [with_known_failures(f, known_failures(entry, result)) for f in failures]
             if failures:
                 s.update(failures[0], failures=failures[:30], resource=any(f["class"] == KILLED for f in failures))
         if result["steps"]:
@@ -669,12 +691,21 @@ def guarded_step(result, name, argv, cwd, env, log_path, produced=None, known=()
     return step(result, name, ok, started, **details)
 
 
+def known_failures(entry, result):
+    """The manifest's failures Xcode has too, and an error in a package for another Expo SDK."""
+    expo = result.get("versions", {}).get("expo")
+    other = [{"match": f"/{path.rsplit('@', 1)[0]}/",
+              "class": f"app: a package for another Expo SDK ({path.rsplit('/', 1)[-1]}, the app's Expo is {expo})"}
+             for path in result["steps"].get("install", {}).get("otherSdk", [])]
+    return [*entry.get("failsWithXcode", ()), *other]
+
+
 def with_known_failures(failure, known):
     """A failure the manifest records as Xcode's too (`failsWithXcode`: what a failed task or its
     message contains, and the reason, observed with Xcode 27.0) is the app's, not nomac's."""
     for note in known:
-        if note["match"] in failure.get("line", "") + " " + failure.get("detail", ""):
-            return dict(failure, **{"class": f"app: fails with Xcode too ({note['reason']})"})
+        if note["match"] in " ".join(failure.get(key, "") for key in ("line", "detail", "file")):
+            return dict(failure, **{"class": note.get("class") or f"app: fails with Xcode too ({note['reason']})"})
     return failure
 
 
@@ -874,9 +905,10 @@ def classify_task(task, output, evidence=()):
               or [line for line in lines if re.search(r"\b(error|Error|ERROR|ERR!)\b", line) and not GENERIC.search(line)]
               or [line for line in lines if not GENERIC.search(line)][-3:] or [task])
     detail = normalize(errors[0][errors[0].find("error:") + 6:] if "error:" in errors[0] else errors[0])
+    file = errors[0].split(": ", 1)[0] if DIAGNOSTIC.search(errors[0]) else ""
     for searched in [*("\n".join(group) for group in evidence if group), "\n".join(output)]:
         if cls := known_class(searched):
-            return {"class": cls, "detail": detail, "task": kind}
+            return {"class": cls, "detail": detail, "task": kind, "file": file}
     kinds = [("compile error", r"Compile(C|Swift|SwiftSources)?$|SwiftCompile|SwiftEmitModule|SwiftDriver|ProcessPCH|"
                                r"SwiftExplicitDependency\w*|ScanDependencies|PrecompileModule"),
              ("link error", r"Ld|Libtool|CreateUniversalBinary|GenerateDSYMFile"),
@@ -885,7 +917,7 @@ def classify_task(task, output, evidence=()):
              ("signing", r"CodeSign|ProcessProductPackaging\w*|Validate\w*"),
              ("script phase", r"PhaseScriptExecution"), ("scheme action script", r"SchemeAction")]
     label = next((label for label, pattern in kinds if re.fullmatch(pattern, kind)), kind)
-    return {"class": f"{label}: {template(detail)[:100]}", "detail": detail, "task": kind}
+    return {"class": f"{label}: {template(detail)[:100]}", "detail": detail, "task": kind, "file": file}
 
 
 def known_class(text):
