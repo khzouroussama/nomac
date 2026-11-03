@@ -42,7 +42,7 @@ extension DocumentCompiler {
     /// constants in document order (`tie-constant-reversed`, `mask-*`), and identical ones as they
     /// come (`tie-identical-normalized`, nextcloud's duplicated constraints); those of one first item
     /// to different subviews follow a rule not pinned yet (`tie-second-items-*` fit the subviews'
-    /// distance from the origin, the corpus does not: B-265). Items at the same distance are refused.
+    /// distance from the origin, the corpus does not: B-265). Items at the same distance and x are refused.
     mutating func compileConstraints() throws {
         var pending = pendingConstraints
         let moved = try installWhereIbtoolDoes(&pending)
@@ -335,8 +335,8 @@ extension DocumentCompiler {
     /// `sib-frames-*`, `cell-frames-*`, `view-frames-*`: every pair of frames observed, in views and
     /// cells' content views; 741 of the corpus's 758 matched views), frames partly outside the view
     /// too (`frames-outside-*`, `mask-group-*`), wholly outside or of no size (`outside-*`), a scene's
-    /// layout guides at its top and bottom edges (`sb-guide-bottom-position`). Different frames at
-    /// the same distance are refused.
+    /// layout guides at its top and bottom edges (`sb-guide-bottom-position`); at the same distance
+    /// the lesser x first (`same-distance-*`). Frames as far apart above each other are refused.
     private func orderedItems(_ items: [String], owner: String, guides: Set<String>) throws -> [String] {
         let others = items.filter { $0 != owner }
         typealias Frame = (x: Double, y: Double, width: Double, height: Double)
@@ -359,21 +359,22 @@ extension DocumentCompiler {
         // An item inside another listed item comes right after it, nearer or not
         // (`deep-negative-offset`; cwa's OnboardingInfoViewController); an unrelated item between
         // their distances makes ibtool's order depend on its sort (`deep-negative-offset-sibling`).
-        func key(_ id: String) -> (Double, Int, String) {
-            guard let ancestor = containing[id], distance(id) < distance(ancestor) else { return (distance(id), 0, id) }
+        // At the same distance, the frame of the lesser x first (`same-distance-*`).
+        func key(_ id: String) -> (Double, Int, Double, String) {
+            guard let ancestor = containing[id], distance(id) < distance(ancestor) else { return (distance(id), 0, frames[id]!.x, id) }
             let (low, high) = (distance(id), distance(ancestor))
             if others.contains(where: { $0 != id && $0 != ancestor && containing[$0] != ancestor && distance($0) >= low && distance($0) < high }) {
-                return (-1, 0, id)
+                return (-1, 0, 0, id)
             }
-            return (high, ancestors(id).count + 1, id)
+            return (high, ancestors(id).count + 1, frames[id]!.x, id)
         }
         if others.contains(where: { key($0).0 == -1 }) {
             throw unsupportedConstraints("constraints of a view nearer the origin than the subview holding it, with another between them")
         }
         let sorted = others.sorted { key($0) < key($1) }
-        for (a, b) in zip(sorted, sorted.dropFirst()) where key(a).0 == key(b).0 && key(a).1 == key(b).1
-            && (frames[a]!.x, frames[a]!.y) != (frames[b]!.x, frames[b]!.y) {
-            throw unsupportedConstraints("constraints of subviews whose frames lie as far from their superview's origin")
+        for (a, b) in zip(sorted, sorted.dropFirst()) where key(a).0 == key(b).0 && key(a).1 == key(b).1 && key(a).2 == key(b).2
+            && frames[a]!.y != frames[b]!.y {
+            throw unsupportedConstraints("constraints of subviews whose frames lie as far from their superview's origin above each other")
         }
         return (items.contains(owner) ? [owner] : []) + sorted
     }

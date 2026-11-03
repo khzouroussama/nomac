@@ -23,6 +23,9 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- Round 57 (`same-distance-*`): subviews whose frames lie as far from the origin sort by x;
+  the same x above each other stays refused (their constraints interleave).
+
 - Round 56 (`moved-*`): constraints ibtool installs on a descendant of the listing view move to
   their items' nearest common ancestor and sort there; in all objects, a cell's moved constraints
   between its content view's subviews stay after the cell's own. Corpus 411 identical (from 409),
@@ -239,8 +242,7 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Next actions
 
-1. Subviews whose frames lie as far from the origin (B-265), `<deployment version>` in xibs
-   (B-260); then B-266 (DescriptionWelcome);
+1. `<deployment version>` in xibs (B-260); then B-266 (DescriptionWelcome);
    variations of other properties the walk meets (stack views' `axis` and `spacing`).
 2. B-266: the order of `UIViewControllerIdentifiersToNibNames` when segues reach scenes out of
    document order (graph experiments, `sbinfo_sim.py` in scratch); tofu's Info.plist then.

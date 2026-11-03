@@ -124,13 +124,28 @@ import Testing
         #expect(VariationTests.digest(nib) == digest, "\(name)")
     }
 
-    /// Frames as far from the origin as each other: the order between them is not observed.
-    @Test func refusesFramesAtTheSameDistance() {
-        let xib = ConstraintTests.constrained(ConstraintTests.subview("aaa-aa-aa1", (0, 50, 100, 20)) + ConstraintTests.subview("bbb-bb-bb1", (50, 0, 100, 20)),
-                                              ConstraintTests.pinned("aaa-aa-aa1", 0) + ConstraintTests.pinned("bbb-bb-bb1", 4))
-        #expect(throws: NomacError("nomac does not compile constraints of subviews whose frames lie as far from their superview's origin yet (BACKLOG B-265)",
+    static func sameDistance(_ a: (Double, Double), _ b: (Double, Double)) -> String {
+        ConstraintTests.constrained(ConstraintTests.subview("aaa-aa-aa1", (a.0, a.1, 20, 20)) + ConstraintTests.subview("bbb-bb-bb1", (b.0, b.1, 20, 20)),
+                                    TofuFeatureTests.pin("aaa-aa-aa1", 0, Int(a.0), Int(a.1)) + TofuFeatureTests.pin("bbb-bb-bb1", 1, Int(b.0), Int(b.1)))
+    }
+
+    /// Frames as far from the origin as each other: the lesser x first (round 57, `same-distance-*`).
+    @Test(arguments: [
+        ("same-distance-345", sameDistance((30, 40), (40, 30)), 1461, "c04c35be8aa01afba1caa7d84385b9838e5d1616336755fade93e852ce8457f2"),
+        ("same-distance-same-y", sameDistance((30, 40), (-30, 40)), 1461, "4ed42a6f4d3453b8794aba1ce086884f757d4ac197acaef7dbac90e27328a8b4"),
+    ])
+    func sortsFramesAtTheSameDistanceByX(name: String, xib: String, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size, "\(name)")
+        #expect(VariationTests.digest(nib) == digest, "\(name)")
+    }
+
+    /// `same-distance-same-x`: frames as far from the origin above each other interleave their
+    /// constraints, not pinned.
+    @Test func refusesFramesAtTheSameDistanceAboveEachOther() {
+        #expect(throws: NomacError("nomac does not compile constraints of subviews whose frames lie as far from their superview's origin above each other yet (BACKLOG B-265)",
                                    path: "/tmp/View.xib")) {
-            try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+            try XIBCompiler.compile(Data(Self.sameDistance((30, -40), (30, 40)).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
         }
     }
 

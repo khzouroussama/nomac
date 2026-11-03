@@ -457,7 +457,7 @@ The order of a view's constraints depends on their content, not on their ids or 
   content views). This fits 741 of the corpus's 758 matched views, the others stack views and
   views with constraints to deeper views. Frames partly or wholly outside the view, on its
   edges or of no size sort the same way (`frames-outside-*`, `mask-group-*`, `outside-*`; pocket-casts'
-  UserEpisodeDetailViewController); nomac refuses different frames at the same distance (B-265).
+  UserEpisodeDetailViewController); at the same distance the frame of the lesser x comes first, whatever the document's order or ids (`same-distance-*`, round 57); frames as far apart above each other (same x) interleave their constraints and nomac refuses them (B-265).
 - Layout margins (`leadingMargin`, `trailingMargin`, `topMargin`, `bottomMargin`, `leftMargin`,
   `rightMargin`, `centerXWithinMargins`, `centerYWithinMargins`): `NSFirstAttributeV2` and
   `NSSecondAttributeV2` are the margin attributes (13 to 20), `NSFirstAttribute` and
