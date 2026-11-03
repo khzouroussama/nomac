@@ -254,7 +254,7 @@ extension DocumentCompiler {
     /// A prototype cell whose segues the controller holds refers to them through the nib's own
     /// `UpstreamPlaceholder-1`, `-2`, after First Responder, in their document order
     /// (`sb-cellseg-prototype-*`, `sb-cellseg-accessory-*`).
-    mutating func prototypeNib(_ element: XIBElement, segues: [Bool]) throws -> Data {
+    mutating func prototypeNib(_ element: XIBElement, segues: [Bool], controller: String? = nil) throws -> Data {
         var nested = self
         nested.controllerNibPlaceholders = []
         nested.documentViews = [:]
@@ -277,9 +277,15 @@ extension DocumentCompiler {
         if let id = element.attributes["id"], !segues.isEmpty {
             nested.cellSeguePlaceholders = [id: zip(segues, placeholders).map { ($0, $1) }]
         }
-        let cell = try element.name == "collectionViewCell" ? nested.collectionViewCell(element, prototype: true) : nested.tableViewCell(element)
+        let upstream = controller.map { _ in NibProxy(identifier: "UpstreamPlaceholder-1") }
+        if let controller, let upstream { nested.placeholders[controller] = upstream }
+        let cell: NibArchivable = switch element.name {
+        case "collectionViewCell": try nested.collectionViewCell(element, prototype: true)
+        case "collectionReusableView": try nested.collectionReusableView(element)
+        default: try nested.tableViewCell(element)
+        }
         try nested.compileConstraints()
-        let topLevel: [NibArchivable] = [owner, responder] + placeholders + [cell]
+        let topLevel: [NibArchivable] = [owner, responder] + placeholders + (upstream.map { [$0] } ?? []) + [cell]
         let all = Self.allObjects(topLevel)
         let nib = try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: all,
                                                  connections: try nested.outletConnections(allObjects: all, extra: nested.cellSegueOutlets),

@@ -10,23 +10,39 @@ struct CollectionContent {
     /// Prototype cells, each a nib of its own, by reuse identifier in alphabetical order
     /// (`sb-collection-two-cells`).
     var prototypes: [(reuseIdentifier: NibString, nib: Data)] = []
+    /// Section header and footer views, each a nib of its own, the footer first, by
+    /// `<kind>/<reuse identifier>`, with the upstream placeholder its outlets to the controller use
+    /// (`sb-section-*`).
+    var sectionViews: [SectionView] = []
+
+    struct SectionView {
+        let key: NibString
+        let nib: Data
+        let upstream: (key: NibString, placeholder: NibProxy)?
+    }
 
     func encode(to encoder: NibEncoder) throws {
         scroll.encode(to: encoder)
         try encoder.encode(layout, forKey: "UICollectionLayout")
         encoder.encode(.boolean(true), forKey: "UIAllowsUserInitiatedMultipleSelection")
+        func dictionary(_ entries: [(NibArchivable, NibArchivable)] = []) -> NibDictionary {
+            let dictionary = NibDictionary()
+            dictionary.mutable = true
+            dictionary.entries = entries
+            return dictionary
+        }
         if !prototypes.isEmpty {
-            let externals = NibDictionary(), nibs = NibDictionary()
-            externals.mutable = true
-            nibs.mutable = true
-            for prototype in prototypes {
-                let objects = NibDictionary()
-                objects.mutable = true
-                externals.entries.append((prototype.reuseIdentifier, objects))
-                nibs.entries.append((prototype.reuseIdentifier, NibNestedNib(prototype.nib)))
-            }
-            try encoder.encode(externals, forKey: "UICollectionViewCellPrototypeNibExternalObjects")
-            try encoder.encode(nibs, forKey: "UICollectionViewCellNibDict")
+            try encoder.encode(dictionary(prototypes.map { ($0.reuseIdentifier, dictionary()) }), forKey: "UICollectionViewCellPrototypeNibExternalObjects")
+        }
+        if !sectionViews.isEmpty {
+            try encoder.encode(dictionary(sectionViews.map { view in (view.key, dictionary(view.upstream.map { [($0.key, $0.placeholder)] } ?? [])) }),
+                               forKey: "UICollectionViewSupplementaryViewPrototypeNibExternalObjects")
+        }
+        if !prototypes.isEmpty {
+            try encoder.encode(dictionary(prototypes.map { ($0.reuseIdentifier, NibNestedNib($0.nib)) }), forKey: "UICollectionViewCellNibDict")
+        }
+        if !sectionViews.isEmpty {
+            try encoder.encode(dictionary(sectionViews.map { ($0.key, NibNestedNib($0.nib)) }), forKey: "UICollectionViewSupplementaryViewNibDict")
         }
         encoder.encode(.boolean(prefetchingEnabled), forKey: "UICollectionViewPrefetchingEnabled")
     }
@@ -144,8 +160,42 @@ extension DocumentCompiler {
                 prototypes.append((string(reuseIdentifier), try prototypeNib(cell, segues: [])))
             }
         }
-        guard prototypes.isEmpty || scroll.nilDelegate else { throw unsupported("cells of a collection view without prototypes") }
+        let sectionViews = try sectionViews(element)
+        guard prototypes.isEmpty && sectionViews.isEmpty || scroll.nilDelegate else { throw unsupported("cells or section views of a collection view without prototypes") }
         return CollectionContent(scroll: scroll, layout: layout, prefetchingEnabled: try bool(element, "prefetchingEnabled", default: true),
-                                 prototypes: prototypes.sorted { Array($0.reuseIdentifier.value.utf8).lexicographicallyPrecedes(Array($1.reuseIdentifier.value.utf8)) })
+                                 prototypes: prototypes.sorted { Array($0.reuseIdentifier.value.utf8).lexicographicallyPrecedes(Array($1.reuseIdentifier.value.utf8)) },
+                                 sectionViews: sectionViews)
+    }
+
+    /// A collection view's section header and footer views, footer first. Without a reuse identifier
+    /// ibtool warns and drops the view; with one, a nib of its own whose outlets to the controller go
+    /// through its own `UpstreamPlaceholder-1` (`sb-section-*`). ibtool fails on two views of one
+    /// reuse identifier (`sb-section-footer-same-reuse`).
+    private mutating func sectionViews(_ element: XIBElement) throws -> [CollectionContent.SectionView] {
+        let kinds = [("sectionFooterView", "UICollectionElementKindSectionFooter"), ("sectionHeaderView", "UICollectionElementKindSectionHeader")]
+        let elements = kinds.compactMap { key, kind in element.child("collectionReusableView", key: key).map { ($0, kind) } }
+        guard element.children(named: "collectionReusableView").count == elements.count else {
+            throw unsupported("a collection view's <collectionReusableView> other than one header and one footer")
+        }
+        let reuseIdentifiers = elements.compactMap { $0.0.attributes["reuseIdentifier"] }
+        guard Set(reuseIdentifiers).count == reuseIdentifiers.count else { throw unsupported("section views of one reuse identifier (ibtool fails)") }
+        let controller = placeholders.first { ($0.value as? NibProxy)?.identifier === upstreamIdentifier }
+        var views: [CollectionContent.SectionView] = []
+        for (view, kind) in elements {
+            guard let reuseIdentifier = view.attributes["reuseIdentifier"] else {
+                warnings.append((view.attributes["id"] ?? "", "Prototype collection view section header or footer views must have reuse identifiers [9]"))
+                continue
+            }
+            let connections = Self.descendants(of: view, named: "outlet") + Self.descendants(of: view, named: "action")
+            let reached = controller.flatMap { controller in connections.contains { $0.attributes["destination"] == controller.key } ? controller : nil }
+            let nib = try prototypeNib(view, segues: [], controller: reached?.key)
+            var upstream: (key: NibString, placeholder: NibProxy)?
+            if let upstreamIdentifier, let placeholder = reached?.value as? NibProxy {
+                upstream = (upstreamIdentifier, placeholder)
+                prototypesReachController = true
+            }
+            views.append(CollectionContent.SectionView(key: string("\(kind)/\(reuseIdentifier)"), nib: nib, upstream: upstream))
+        }
+        return views
     }
 }

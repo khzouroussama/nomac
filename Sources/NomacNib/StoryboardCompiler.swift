@@ -1229,7 +1229,8 @@ extension DocumentCompiler {
         let usesUpstream = connections.contains { connection in
             [(connection as? NibOutletConnection)?.source, (connection as? NibOutletConnection)?.destination,
              (connection as? NibOutletCollectionConnection)?.source, (connection as? NibEventConnection)?.destination].contains { $0 === upstream }
-        }
+        } || prototypesReachController
+        prototypesReachController = false
         // Objects of the controller's nib are numbered with the controller as the sorted connections
         // first reach them, like a gesture recognizer (`sb-outlet-bar-from-view*`).
         var reached: [NibProxy] = []

@@ -864,6 +864,21 @@ cell's nib holds File's Owner, First Responder and the cell compiled as in "Coll
 the older template only, without the generated constraints and with a content view that does not
 write `UIViewDoesNotTranslateAutoresizingMaskIntoConstraints` (`sb-collection-cell*`).
 
+
+A collection view in prototypes mode with `<collectionReusableView key="sectionHeaderView">` or
+`key="sectionFooterView"` archives each as a nib of its own (`sb-section-*`, `sb-cvc-section-*`):
+File's Owner, First Responder and the reusable view with its subviews, constraints, mask and reuse
+identifier, as in a xib. `UICollectionViewSupplementaryViewPrototypeNibExternalObjects` follows the
+cells' external objects and `UICollectionViewSupplementaryViewNibDict` the cells' nibs, each keyed by
+`UICollectionElementKindSectionFooter/<reuse identifier>` and
+`UICollectionElementKindSectionHeader/<reuse identifier>`, the footer first; with no cells only these
+two are written. An outlet from the view to the controller goes through the nested nib's
+`UpstreamPlaceholder-1`, the external objects mapping it to the view nib's placeholder of the
+controller, which the view nib then has even without other outlets (`sb-section-footer-outlet-only`).
+Without a reuse identifier ibtool warns `Prototype collection view section header or footer views must
+have reuse identifiers [9]` at the view and drops it; two views of one reuse identifier are an error
+(`sb-section-footer-same-reuse`), which nomac refuses. The flow layout's reference sizes change only
+its own keys (`sb-section-footer-no-sizes`).
 ## Text views
 
 A `<textView>` is a `UITextView` (`text-view-*`, round 51): a view's and a scroll view's keys (as in

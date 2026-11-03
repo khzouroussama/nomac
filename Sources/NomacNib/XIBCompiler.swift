@@ -197,6 +197,8 @@ struct DocumentCompiler {
     /// What the last scene view nib's placeholders stand for, numbered from 1, when any stands for an
     /// object of its controller's nib: that object's id, or nil for the controller.
     var controllerObjectsReached: [String?] = []
+    /// Whether a collection view's section view of the scene's view nib has an outlet to the controller.
+    var prototypesReachController = false
     /// The document, whose elements a refusal names.
     var document: XIBElement?
     /// Whether the last scene view nib numbered its controller before its gesture recognizer.
@@ -550,7 +552,7 @@ struct DocumentCompiler {
                                 + (isEffect ? ["view", "blurEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
                                 + (element.name == "textView" ? ["fontDescription", "textInputTraits", "string", "dataDetectorType"] : [])
                                 + (element.name == "searchBar" ? ["textInputTraits"] : [])
-                                + (isCollection ? ["collectionViewFlowLayout", "collectionViewLayout", "cells"] : [])
+                                + (isCollection ? ["collectionViewFlowLayout", "collectionViewLayout", "cells", "collectionReusableView"] : [])
                                 + (isLabel ? [] : ["variation"])))
         if !isLabel {
             try designTimeSettings(element)
@@ -612,7 +614,7 @@ struct DocumentCompiler {
                  ("variation", _), ("prototypes", nil), ("sections", nil), ("color", "tintColor"), ("state", _), ("inset", _), ("buttonConfiguration", "configuration"),
                  ("edgeInsets", "layoutMargins"), ("directionalEdgeInsets", "directionalLayoutMargins"), ("viewLayoutGuide", "contentLayoutGuide"),
                  ("viewLayoutGuide", "frameLayoutGuide"), ("segments", nil), ("view", "contentView"), ("blurEffect", nil), ("collectionViewFlowLayout", "collectionViewLayout"),
-                 ("collectionViewLayout", "collectionViewLayout"), ("cells", nil),
+                 ("collectionViewLayout", "collectionViewLayout"), ("cells", nil), ("collectionReusableView", "sectionHeaderView"), ("collectionReusableView", "sectionFooterView"),
                  ("userDefinedRuntimeAttributes", nil), ("accessibility", "accessibilityConfiguration"), ("textInputTraits", "textInputTraits"),
                  ("dataDetectorType", "dataDetectorTypes"), ("imageReference", "image"),
                  ("preferredSymbolConfiguration", "preferredSymbolConfiguration"), ("items", nil), ("refreshControl", "refreshControl"),

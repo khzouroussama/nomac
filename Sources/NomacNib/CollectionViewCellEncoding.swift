@@ -99,7 +99,7 @@ extension DocumentCompiler {
     /// A `<collectionReusableView>` of a xib: a view with its reuse identifier after a view's keys
     /// (`reusable-*`).
     mutating func collectionReusableView(_ element: XIBElement) throws -> NibView {
-        let viewElement = XIBElement(name: "view", attributes: element.attributes.filter { $0.key != "reuseIdentifier" })
+        let viewElement = XIBElement(name: "view", attributes: element.attributes.filter { $0.key != "reuseIdentifier" && $0.key != "key" })
         viewElement.children = element.children
         let view = try view(viewElement, topLevel: true, originalClassName: "UICollectionReusableView")
         view.kind = .reusableView(element.attributes["reuseIdentifier"].map { string($0) })
