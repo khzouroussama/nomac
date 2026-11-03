@@ -7,33 +7,39 @@ Workstream: PDF image sets (B-200's PDF part, B-211's PDF rasters), in `NomacAss
 ## Current step
 
 nomac compiles PDF image sets with paths, fills, strokes, clips, form XObjects, transparency
-groups, Type 3 text, text in embedded TrueType and CFF fonts, image XObjects, alpha and
+groups, Type 3 text, text in embedded TrueType and CFF fonts, image XObjects (TIFF predictor 2,
+soft masks with a Matte, RGB JPEGs with a soft mask decoded as Quartz does), alpha and
 luminosity soft masks with transfer functions, axial and radial shadings and shading patterns,
-colors (DeviceRGB, DeviceGray, ICCBased), opacity, overprinting, smoothness, stroke adjustment
-and rendering intents, and luminosity appearances: the vector rendition by Quartz's rules,
-stored uncompressed as actool stores it, the rasters drawn by nomac (ADR 0204). Corpus (1,535
-image sets with a PDF): 1,320 Assets.car equivalent, 196 different, 19 refused (B-215).
-`pdf_experiments.py` (49 experiments): every experiment equivalent but two values exactly on a
-limit (`number-values-4`, `-5`) and the refused CMYK, blend mode and CFF-in-WinAnsi cases; every
-PDF with an embedded font renders pixel for pixel like actool's. Release builds compile the
-slowest corpus PDF in 3.8 s of CPU (14.9 s before the rasterizer's active edges).
+colors (DeviceRGB, DeviceGray, ICCBased, DeviceCMYK grays as actool's rasters show them),
+opacity, overprinting, smoothness, stroke adjustment and rendering intents, luminosity
+appearances and a PDF per idiom: the vector rendition by Quartz's rules, stored uncompressed as
+actool stores it, the rasters drawn by nomac (ADR 0204). Corpus (1,535 image sets with a PDF):
+1,328 Assets.car equivalent (5 identical), 201 different, 6 refused (B-215). The slowest
+firefox app icon compiles in 14.9 s of CPU in release (88 s before), output unchanged (110
+experiment cars and 80 corpus sets byte for byte).
 
 ## Just finished
 
-- Luminosity soft masks and transfer functions (`smasks-2`, `smasks-3`).
-- What the corpus sets they reached showed: stroke adjustment (`strokes-2`); intents and
-  overprinting for shadings, images and groups, the ExtGStates in number order, shadings in
-  groups perceptual (`shadings-2`, `images-2`, `groups-4` to `groups-6`); PostScript functions
-  run symbolically (`postscript-2`); kept functions before fonts.
-- Corpus: 1,287 equivalent before, 1,320 after; 64 refused sets compile now, 49 of them still
-  different (the causes in B-215).
+- `assets/pdf-10`: shading speed; a PDF per idiom (`entries-2`); TIFF predictor 2 and `/Matte`
+  (`images-3`); DeviceCMYK grays from a table measured on actool's rasters (`cmyk-k`; other
+  CMYK colors refused, the owner's decision of 2026-11-03); RGB JPEGs with a soft mask decoded,
+  chroma upsampled inside each 8×8 block, compared within ADR 0204's measured bound of 9
+  premultiplied (`images-4`, the owner's decision of 2026-11-03).
+- Corpus: 1,320 equivalent before, 1,328 after; refused 19 before, 6 after.
 
 ## Next actions
 
-1. The per-pixel shading path's speed (firefox's app icons: 15 s each in release).
-2. The sets still different: firefox's resampled functions, the rounding rule; last digits
-   (B-216); single causes in B-215.
-3. RGB JPEGs with soft masks (an ADR 0204 decision), the rasters' opaque flag and payload.
+1. The 7 firefox onboarding sets whose only difference is decoded JPEG samples beyond the bound
+   (`onboardingSyncWithIconsJapan`, `onboardingToolbarIcon{Bottom,Top}Japan[Selected]`,
+   `onboardingTrackersBrandRefresh`, `onboardingWelcomeJapan`): find what their JPEGs use that `images-4`'s do not, add it to `images-4`, match it.
+2. The sets still different: firefox's resampled functions, the rounding rule; last digits and
+   `0.10` (B-216); `/AAPL:Style` marked content (2 wikipedia sets); single causes in B-215.
+3. The single refusals: a CID font, a blend mode, another shading type, a PDF per scale; then
+   the rasters' opaque flag and payload.
+
+No run is left in progress: the corpus totals above come from a release build of this branch,
+each corpus set with a PDF compiled by actool and nomac and compared by `pdf_experiments.py`'s
+rules.
 
 ## How to work
 
