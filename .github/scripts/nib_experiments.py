@@ -6562,6 +6562,88 @@ SECTION_VIEWS["sb-cvc-section-footer-outlet"] = cvc_sections(section_view(attrib
 STORYBOARDS.update(SECTION_VIEWS)
 
 
+# Round 116: masks in a collection view cell: on the cell, whose constraints an old cell's content view
+# takes; on a current cell's content view; by size class; of subviews; in a prototype cell.
+def cv_mask_constraints(container, indent=12):
+    pad = " " * indent
+    return (f'{pad}<constraints>\n' + constraint(0, "lll-ll-ll1", "leading", container, "leading", ' constant="4"', indent=indent + 4)
+            + constraint(1, "lll-ll-ll1", "top", container, "top", ' constant="14"', indent=indent + 4)
+            + constraint(2, container, "trailing", "lll-ll-ll1", "trailing", ' constant="4"', indent=indent + 4)
+            + constraint(3, container, "bottom", "lll-ll-ll1", "bottom", ' constant="15"', indent=indent + 4) + f'{pad}</constraints>\n')
+
+
+def cv_mask(excluded=(), key="default", verb="exclude", mask="constraints", indent=12):
+    pad = " " * indent
+    return (f'{pad}<variation key="{key}">\n{pad}    <mask key="{mask}">\n' + "".join(f'{pad}        <{verb} reference="{reference}"/>\n' for reference in excluded)
+            + f'{pad}    </mask>\n{pad}</variation>\n')
+
+
+CV_MASKS = {
+    "cvmask-old-one": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask(["c02-aa-aaa"]), old=True),
+    "cvmask-old-two": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask(["c01-aa-aaa", "c02-aa-aaa"]), old=True),
+    "cvmask-old-all": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask(["c00-aa-aaa", "c01-aa-aaa", "c02-aa-aaa", "c03-aa-aaa"]), old=True),
+    "cvmask-old-no-guide": cv_cell(CV_LABEL, cv_mask_constraints(CV_CELL) + cv_mask(["c02-aa-aaa"]), old=True),
+    "cvmask-old-size-class": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask(["c02-aa-aaa"]) + cv_mask(["c02-aa-aaa"], "heightClass=regular-widthClass=compact", "include"), old=True),
+    "cvmask-old-size-class-only": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask(["c02-aa-aaa"], "heightClass=compact"), old=True),
+    "cvmask-old-subviews": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask(["lll-ll-ll1"], mask="subviews"), old=True),
+    "cvmask-old-empty": cv_cell(CV_LABEL, OLD_EXTRA + cv_mask_constraints(CV_CELL) + cv_mask([]), old=True),
+    "cvmask-new-content": cv_cell(CV_LABEL + cv_mask_constraints(CV_CONTENT, 16) + cv_mask(["c02-aa-aaa"], indent=16)),
+    "cvmask-new-content-size-class": cv_cell(CV_LABEL + cv_mask_constraints(CV_CONTENT, 16) + cv_mask(["c02-aa-aaa"], indent=16) + cv_mask(["c02-aa-aaa"], "heightClass=regular-widthClass=compact", "include", indent=16)),
+    "cvmask-new-on-cell": cv_cell(CV_LABEL + cv_mask_constraints(CV_CONTENT, 16), cv_mask(["c02-aa-aaa"])),
+    "cvmask-new-cell-constraints": cv_cell(CV_LABEL, cv_mask_constraints(CV_CELL) + cv_mask(["c02-aa-aaa"])),
+    "cvmask-new-subviews": cv_cell(CV_LABEL + cv_mask(["lll-ll-ll1"], mask="subviews", indent=16)),
+}
+for name, document in CV_MASKS.items():
+    if name.startswith("cvmask-old-") and "no-guide" not in name:
+        CV_MASKS[name] = document.replace(' useTraitCollections="YES"', ' useTraitCollections="YES" useSafeAreas="YES"').replace(
+            '        <capability name="documents saved', SAFE_AREA_CAPABILITY + '        <capability name="documents saved')
+CV_MASKS["mask-empty-default"] = constrained(subview("bbb-bb-bb1", (10, 10, 100, 50)), constraint(0, "bbb-bb-bb1", "leading", ROOT, "leading", ' constant="10"') + constraint(1, "bbb-bb-bb1", "top", ROOT, "top", ' constant="10"')).replace(
+    '<point key="canvasLocation"', '<variation key="default">\n<mask key="constraints"/>\n</variation>\n<point key="canvasLocation"')
+CV_MASKS["mask-empty-subviews"] = constrained(subview("bbb-bb-bb1", (10, 10, 100, 50)), "").replace(
+    '<point key="canvasLocation"', '<variation key="default">\n<mask key="subviews"/>\n</variation>\n<point key="canvasLocation"')
+CV_MASKS["mask-empty-size-class"] = constrained(subview("bbb-bb-bb1", (10, 10, 100, 50)), constraint(0, "bbb-bb-bb1", "leading", ROOT, "leading", ' constant="10"') + constraint(1, "bbb-bb-bb1", "top", ROOT, "top", ' constant="10"')).replace(
+    '<point key="canvasLocation"', '<variation key="heightClass=compact">\n<mask key="constraints"/>\n</variation>\n<point key="canvasLocation"')
+EXPERIMENTS.update(CV_MASKS)
+SB_CV_CONSTRAINTS = ('    <constraints>\n        <constraint firstItem="cvl-aa-aa1" firstAttribute="leading" secondItem="cel-aa-aa1" secondAttribute="leading" constant="10" id="c00-aa-aaa"/>\n'
+                     '        <constraint firstItem="cvl-aa-aa1" firstAttribute="top" secondItem="cel-aa-aa1" secondAttribute="top" constant="10" id="c01-aa-aaa"/>\n'
+                     '        <constraint firstItem="cvl-aa-aa1" firstAttribute="trailing" secondItem="cel-aa-aa1" secondAttribute="trailing" constant="76" id="c02-aa-aaa"/>\n    </constraints>\n')
+
+
+def sb_mask_cell(*variations):
+    cell = sb_cv_cell("cel-aa-aa1", "Cell", label=SB_CV_LABEL)
+    return sb_collection(cell.replace("</collectionViewCell>\n", SB_CV_CONSTRAINTS + "".join(variations) + "</collectionViewCell>\n"), outlets=True)
+
+
+SB_CV_MASKS = {
+    "sb-cvmask-one": sb_mask_cell(cv_mask(["c02-aa-aaa"], indent=4)),
+    "sb-cvmask-two": sb_mask_cell(cv_mask(["c01-aa-aaa", "c02-aa-aaa"], indent=4)),
+    "sb-cvmask-size-class": sb_mask_cell(cv_mask(["c02-aa-aaa"], indent=4), cv_mask(["c02-aa-aaa"], "heightClass=regular-widthClass=compact", "include", indent=4)),
+    "sb-cvmask-none": sb_mask_cell(),
+}
+SB_CV_OWN_CONSTRAINT = SB_CV_LABEL.replace('                <rect key="frame" x="10" y="10" width="42" height="21"/>\n',
+                                           '                <rect key="frame" x="10" y="10" width="42" height="21"/>\n                <constraints>\n'
+                                           '                    <constraint firstAttribute="width" constant="42" id="c09-aa-aaa"/>\n                </constraints>\n')
+SB_CV_HOLDER = ('        <subviews>\n            <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="hol-aa-aa1">\n'
+                '                <rect key="frame" x="0.0" y="0.0" width="100" height="100"/>\n'
+                + SB_CV_LABEL.replace("        <", "                <", 1).replace("        </subviews>", "                </subviews>")
+                + '                <constraints>\n                    <constraint firstItem="cvl-aa-aa1" firstAttribute="leading" secondItem="hol-aa-aa1" secondAttribute="leading" constant="10" id="c08-aa-aaa"/>\n'
+                '                </constraints>\n            </view>\n        </subviews>\n')
+SB_CV_MASKS["sb-cvmask-own-constraint"] = sb_collection(sb_cv_cell("cel-aa-aa1", "Cell", label=SB_CV_OWN_CONSTRAINT), outlets=True)
+SB_CV_MASKS["sb-cvmask-holder-constraint"] = sb_collection(sb_cv_cell("cel-aa-aa1", "Cell", label=SB_CV_HOLDER), outlets=True)
+SB_CV_MASKS["sb-cvmask-holder-mask"] = sb_collection(sb_cv_cell("cel-aa-aa1", "Cell", label=SB_CV_HOLDER.replace(
+    '            </view>\n        </subviews>\n', cv_mask(["c08-aa-aaa"], indent=16) + '            </view>\n        </subviews>\n')), outlets=True)
+def cvc_mask_cell(*variations):
+    cell = sb_mask_cell(*variations)
+    start, end = cell.index("<collectionViewCell "), cell.index("</collectionViewCell>") + len("</collectionViewCell>\n")
+    return storyboard(cvc_scene(cell[start:end]), initial="cvc-aa-aaa")
+
+
+SB_CV_MASKS["sb-cvc-cvmask-none"] = cvc_mask_cell()
+SB_CV_MASKS["sb-cvc-cvmask-one"] = cvc_mask_cell(cv_mask(["c02-aa-aaa"], indent=4))
+SB_CV_MASKS["sb-cvc-cvmask-size-class"] = cvc_mask_cell(cv_mask(["c02-aa-aaa"], indent=4), cv_mask(["c02-aa-aaa"], "heightClass=regular-widthClass=compact", "include", indent=4))
+STORYBOARDS.update(SB_CV_MASKS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
