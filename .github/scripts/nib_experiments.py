@@ -5983,6 +5983,34 @@ STORYBOARDS.update({k: v for k, v in RUNTIME_BARS.items() if k.startswith("sb-")
 
 
 
+# Round 102: a storyboard's global tint (`<color key="tintColor">` of the document), as the
+# holdout's habitica and keepassium storyboards have it.
+GLOBAL_TINT = '    <color key="tintColor" red="0.2" green="0.4" blue="0.6" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'
+
+
+def tinted(document, tint=GLOBAL_TINT):
+    return document.replace("</document>\n", tint + "</document>\n")
+
+
+GLOBAL_TINTS = {
+    "sb-tint-plain": tinted(storyboard(controller_scene(1), initial="vc1-aa-aaa")),
+    "sb-tint-two": tinted(storyboard(controller_scene(1), controller_scene(2, ' storyboardIdentifier="Two"'), initial="vc1-aa-aaa")),
+    "sb-tint-nav": tinted(storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1), initial="nvc-aa-aaa")),
+    "sb-tint-tab": tinted(storyboard(tab_scene(), controller_scene(1), controller_scene(2), initial="tab-aa-aaa")),
+    "sb-tint-view-tint": tinted(storyboard(controller_scene(1, view_extra='                        <color key="tintColor" white="0.5" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n'),
+                                           initial="vc1-aa-aaa")),
+    "sb-tint-button": tinted(storyboard(controller_scene(1, view_extra=segue_button('<segue destination="vc2-aa-aaa" kind="show" id="bsg-aa-aaa"/>')),
+                                        controller_scene(2), initial="vc1-aa-aaa")),
+}
+GLOBAL_TINTS["sb-tint-tab-nav"] = tinted(storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), nav_child("aa", "vc1-aa-aaa"), controller_scene(1),
+                                                  controller_scene(2), initial="tab-aa-aaa"))
+GLOBAL_TINTS["sb-tint-gray"] = tinted(storyboard(controller_scene(1), initial="vc1-aa-aaa"), '    <color key="tintColor" white="0.25" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n')
+STORYBOARDS.update(GLOBAL_TINTS)
+STORYBOARDS.update({name.replace("sb-tint-", "sb-untinted-"): document.replace(GLOBAL_TINT, "") for name, document in GLOBAL_TINTS.items()
+                    if GLOBAL_TINT in document})
+
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

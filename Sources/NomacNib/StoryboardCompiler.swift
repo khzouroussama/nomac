@@ -64,6 +64,9 @@ extension DocumentCompiler {
                 try designables(child)
             case "customFonts":
                 try customFonts(child)
+            case "color":
+                try value(child, "key", in: ["tintColor"])
+                globalTint = child
             case "inferredMetricsTieBreakers":
                 // Segues IB settles inferred metrics by; they change nothing (`sb-tie-breakers`).
                 try check(child, attributes: [], children: ["segue"])
@@ -1097,6 +1100,9 @@ extension DocumentCompiler {
         bar.insetsLayoutMarginsFromSafeArea = try bool(barElement, "insetsLayoutMarginsFromSafeArea", default: true)
         _ = try bool(barElement, "opaque", default: true)
         try navigationRuntimeAttributes(of: barElement, object: bar)
+        // A storyboard's global tint is its navigation bars' too, in tab bar controllers as well
+        // (`sb-tint-nav`, `sb-tint-tab-nav`).
+        bar.tintColor = try globalTint.map { try color($0) }
         return bar
     }
 
@@ -1118,6 +1124,12 @@ extension DocumentCompiler {
         let viewElement = XIBElement(name: element.name, attributes: element.attributes.filter { $0.key != "key" })
         viewElement.children = element.children
         let view = try self.view(viewElement, topLevel: true)
+        // A storyboard's global tint is the tint of each scene's view without one of its own
+        // (`sb-tint-*`); other kinds of scene views are not observed with it.
+        if let globalTint, view.tintColor == nil {
+            guard element.name == "view" else { throw unsupportedScene("a storyboard's global tint with a \(element.name) as a scene's view") }
+            view.tintColor = try color(globalTint)
+        }
         // A table or collection view controller's view may lack the guide in a document using safe
         // areas (`sb-tvc-safe-areas-*`, `sb-cvc-safe-areas-no-guide`).
         let tableOrCollection = view.kind.isTableView || view.kind.isCollection

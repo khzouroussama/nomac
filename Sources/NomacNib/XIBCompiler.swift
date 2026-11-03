@@ -120,6 +120,8 @@ struct DocumentCompiler {
     /// A storyboard's: the size of its scenes' views (from its `<device>` or its deployment target;
     /// nil when they keep their frames), and whether it uses safe areas.
     var sceneSize: (width: Double, height: Double)?
+    /// A storyboard's `<color key="tintColor">`, its global tint.
+    var globalTint: XIBElement?
     /// Bar button items' and navigation bars' runtime attributes, for the navigation controller's nib.
     var navigationPairs: [NibKeyValuePair] = []
     /// A xib's top-level views without freeform simulated metrics.

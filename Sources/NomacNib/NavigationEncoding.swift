@@ -172,6 +172,7 @@ final class NibNavigationBar: NibArchivable {
     var multipleTouchEnabled = false
     var clipsToBounds = false
     var insetsLayoutMarginsFromSafeArea = true
+    var tintColor: NibArchivable?
     var items: [NibNavigationItem] = []
     weak var delegate: NibNavigationController?
 
@@ -191,6 +192,7 @@ final class NibNavigationBar: NibArchivable {
         encoder.encode(.boolean(true), forKey: "UIAutoresizeSubviews")
         encoder.encode(.integer(2), forKey: "UIAutoresizingMask")
         if clipsToBounds { encoder.encode(.boolean(true), forKey: "UIClipsToBounds") }
+        if let tintColor { try encoder.encode(tintColor, forKey: "UITintColor") }
         try encoder.encode(hugging, forKey: "UIViewContentHuggingPriority")
         encoder.encode(.data(NibView.doubles([0, 0, 0, 0])), forKey: "UIViewLayoutMargins")
         encoder.encode(.boolean(true), forKey: "UIViewLayoutMarginsAreDirectional")

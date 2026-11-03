@@ -1196,6 +1196,11 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   (top 1, left 2, bottom 4, right 8; none 0), among the presentation settings after
   `UIHidesBottomBarWhenPushed` and before `UIKeyExtendedLayoutIncludesOpaqueBars` (round 88,
   `sb-edges-*`).
+- A storyboard's global tint, a `<color key="tintColor">` after its scenes and resources, is the
+  `UITintColor` of each scene's view without a tint of its own and of each navigation bar, in tab
+  bar controllers too; tab bars, controllers and other views keep none (round 102, `sb-tint-*`
+  against `sb-untinted-*`; the holdout's habitica and keepassium). Scene views other than plain
+  views are refused with it until observed.
 - A controller's `<size key="freeformSize">` without `<freeformSimulatedSizeMetrics>` also sizes its
   scene's view, resizing it from another frame (round 87, `sb-freeform-size-only*`; wikipedia's
   SavedProgressViewController); an embedded freeform controller keeps its own size

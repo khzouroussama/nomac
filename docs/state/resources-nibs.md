@@ -276,6 +276,8 @@ holders (bar button items, flow layouts, storyboard controllers), then the ADR f
 of mixed outlet collections.
 
 Just finished:
+- Storyboards' global tint (round 102, 15 experiments identical; 17 holdout storyboards stopped
+  there).
 - User-defined runtime attributes of cells, content views, switches, flow layouts, navigation
   bars and bar button items, and the point, rect, range, nil and localized string types (rounds
   100 and 101, 21 experiments identical).
