@@ -271,7 +271,9 @@ A `<label>` is a `UILabel` (`label-*`): a view's keys (with `UIViewContentCompre
 `button-empty-title-lproj`), `UIAdjustsFontForContentSizeCategory`
 true, `UIFont`, `UITextColor` (a `nil` or absent text color is the system `labelColor`),
 `UIHighlightedColor` (when it is a color; an absent one is the system `blackColor`:
-`label-highlighted-absent`, `label-no-colors`), `UIShadowOffset` (07, doubles 0, -1), `UINumberOfLines`
+`label-highlighted-absent`, `label-no-colors`), `UIShadowColor` for a `<color key="shadowColor">`,
+`UIShadowOffset` (07, doubles; 0, -1 without a `<size key="shadowOffset">`, the document's values
+with one, left out at 0, 0: round 115, `label-shadow-*`), `UINumberOfLines`
 (unless 1), `UIBaselineAdjustment` (alignCenters 1, none 2, and 1 when absent; alignBaselines is
 not written), `UIAdjustsFontSizeToFit` true (unless `adjustsFontSizeToFit="NO"`),
 `UIMinimumFontSize` float (`minimumFontSize`, or the point size times `minimumScaleFactor` to the
@@ -284,8 +286,13 @@ natural 4; left when absent), `UIEnabled` false, `UIMinimumScaleFactor` float (o
 over the point size), `UIAdjustsLetterSpacingToFit` true, `UIPreferredMaxLayoutWidth` float,
 `UIDisableUpdateTextColorOnTraitCollectionChange` (true when the document gives the text color or
 has no text color element: `label-text-absent`, React Native's launch screen). Equal fonts and
-colors are one object (`label-two`). A `minimumFontSize` with a text style, or a minimum with
-`adjustsFontSizeToFit="NO"`, is refused.
+colors are one object (`label-two`). With `adjustsFontSizeToFit="NO"` neither `minimumFontSize` nor
+`minimumScaleFactor` is written (round 115, `label-min-*-no*`, `label-scale-half-no`); with fitting,
+a `minimumFontSize` writes itself and its ratio to the font's size, a text style's default size
+counting, and given with a scale factor, the factor makes the minimum (`label-min-and-scale-yes`,
+`label-scale-over-one`). A minimum over the font's size makes ibtool warn `<path>:<id>: warning:
+Minimum Font Size greater than current font size [9]`, in the order of a Foundation table of the
+ids (`label-min-20-*`, `sb-label-min-20*`). A size with a text style ibtool does not know is refused.
 
 `UIFont` (fallback `NSFont`; `label-font-*` for the corpus's 106 font descriptions, `label-size-*`
 from 8 to 72 points, `label-weight-*`): `UIFontName`, `UIFontDescriptor` (`UIFontDescriptorAttributes`

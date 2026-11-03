@@ -87,12 +87,57 @@ import Testing
         #expect(SHA256.digest(Array(nib)).map { String(format: "%02x", $0) }.joined() == "c498f35fdf479843f5683a972409cb7521f261c7bbb0dd8b8b7f46f4c6a1f081")
     }
 
-    /// A minimum font size with `adjustsFontSizeToFit="NO"`, and a minimum font size, not a scale
-    /// factor, with a text style.
+    static let fitting = attributes.replacingOccurrences(of: #" adjustsFontSizeToFit="NO""#, with: "")
+    static let body = font(["style": "UICTFontTextStyleBody"])
+    static let white = #"<color key="shadowColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>"# + "\n"
+
+    static func shadowed(_ width: String, _ height: String) -> String {
+        "<size key=\"shadowOffset\" width=\"\(width)\" height=\"\(height)\"/>\n"
+    }
+
+    static let shadowAndMinimumCases: [(String, String, Int, String)] = [
+        ("label-shadow-0-1", labelled(label(extra: shadowed("0.0", "1"))), 1809, "d427d4b0218cdd20582d7ed845231d72b3fc8dd05d2f2b8ce9daa508b39c70e0"),
+        ("label-shadow-0-0", labelled(label(extra: shadowed("0.0", "0.0"))), 1774, "9577b4025c2b6436c943d11ac2e4c8b69c60497eaa1da2fcfa5b7c26603c8dfe"),
+        ("label-shadow-minus-1", labelled(label(extra: shadowed("-1", "-1"))), 1809, "bee371ac12e5970f120d39bd0744bdd4ef4991b46a627f9cc65c4f74b46e8487"),
+        ("label-shadow-fraction", labelled(label(extra: shadowed("1.5", "2.5"))), 1809, "f320771f01fd1c14a5563a2c1c3f4a59a97010656e545e054c37f32ec8e76797"),
+        ("label-shadow-color", labelled(label(extra: white)), 1876, "e19bd8a1359f2c8c1be99d4c22f70d514f9e570de1c87b49209d3f4dce270f19"),
+        ("label-shadow-color-offset", labelled(label(extra: white + shadowed("0.0", "1"))), 1876, "3cd41cc5acf1f84040a338742560e1766f8e2260779cee7b05746b244797c03b"),
+        ("label-min-20-no", labelled(label(attributes + #" minimumFontSize="20""#)), 1809, "d2955d7ebc8908ecefb8c536ab9721e43dab7096a4535b63a3e36cf7797de49d"),
+        ("label-scale-half-no", labelled(label(attributes + #" minimumScaleFactor="0.5""#)), 1809, "d2955d7ebc8908ecefb8c536ab9721e43dab7096a4535b63a3e36cf7797de49d"),
+        ("label-min-20-no-style", labelled(label(attributes + #" minimumFontSize="20""#, font: body)), 1587, "300fb535ab122631df5f50d517180a619ac1ba34eed88ddf37010306620e7180"),
+        ("label-min-20-absent", labelled(label(fitting + #" minimumFontSize="20""#)), 1885, "95047ecd2917b65bfa300436fbaba4699f1bca3b3a4ecf2e91c60dc7d38b159e"),
+        ("label-min-17-yes", labelled(label(fitting + #" minimumFontSize="17""#)), 1885, "f914686953c3b6be3f5f683b49951963d30c7bded68a57f79c7902d7291e01d8"),
+        ("label-min-and-scale-yes", labelled(label(fitting + #" minimumFontSize="10" minimumScaleFactor="0.5""#)), 1885, "1ad36ee7b717e50bfd1b5eb88ef1d1e97cae780cdc629cdc75101829ae49d01c"),
+        ("label-scale-over-one", labelled(label(fitting + #" minimumScaleFactor="1.5""#)), 1885, "9cdc37f341dc77c56840ea247e362efa14a67994218ecfe9d4bff33a6a6ab450"),
+    ]
+
+    /// A shadow's color and offset, left out at 0, 0; without fitting neither a minimum font size nor
+    /// a scale factor is written; with both, the factor makes the minimum.
+    @Test(arguments: shadowAndMinimumCases)
+    func compilesShadowsAndMinimumsAsXcode(name: String, xib: String, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/\(name)/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size, "\(name)")
+        #expect(VariationTests.digest(nib) == digest, "\(name)")
+    }
+
+    /// A minimum over the font's size warns, by the labels' ids in a Foundation table's order
+    /// (`label-min-20-two`); a text style's default size counts (`label-min-20-yes-style`).
+    @Test func warnsOfMinimumsOverTheFontSize() throws {
+        let over = Self.fitting + #" minimumFontSize="20""#
+        let xib = Self.labelled(Self.label(over) + Self.label(over, id: "zzz-zz-zz2", y: 80) + Self.label(Self.fitting + #" minimumFontSize="30""#, id: "mmm-mm-mm3", y: 120))
+        let compiled = try XIBCompiler.compileReportingWarnings(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(compiled.nib.count == 2187)
+        #expect(VariationTests.digest(compiled.nib) == "6fda3d3a3557e56f6e2672da8cadb98adfbbcb02275320c02c1bd4e831dfceb5")
+        #expect(compiled.warnings == ["lll-ll-ll1", "mmm-mm-mm3", "zzz-zz-zz2"].map { "/tmp/View.xib:\($0): warning: Minimum Font Size greater than current font size [9]" })
+        let style = Self.labelled(Self.label(over, font: Self.body))
+        let styled = try XIBCompiler.compileReportingWarnings(Data(style.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(VariationTests.digest(styled.nib) == "8894479c16f1f5a8d08319cb3f3040d65780b7684c5c2e65271897046931bee1")
+        #expect(styled.warnings.count == 1)
+    }
+
+    /// A scale factor with a text style ibtool does not know, whose size is not known.
     @Test(arguments: [
-        (labelled(label(attributes + #" minimumScaleFactor="0.5""#)), "this minimum font size of a label"),
-        (labelled(label(attributes.replacingOccurrences(of: #"adjustsFontSizeToFit="NO""#, with: #"minimumFontSize="9""#),
-                        font: font(["style": "UICTFontTextStyleBody"]))), "this minimum font size of a label"),
+        (labelled(label(fitting + #" minimumScaleFactor="0.5""#, font: font(["style": "UICTFontTextStyleMadeUp"]))), "this minimum font size of a label"),
     ])
     func refusesWhatIsNotObservedYet(xib: String, what: String) {
         do {

@@ -67,14 +67,14 @@ public enum XIBCompiler {
         try compileReportingWarnings(data, path: path, options: options).nib
     }
 
-    /// The nib and ibtool's document warnings, `<path>:global: warning: <message>` lines.
+    /// The nib and ibtool's document warnings, `<path>:<global or id>: warning: <message>` lines.
     public static func compileReportingWarnings(_ data: Data, path: String, options: Options) throws -> (nib: Data, warnings: [String]) {
         let deploymentTarget = try check(options, path: path)
         let document = try XIBReader.read(data, path: path)
         var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
         compiler.document = document
         let nib = try compiler.compile(document)
-        return (nib, compiler.deploymentWarning.map { ["\(path):global: warning: \($0)"] } ?? [])
+        return (nib, try compiler.documentWarnings())
     }
 
     /// Refuses the options the experiments have not observed, and returns the deployment target.
@@ -548,7 +548,7 @@ struct DocumentCompiler {
                   children: Set(["rect", "autoresizingMask", "subviews", "point", "color", "constraints", "connections",
                                  "freeformSimulatedSizeMetrics", "nil", "edgeInsets", "directionalEdgeInsets", "viewLayoutGuide", "simulatedNavigationBarMetrics",
                                  "userDefinedRuntimeAttributes", "accessibility", "gestureRecognizers", "attributedString"]
-                                + (isLabel ? ["fontDescription", "string", "variation", "attributedString"] : [])
+                                + (isLabel ? ["fontDescription", "string", "variation", "attributedString", "size"] : [])
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
                                 + (element.name == "toolbar" ? ["items"] : []) + (element.name == "wkWebView" ? ["wkWebViewConfiguration"] : [])
                                 + (element.name == "navigationBar" ? ["items"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
@@ -614,6 +614,7 @@ struct DocumentCompiler {
             case ("rect", "frame"), ("rect", "contentStretch"), ("point", "canvasLocation"), ("subviews", nil), ("color", "backgroundColor"), ("constraints", nil),
                  ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _), ("simulatedNavigationBarMetrics", _),
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
+                 ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel,
                  ("color", "separatorColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
                  ("variation", _), ("prototypes", nil), ("sections", nil), ("color", "tintColor"), ("state", _), ("inset", _), ("buttonConfiguration", "configuration"),
                  ("edgeInsets", "layoutMargins"), ("directionalEdgeInsets", "directionalLayoutMargins"), ("viewLayoutGuide", "contentLayoutGuide"),
@@ -892,6 +893,13 @@ struct DocumentCompiler {
             content.attributedText = attributed.attributedText
         }
         content.highlightedColor = highlighted
+        let shadowColor = element.child("color", key: "shadowColor"), shadowOffset = element.child("size", key: "shadowOffset")
+        guard attributed == nil || (shadowColor == nil && shadowOffset == nil) else { throw unsupported("an attributed label's shadow") }
+        content.shadowColor = try shadowColor.map { try color($0) }
+        if let shadowOffset {
+            try check(shadowOffset, attributes: ["key", "width", "height"], children: [])
+            content.shadowOffset = [try number(shadowOffset.attributes["width"] ?? "0", "width"), try number(shadowOffset.attributes["height"] ?? "0", "height")]
+        }
         content.adjustsFontForContentSizeCategory = try bool(element, "adjustsFontForContentSizeCategory", default: false)
         content.textAlignment = try attributed?.alignment ?? attributes["textAlignment"].map { try mapped($0, LabelContent.textAlignments, "textAlignment") } ?? 0
         let lineBreak = try attributes["lineBreakMode"].map { try mapped($0, LabelContent.lineBreakModes, "lineBreakMode") } ?? 4
@@ -906,14 +914,18 @@ struct DocumentCompiler {
         content.adjustsFontSizeToFit = try bool(element, "adjustsFontSizeToFit", default: true)
         let factor = try attributes["minimumScaleFactor"].map { try number($0, "minimumScaleFactor") }
         let minimum = try attributes["minimumFontSize"].map { try number($0, "minimumFontSize") }
-        if factor != nil || minimum != nil {
+        // Without fitting ibtool writes neither; with both, the scale factor makes the minimum; a
+        // minimum over the font's size warns (`label-min-*`, `label-scale-*`).
+        if factor != nil || minimum != nil, content.adjustsFontSizeToFit {
             let style = element.children(named: "fontDescription").first?.attributes["style"]
-            guard content.adjustsFontSizeToFit, factor == nil || minimum == nil,
-                  let size = font.pointSize ?? style.flatMap({ factor == nil ? nil : NibFont.textStyleSizes[$0] }) else {
+            guard let size = font.pointSize ?? style.flatMap({ NibFont.textStyleSizes[$0] }) else {
                 throw unsupported("this minimum font size of a label")
             }
-            content.minimumFontSize = Float(minimum ?? (size * factor! * 4).rounded() / 4)
+            content.minimumFontSize = Float(factor.map { (size * $0 * 4).rounded() / 4 } ?? minimum!)
             content.minimumScaleFactor = Float(factor ?? minimum! / size)
+            if factor == nil, minimum! > size, let id = attributes["id"] {
+                warnings.append((id, "Minimum Font Size greater than current font size [9]"))
+            }
         }
         return content
     }

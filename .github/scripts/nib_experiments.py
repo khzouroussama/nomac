@@ -6700,6 +6700,109 @@ EXPERIMENTS.update(WEB_CONFIGURATIONS)
 
 
 
+# Round 115: labels' shadow offsets and colors, minimum font sizes with adjustsFontSizeToFit="NO", and
+# named fonts: every family iOS ships, an unknown font and a family not the font's.
+def shadowed(offset=None, color=""):
+    size = f'<size key="shadowOffset" width="{offset[0]}" height="{offset[1]}"/>\n' if offset else ""
+    return constrained(label(extra=color + size), "")
+
+
+SHADOW_WHITE = '<color key="shadowColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n'
+LABEL_NO_FIT = LABEL_ATTRIBUTES.replace(' adjustsFontSizeToFit="NO"', "")
+LABEL_SHADOWS = {
+    "label-shadow-0-1": shadowed(("0.0", "1")),
+    "label-shadow-0-0": shadowed(("0.0", "0.0")),
+    "label-shadow-0-minus-1": shadowed(("0.0", "-1")),
+    "label-shadow-minus-1": shadowed(("-1", "-1")),
+    "label-shadow-0-2": shadowed(("0.0", "2")),
+    "label-shadow-fraction": shadowed(("1.5", "2.5")),
+    "label-shadow-color": shadowed(color=SHADOW_WHITE),
+    "label-shadow-color-offset": shadowed(("0.0", "1"), SHADOW_WHITE),
+    "label-min-20-no": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="20"'), ""),
+    "label-min-10-no": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="10"'), ""),
+    "label-min-0-no": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="0.0"'), ""),
+    "label-min-12-5-no": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="12.5"'), ""),
+    "label-min-20-yes": constrained(label(LABEL_ATTRIBUTES.replace('adjustsFontSizeToFit="NO"', 'adjustsFontSizeToFit="YES"') + ' minimumFontSize="20"'), ""),
+    "label-min-20-absent": constrained(label(LABEL_NO_FIT + ' minimumFontSize="20"'), ""),
+    "label-min-20-no-style": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="20"', font='<fontDescription key="fontDescription" style="UICTFontTextStyleBody"/>'), ""),
+    "label-min-20-yes-style": constrained(label(LABEL_ATTRIBUTES.replace('adjustsFontSizeToFit="NO"', 'adjustsFontSizeToFit="YES"') + ' minimumFontSize="20"',
+                                                font='<fontDescription key="fontDescription" style="UICTFontTextStyleBody"/>'), ""),
+    "label-scale-half-no": constrained(label(LABEL_ATTRIBUTES + ' minimumScaleFactor="0.5"'), ""),
+    "label-min-and-scale-no": constrained(label(LABEL_ATTRIBUTES + ' minimumFontSize="10" minimumScaleFactor="0.5"'), ""),
+    "label-min-and-scale-yes": constrained(label(LABEL_NO_FIT + ' minimumFontSize="10" minimumScaleFactor="0.5"'), ""),
+}
+LABEL_SHADOWS.update({
+    "label-min-17-yes": constrained(label(LABEL_NO_FIT + ' minimumFontSize="17"'), ""),
+    "label-min-20-two": constrained(label(LABEL_NO_FIT + ' minimumFontSize="20"') + label(LABEL_NO_FIT + ' minimumFontSize="20"', identifier="zzz-zz-zz2", frame=(20, 80, 42, 21))
+                                    + label(LABEL_NO_FIT + ' minimumFontSize="30"', identifier="mmm-mm-mm3", frame=(20, 120, 42, 21)), ""),
+    "label-min-20-old-document": constrained(label(LABEL_NO_FIT + ' minimumFontSize="20"'), "").replace('<deployment identifier="iOS"/>', '<deployment version="5376" identifier="iOS"/>'),
+    "label-scale-over-one": constrained(label(LABEL_NO_FIT + ' minimumScaleFactor="1.5"'), ""),
+})
+EXPERIMENTS.update(LABEL_SHADOWS)
+STORYBOARDS["sb-label-min-20"] = storyboard(controller_scene(1, view_extra="                        <subviews>\n" + label(LABEL_NO_FIT + ' minimumFontSize="20"').replace("                ", "                            ")
+                                                             + "                        </subviews>\n"), initial="vc1-aa-aaa")
+STORYBOARDS["sb-label-min-20-and-push"] = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, connections='                        <segue destination="vc2-aa-aaa" kind="push" identifier="Go" id="psh-aa-aa1"/>\n',
+                                                     view_extra="                        <subviews>\n" + label(LABEL_NO_FIT + ' minimumFontSize="20"').replace("                ", "                            ")
+                                                     + "                        </subviews>\n"), controller_scene(2), initial="nvc-aa-aaa")
+IOS_FONTS = """AcademyEngravedLetPlain AlNile AlNile-Bold AmericanTypewriter AmericanTypewriter-Bold AmericanTypewriter-Condensed AmericanTypewriter-CondensedBold
+AmericanTypewriter-CondensedLight AmericanTypewriter-Light AmericanTypewriter-Semibold AppleColorEmoji AppleSDGothicNeo-Bold AppleSDGothicNeo-Light AppleSDGothicNeo-Medium
+AppleSDGothicNeo-Regular AppleSDGothicNeo-SemiBold AppleSDGothicNeo-Thin AppleSDGothicNeo-UltraLight Arial-BoldItalicMT Arial-BoldMT Arial-ItalicMT ArialHebrew ArialHebrew-Bold
+ArialHebrew-Light ArialMT ArialRoundedMTBold Avenir-Black Avenir-BlackOblique Avenir-Book Avenir-BookOblique Avenir-Heavy Avenir-HeavyOblique Avenir-Light Avenir-LightOblique
+Avenir-Medium Avenir-MediumOblique Avenir-Oblique Avenir-Roman AvenirNext-Bold AvenirNext-BoldItalic AvenirNext-DemiBold AvenirNext-DemiBoldItalic AvenirNext-Heavy
+AvenirNext-HeavyItalic AvenirNext-Italic AvenirNext-Medium AvenirNext-MediumItalic AvenirNext-Regular AvenirNext-UltraLight AvenirNext-UltraLightItalic AvenirNextCondensed-Bold
+AvenirNextCondensed-BoldItalic AvenirNextCondensed-DemiBold AvenirNextCondensed-Heavy AvenirNextCondensed-Italic AvenirNextCondensed-Medium AvenirNextCondensed-Regular
+AvenirNextCondensed-UltraLight Baskerville Baskerville-Bold Baskerville-BoldItalic Baskerville-Italic Baskerville-SemiBold Baskerville-SemiBoldItalic BodoniOrnamentsITCTT
+BodoniSvtyTwoITCTT-Bold BodoniSvtyTwoITCTT-Book BodoniSvtyTwoITCTT-BookIta BodoniSvtyTwoOSITCTT-Bold BodoniSvtyTwoOSITCTT-Book BodoniSvtyTwoSCITCTT-Book BradleyHandITCTT-Bold
+ChalkboardSE-Bold ChalkboardSE-Light ChalkboardSE-Regular Chalkduster Cochin Cochin-Bold Cochin-BoldItalic Cochin-Italic Copperplate Copperplate-Bold Copperplate-Light Courier
+Courier-Bold Courier-BoldOblique Courier-Oblique CourierNewPS-BoldItalicMT CourierNewPS-BoldMT CourierNewPS-ItalicMT CourierNewPSMT DINAlternate-Bold DINCondensed-Bold Damascus
+DamascusBold DamascusLight DamascusMedium DamascusSemiBold DevanagariSangamMN DevanagariSangamMN-Bold Didot Didot-Bold Didot-Italic DiwanMishafi EuphemiaUCAS EuphemiaUCAS-Bold
+EuphemiaUCAS-Italic Farah Futura-Bold Futura-CondensedExtraBold Futura-CondensedMedium Futura-Medium Futura-MediumItalic GeezaPro GeezaPro-Bold Georgia Georgia-Bold
+Georgia-BoldItalic Georgia-Italic GillSans GillSans-Bold GillSans-BoldItalic GillSans-Italic GillSans-Light GillSans-LightItalic GillSans-SemiBold GillSans-SemiBoldItalic
+GillSans-UltraBold GujaratiSangamMN GujaratiSangamMN-Bold GurmukhiMN GurmukhiMN-Bold Helvetica Helvetica-Bold Helvetica-BoldOblique Helvetica-Light Helvetica-LightOblique
+Helvetica-Oblique HelveticaNeue HelveticaNeue-Bold HelveticaNeue-BoldItalic HelveticaNeue-CondensedBlack HelveticaNeue-CondensedBold HelveticaNeue-Italic HelveticaNeue-Light
+HelveticaNeue-LightItalic HelveticaNeue-Medium HelveticaNeue-MediumItalic HelveticaNeue-Thin HelveticaNeue-ThinItalic HelveticaNeue-UltraLight HelveticaNeue-UltraLightItalic
+HiraMaruProN-W4 HiraMinProN-W3 HiraMinProN-W6 HiraginoSans-W3 HiraginoSans-W6 HiraginoSans-W7 HoeflerText-Black HoeflerText-BlackItalic HoeflerText-Italic HoeflerText-Regular
+Kailasa Kailasa-Bold KannadaSangamMN KannadaSangamMN-Bold KhmerSangamMN KohinoorBangla-Light KohinoorBangla-Regular KohinoorBangla-Semibold KohinoorDevanagari-Light
+KohinoorDevanagari-Regular KohinoorDevanagari-Semibold KohinoorTelugu-Light KohinoorTelugu-Medium KohinoorTelugu-Regular LaoSangamMN MalayalamSangamMN MalayalamSangamMN-Bold
+MarkerFelt-Thin MarkerFelt-Wide Menlo-Bold Menlo-BoldItalic Menlo-Italic Menlo-Regular MuktaMahee-Bold MuktaMahee-Light MuktaMahee-Regular NotoNastaliqUrdu NotoNastaliqUrdu-Bold
+NotoSansKannada-Regular NotoSansMyanmar-Regular NotoSansOriya Noteworthy-Bold Noteworthy-Light Optima-Bold Optima-BoldItalic Optima-ExtraBlack Optima-Italic Optima-Regular
+OriyaSangamMN Palatino-Bold Palatino-BoldItalic Palatino-Italic Palatino-Roman Papyrus Papyrus-Condensed PartyLetPlain PingFangHK-Regular PingFangSC-Light PingFangSC-Medium
+PingFangSC-Regular PingFangSC-Semibold PingFangSC-Thin PingFangSC-Ultralight PingFangTC-Regular Rockwell-Bold Rockwell-BoldItalic Rockwell-Italic Rockwell-Regular SavoyeLetPlain
+SinhalaSangamMN SinhalaSangamMN-Bold SnellRoundhand SnellRoundhand-Black SnellRoundhand-Bold Symbol TamilSangamMN TamilSangamMN-Bold TeluguSangamMN Thonburi Thonburi-Bold
+Thonburi-Light TimesNewRomanPS-BoldItalicMT TimesNewRomanPS-BoldMT TimesNewRomanPS-ItalicMT TimesNewRomanPSMT Trebuchet-BoldItalic TrebuchetMS TrebuchetMS-Bold TrebuchetMS-Italic
+Verdana Verdana-Bold Verdana-BoldItalic Verdana-Italic ZapfDingbatsITC Zapfino
+.SFUI-Regular .SFUI-RegularItalic .SFUI-Semibold AppleSymbols AvenirNextCondensed-DemiBoldItalic AvenirNextCondensed-HeavyItalic AvenirNextCondensed-MediumItalic
+AvenirNextCondensed-UltraLightItalic BodoniSvtyTwoOSITCTT-BookIt Charter-Black Charter-BlackItalic Charter-Bold Charter-BoldItalic Charter-Italic Charter-Roman Galvji
+Galvji-Bold GranthaSangamMN-Bold GranthaSangamMN-Regular HiraKakuProN-W3 HiraginoSans-W4 HiraginoSans-W5 HiraginoSans-W8 Impact KefaIII-Bold KefaIII-ExtraBold
+KefaIII-Light KefaIII-Regular KohinoorGujarati-Bold KohinoorGujarati-Light KohinoorGujarati-Regular MyanmarSangamMN MyanmarSangamMN-Bold NotoSansKannada-Bold
+NotoSansKannada-Light NotoSansMyanmar-Bold NotoSansMyanmar-Light NotoSansOriya-Bold NotoSansSyriac-Regular NotoSansSyriac-Regular_Black NotoSansSyriac-Regular_Bold
+NotoSansSyriac-Regular_ExtraBold NotoSansSyriac-Regular_ExtraLight NotoSansSyriac-Regular_Light NotoSansSyriac-Regular_Medium NotoSansSyriac-Regular_SemiBold
+NotoSansSyriac-Regular_Thin PingFangHK-Light PingFangHK-Medium PingFangHK-Semibold PingFangHK-Thin PingFangHK-Ultralight PingFangMO-Light PingFangMO-Medium
+PingFangMO-Regular PingFangMO-Semibold PingFangMO-Thin PingFangMO-Ultralight PingFangTC-Light PingFangTC-Medium PingFangTC-Semibold PingFangTC-Thin PingFangTC-Ultralight
+STHeitiSC-Light STIXTwoMath-Regular STIXTwoText STIXTwoText-Italic STIXTwoText-Italic_Bold-Italic STIXTwoText-Italic_Medium-Italic STIXTwoText-Italic_SemiBold-Italic
+STIXTwoText_Bold STIXTwoText_Medium STIXTwoText_SemiBold""".split()
+
+
+def named_font(name, family=None, size="16"):
+    return f'<fontDescription key="fontDescription" name="{name}" family="{family or name.split("-")[0]}" pointSize="{size}"/>'
+
+
+NAMED_FONTS = {f"label-named-{name.lower()}": constrained(label(font=named_font(name)), "") for name in IOS_FONTS}
+NAMED_FONTS.update({
+    "label-named-helvetica-size-17": constrained(label(font=named_font("Helvetica", "Helvetica", "17")), ""),
+    "label-named-helvetica-size-fraction": constrained(label(font=named_font("Helvetica", "Helvetica", "16.5")), ""),
+    "label-named-helvetica-wrong-family": constrained(label(font=named_font("Helvetica", "Arial")), ""),
+    "label-named-helvetica-15": constrained(label(font=named_font("Helvetica")), ""),
+    "label-named-unknown-15": constrained(label(font=named_font("NotAFont-Regular", "NotAFont")), ""),
+    "label-named-sfns": constrained(label(font=named_font(".SFNS-Regular", ".SF NS")), ""),
+    "label-named-unknown": constrained(label(font=named_font("NotAFont-Regular", "NotAFont")), ""),
+    "label-named-unknown-bold": constrained(label(font=named_font("NotAFont-Bold", "NotAFont")), ""),
+    "label-named-two-sizes": constrained(label(font=named_font("Helvetica")) + label(font=named_font("Helvetica", "Helvetica", "18"), identifier="lll-ll-ll2", frame=(20, 80, 42, 21)), ""),
+})
+OPTIONS.update({"label-named-helvetica-15": {"deployment": "15.0", "devices": ["iphone", "ipad"]}, "label-named-unknown-15": {"deployment": "15.0", "devices": ["iphone", "ipad"]}})
+EXPERIMENTS.update(NAMED_FONTS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

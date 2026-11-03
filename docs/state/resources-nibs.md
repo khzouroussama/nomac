@@ -315,6 +315,8 @@ Next actions, by documents blocked (`python3 ~/nomac-out/scripts/nib_refusals.py
    case collide on macOS: `*-mode-*-capital`).
 
 Just finished:
+- Labels' shadow colors and offsets, minimum font sizes and scale factors with and without fitting,
+  and the warning of a minimum over the font's size (round 115, 25 experiments identical).
 - Web views' configurations, preferences and own attributes (round 114, 44 experiments identical).
 - Controllers' simulated bars, which change nothing (round 112).
 - Navigation roots that are the initial controller or that segues reach (round 111), the

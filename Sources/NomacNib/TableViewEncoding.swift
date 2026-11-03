@@ -292,6 +292,7 @@ extension DocumentCompiler {
                                                  accessibilityConfigurations: nested.takeAccessibilityConfigurations(),
                                                  traitStorageLists: try nested.traitStorageLists(topLevel), keyValuePairs: nested.takeKeyValuePairs(allObjects: all),
                                                  empty: nested.emptyArray))
+        warnings = nested.warnings
         strings = nested.strings
         colors = nested.colors
         fonts = nested.fonts

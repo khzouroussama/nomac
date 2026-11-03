@@ -8,6 +8,9 @@ struct LabelContent {
     var font: NibFont
     var textColor: NibColor
     var highlightedColor: NibColor?
+    /// Its shadow's color, and its offset, left out at 0, 0 (`label-shadow-*`).
+    var shadowColor: NibColor?
+    var shadowOffset = [0.0, -1.0]
     var numberOfLines: Int?
     var baselineAdjustment: Int?
     var adjustsFontSizeToFit = false
@@ -29,7 +32,8 @@ struct LabelContent {
         try encoder.encode(font, forKey: "UIFont")
         try encoder.encode(textColor, forKey: "UITextColor")
         if let highlightedColor { try encoder.encode(highlightedColor, forKey: "UIHighlightedColor") }
-        encoder.encode(.data(NibView.doubles([0, -1])), forKey: "UIShadowOffset")
+        if let shadowColor { try encoder.encode(shadowColor, forKey: "UIShadowColor") }
+        if shadowOffset != [0, 0] { encoder.encode(.data(NibView.doubles(shadowOffset)), forKey: "UIShadowOffset") }
         if let numberOfLines { encoder.encode(.integer(numberOfLines), forKey: "UINumberOfLines") }
         if let baselineAdjustment { encoder.encode(.integer(baselineAdjustment), forKey: "UIBaselineAdjustment") }
         if adjustsFontSizeToFit { encoder.encode(.boolean(true), forKey: "UIAdjustsFontSizeToFit") }
