@@ -293,9 +293,19 @@ in `~/nomac-out/wt-scratch/nibs2` (`btn.py <experiment>...`: a nib's buttons, ne
 inline; `nstruct.py`, `objlist.py`: an experiment's objects and its all-objects list;
 `expdiff.sh`, `corpusdiff.sh`: Xcode's nib against nomac's).
 
-Current step: control actions of every event and the remaining gesture recognizer kinds (round
-105), then down the refusal counts across the corpus, the holdout and the React Native/Expo sweep
-(`~/nomac-out/scripts/nib_refusals.py`).
+Current step: paused (2026-11-03) after round 112, all committed and marked READY; nothing running.
+
+Next actions, by documents blocked (`python3 ~/nomac-out/scripts/nib_refusals.py <nomac>
+/tmp/nomac-corpus /tmp/nomac-holdout --examples`; 637 of 1065 compile at round 112):
+1. Ask the integrator about `<archive>` (31): 11 iOS ones, all package demos no target builds;
+   the rest macOS/Carbon, which wait. Recommended: skip.
+2. Top-level `<tableView>` and `<customObject>` in xibs (4 each), scenes without one view
+   controller (4: `avPlayerViewController`), B-290 runtime-attribute order (5), then the rest of the
+   ranking. nibs-3 owns colors, `<simulatedMetricsContainer>` and constraints (B-265).
+3. Observations: `~/nomac-out/wt-scratch/nibs2/nib` (rounds 32-112 merged in), corpus set
+   `~/nomac-out/wt-scratch/nibs2/corpus-merged`; experiments go into a copy of
+   `nib_experiments.py` recorded to a new directory, then merged into `nib` (names differing only in
+   case collide on macOS: `*-mode-*-capital`).
 
 Just finished:
 - Controllers' simulated bars, which change nothing (round 112).
