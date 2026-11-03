@@ -15,9 +15,10 @@ for. Each app goes through these steps in order, stopping at the first failure:
            command line with the Linux build of the same tool (`build:setting=mach-o-executable`'s
            note), and ADR 0182's platform check of expo-modules-autolinking. Requirements left
            without a fix are recorded and the build is tried anyway: it decides
-  build    `nomac build` Release for generic/platform=iOS without signing, continuing after errors so
-           that one run shows every independent failure
-  archive  `nomac archive`, ad-hoc signed (capture_reference.py's ADHOC), from a new build folder
+  build    `nomac archive` Release for generic/platform=iOS, ad-hoc signed (capture_reference.py's ADHOC),
+           continuing after errors so that one run shows every independent failure (with
+           --separate-build: `nomac build` without signing, then the archive from a new build folder)
+  archive  the build's archive
   export   `nomac export` with capture_reference.py's `debugging` options
 
 A failed step's errors are classified by the task that failed and the message with its paths and
@@ -536,9 +537,11 @@ def scheme_of(container):
     return container.stem
 
 
-def linux(root, entry, slot):
+def linux(root, entry, slot, separate_build=False):
     """The Linux steps of one app, in the container; `slot` names its own NOMAC_HOME, as up to
-    --builders builds run at once."""
+    --builders builds run at once. The build is `nomac archive`, a Release build with the install
+    steps after it (`nomac build`, then `nomac archive` from a new build folder, with
+    separate_build: twice the time, and every archive passed whose build did: 11 of 11)."""
     result = load_result(root, entry["id"])
     out = root / "results" / entry["id"]
     top, app = checkout(root, entry), app_folder(root, entry)
@@ -573,15 +576,22 @@ def linux(root, entry, slot):
     common = ["-workspace" if container.suffix == ".xcworkspace" else "-project", container, "-scheme", scheme,
               "-configuration", "Release", "-destination", "generic/platform=iOS", "-derivedDataPath", scratch / "DerivedData"]
     settings = [f"{key}={value}" for key, value in sorted(overrides.items())]
+    archive = scratch / f"{scheme}.xcarchive"
+    keep_going = ["-IDEBuildingContinueBuildingAfterErrors", "YES"]
     try:
-        if not guarded_step(result, "build", [NOMAC, "build", *common, "-IDEBuildingContinueBuildingAfterErrors", "YES",
-                                               "CODE_SIGNING_ALLOWED=NO", *settings], app, env, out / "build.log"):
-            return
-        shutil.rmtree(scratch, ignore_errors=True)
-        archive = scratch / f"{scheme}.xcarchive"
-        if not guarded_step(result, "archive", [NOMAC, "archive", *common, "-archivePath", archive, *capture.ADHOC, *settings],
-                            app, env, out / "archive.log"):
-            return
+        if separate_build:
+            if not guarded_step(result, "build", [NOMAC, "build", *common, *keep_going, "CODE_SIGNING_ALLOWED=NO", *settings],
+                                app, env, out / "build.log"):
+                return
+            shutil.rmtree(scratch, ignore_errors=True)
+            if not guarded_step(result, "archive", [NOMAC, "archive", *common, "-archivePath", archive, *capture.ADHOC, *settings],
+                                app, env, out / "archive.log"):
+                return
+        else:
+            if not guarded_step(result, "build", [NOMAC, "archive", *common, "-archivePath", archive, *keep_going,
+                                                   *capture.ADHOC, *settings], app, env, out / "build.log"):
+                return
+            step(result, "archive", True, time.time(), note="the build's archive (nomac archive)")
         shutil.rmtree(scratch / "DerivedData", ignore_errors=True)
         options = scratch / "ExportOptions.plist"
         options.write_text(capture.EXPORT_OPTIONS)
@@ -938,7 +948,8 @@ def linux_steps(root, entry, args, slot):
             shutil.rmtree(top, ignore_errors=True)
         with open(root / "results" / app_id / "linux.log", "ab") as out:
             docker("exec", args.container, "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
-                   "--slot", str(slot), app_id, stdout=out, stderr=subprocess.STDOUT)
+                   "--slot", str(slot), *(["--separate-build"] if args.separate_build else []), app_id,
+                   stdout=out, stderr=subprocess.STDOUT)
     elif not args.keep:
         shutil.rmtree(top, ignore_errors=True)
     result = load_result(root, app_id)
@@ -1091,6 +1102,7 @@ def main():
     parser.add_argument("--installers", type=int, default=3, help="run: apps installing on the Mac at once")
     parser.add_argument("--builders", type=int, default=1, help="run: apps building on Linux at once")
     parser.add_argument("--slot", type=int, default=0, help="linux: the build's slot (its NOMAC_HOME)")
+    parser.add_argument("--separate-build", action="store_true", help="run, linux: nomac build, then nomac archive anew")
     parser.add_argument("--keep-failed", type=float, default=6, metavar="HOURS",
                         help="run: keep the container's checkout of an app that fails after its install for HOURS (0: none)")
     args = parser.parse_intermixed_args()
@@ -1103,7 +1115,7 @@ def main():
         return reclassify(root, args.apps)
     if args.command == "linux":
         for entry in entries(args.apps):
-            linux(root, entry, args.slot)
+            linux(root, entry, args.slot, args.separate_build)
         return
     env = mac_environment(root)
     if args.command == "run":

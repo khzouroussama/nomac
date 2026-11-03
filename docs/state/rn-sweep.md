@@ -33,8 +33,10 @@ the macOS-only commands and BSD flags of the app's script phases. In a container
 Node's path): `nomac check --json`, the project's changes for Linux (each setting that names a
 Mach-O tool overridden on the command line with the Linux build of the same tool, the one `nomac
 check` lists or else the nearest ELF executable of that name in the checkout; ADR 0182's platform
-check of expo-modules-autolinking), `nomac build` Release continuing after errors, then `nomac
-archive` (ad hoc) and `nomac export` (`debugging`). Each failed step's failed tasks are classified
+check of expo-modules-autolinking), the build: `nomac archive` Release (ad hoc) continuing after
+errors (until 2026-11-03, `nomac build` and then `nomac archive` from a new build folder: twice the
+Linux time, and every archive passed whose build had, 11 of 11; `--separate-build`), then `nomac
+export` (`debugging`). Each failed step's failed tasks are classified
 from the log (`classify`): the task in xcodebuild's failure summary and its errors, the errors that
 name its input when its own output has none (actool's messages print under the catalog's other
 task), and for a script phase the errors left in tasks that succeeded (nomac streams a script's
