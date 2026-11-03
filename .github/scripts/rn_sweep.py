@@ -76,6 +76,7 @@ NOMAC = WORK / "bin/current/nomac"
 DEVELOPER_DIR = WORK / "devdir/Xcode_27.app/Contents/Developer"
 MIN_FREE = 15 << 30
 MIN_FREE_MAC = 10 << 30
+MIN_FREE_MAC_BUILD = 25 << 30
 MANIFEST_LOCK, POD_LOCK = threading.Lock(), threading.Lock()
 LOCKFILES = [("bun.lock", "bun"), ("bun.lockb", "bun"), ("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"),
              ("package-lock.json", "npm")]
@@ -601,6 +602,7 @@ def linux(root, entry, slot, separate_build=False):
     finally:
         save_result(root, result)
         shutil.rmtree(scratch, ignore_errors=True)
+        shutil.rmtree(env["NOMAC_HOME"], ignore_errors=True)
         for name in ("build", "archive", "export"):
             if (out / f"{name}.log").exists():
                 subprocess.run(["gzip", "-f", str(out / f"{name}.log")])
@@ -935,7 +937,7 @@ def linux_steps(root, entry, args, slot):
     deletes both copies."""
     app_id, top = entry["id"], checkout(root, entry)
     if load_result(root, app_id)["steps"].get("install", {}).get("ok"):
-        if not (wait_for_space(lambda: free_bytes(root), "on the Mac", MIN_FREE_MAC)
+        if not (wait_for_space(lambda: free_bytes(root), "on the Mac", MIN_FREE_MAC_BUILD)
                 and wait_for_space(lambda: volume_free(args.container), "in Docker", MIN_FREE)):
             sys.exit("error: not enough free space on the Mac or in Docker for 6 hours")
         log(f"{app_id}: copying into {args.container}")
