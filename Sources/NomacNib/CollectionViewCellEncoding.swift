@@ -35,7 +35,7 @@ extension DocumentCompiler {
         try check(element, attributes: ["id", "opaque", "clipsSubviews", "multipleTouchEnabled", "contentMode", "reuseIdentifier",
                                         "insetsLayoutMarginsFromSafeArea", "userLabel", "customClass", "customModule", "customModuleProvider"],
                   children: ["rect", "autoresizingMask", "view", "collectionViewCellContentView", "viewLayoutGuide", "size", "color", "connections",
-                             "constraints", "point", "gestureRecognizers", "userDefinedRuntimeAttributes"])
+                             "constraints", "point", "gestureRecognizers", "userDefinedRuntimeAttributes", "variation"])
         for recognizers in element.children(named: "gestureRecognizers") {
             try check(recognizers, attributes: [], children: [])
         }
@@ -62,9 +62,11 @@ extension DocumentCompiler {
             }
             let constraints = XIBElement(name: "constraints", attributes: [:])
             constraints.children = moved
-            contentElement.children = content.children + (moved.isEmpty ? [] : [constraints])
+            contentElement.children = content.children + (moved.isEmpty ? [] : [constraints]) + element.children(named: "variation")
         } else {
-            guard element.children(named: "constraints").isEmpty else { throw unsupported("constraints of a collection view cell of Xcode 12's template") }
+            guard element.children(named: "constraints").isEmpty, element.children(named: "variation").isEmpty else {
+                throw unsupported("constraints or variations of a collection view cell of Xcode 12's template")
+            }
             guard let identifier = content.attributes["id"] else { throw unsupported("a collection view cell content view without an id") }
             contentID = identifier
             contentElement = XIBElement(name: "view", attributes: content.attributes.filter { $0.key != "key" })
@@ -73,16 +75,21 @@ extension DocumentCompiler {
         let subviews = XIBElement(name: "subviews", attributes: [:])
         subviews.children = [contentElement]
         let cellElement = XIBElement(name: "view", attributes: element.attributes.filter { $0.key != "reuseIdentifier" })
-        cellElement.children = element.children.filter { !["view", "collectionViewCellContentView", "size", "constraints"].contains($0.name) } + [subviews]
+        cellElement.children = element.children.filter { !["view", "collectionViewCellContentView", "size", "constraints", "variation"].contains($0.name) } + [subviews]
         let cell = try view(cellElement, topLevel: true, originalClassName: "UICollectionViewCell")
         if legacy {
             safeAreaGuides = safeAreaGuides.filter { $0.value != id }
         }
         guard let contentView = cell.subviews.first else { throw unsupported("a collection view cell without a content view") }
-        if legacy, cell.safeAreaPlaceholder != nil, !contentView.subviews.isEmpty {
+        // Subviews the cell's default mask excludes do not count (`cvmask-old-subviews`).
+        let excluded = element.children(named: "variation").filter { $0.attributes["key"] == "default" }.flatMap { $0.children(named: "mask") }
+            .filter { $0.attributes["key"] == "subviews" }.flatMap { $0.children(named: "exclude") }.compactMap { $0.attributes["reference"] }
+        let installed = contentView.subviews.filter { subview in !excluded.contains { documentViews[$0]?.view === subview } }
+        if legacy, cell.safeAreaPlaceholder != nil, !installed.isEmpty {
             contentView.layoutGuides = [safeAreaLayoutGuide(of: contentView)]
         }
-        if !prototype {
+        // A prototype cell has them only with constraints of its own (`sb-cvmask-*`).
+        if !prototype || !element.children(named: "constraints").isEmpty {
             contentView.flags.doesNotTranslateAutoresizingMask = true
             let generated = string("UIIBSystemGenerated")
             cell.guideConstraints = [5, 6, 3, 4].map { attribute in

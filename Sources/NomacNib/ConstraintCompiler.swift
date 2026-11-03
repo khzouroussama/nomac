@@ -93,6 +93,8 @@ extension DocumentCompiler {
             for mask in variation.children {
                 try check(mask, attributes: ["key"], children: ["include", "exclude"])
                 try value(mask, "key", in: ["constraints", "subviews"])
+                // An empty mask changes nothing (`mask-empty-*`, `cvmask-old-empty`).
+                if mask.children.isEmpty { continue }
                 let references = try mask.children.map { child in
                     try check(child, attributes: ["reference"], children: [])
                     guard let reference = child.attributes["reference"] else { throw unsupported("an <\(child.name)> without a reference") }
@@ -131,6 +133,12 @@ extension DocumentCompiler {
                 }
             }
             let candidates: [NibArchivable] = group.subviews ? owner.view.subviews : owner.view.constraints
+            // A collection view cell's mask with its constraints on the cell in the document, an old
+            // cell's, stays the cell's, though its content view installs them (`cvmask-old-*`).
+            let storageOwner = owner.parent.flatMap { documentViews[$0]?.view }.flatMap { cell -> NibView? in
+                guard case .collectionCell(let content) = cell.kind, content.legacy, content.contentView === owner.view else { return nil }
+                return cell
+            } ?? owner.view
             func resolve(_ id: String) throws -> NibArchivable {
                 guard group.subviews else {
                     guard let constraint = documentConstraints[id], owner.view.constraints.contains(where: { $0 === constraint }) else {
@@ -158,8 +166,8 @@ extension DocumentCompiler {
             let storage: NibRelationshipTraitStorage
             if group.subviews {
                 owner.view.excludedSubviews = excluded.compactMap { $0 as? NibView }
-                storage = NibRelationshipTraitStorage(owner: owner.view, keyPath: string("traitStorageSubviews"), candidates: candidates,
-                                                      records: records.map { $0.ordered(as: candidates) }, descendants: [owner.view])
+                storage = NibRelationshipTraitStorage(owner: storageOwner, keyPath: string("traitStorageSubviews"), candidates: candidates,
+                                                      records: records.map { $0.ordered(as: candidates) }, descendants: storageOwner === owner.view ? [owner.view] : [])
                 relationshipStorages.append(storage)
                 continue
             }
@@ -167,8 +175,9 @@ extension DocumentCompiler {
             let items: [NibArchivable] = owner.view.constraints.flatMap { [$0.first] + ($0.second.map { [$0.item] } ?? []) }
             // A safe area among the items is its view's unarchived placeholder guide (the corpus's
             // pocket-casts ShelfActionsViewController).
-            let descendants = items.map { item -> NibArchivable in (item as? NibViewLayoutGuide)?.owningView.safeAreaPlaceholder ?? item }
-            storage = NibRelationshipTraitStorage(owner: owner.view, keyPath: string("traitStorageConstraints"), candidates: candidates,
+            let descendants = items.filter { $0 !== owner.view || storageOwner === owner.view }
+                .map { item -> NibArchivable in (item as? NibViewLayoutGuide)?.owningView.safeAreaPlaceholder ?? item }
+            storage = NibRelationshipTraitStorage(owner: storageOwner, keyPath: string("traitStorageConstraints"), candidates: candidates,
                                                   records: records.map { $0.ordered(as: candidates) }, descendants: descendants)
             var ancestor = owner.parent
             var insideContentView = false

@@ -581,6 +581,8 @@ order).
   (`vo-two-constants*`, `vo-two-labels*`, `vo-two-labels-constant`).
 - The list's top-level object is the one the varied objects are under, a static cell standing for
   one (the corpus's tofu storyboard: a mask in a static cell's content view names the cell).
+- An empty `<mask>` changes nothing, on a default or a size-class variation (`mask-empty-*`,
+  `cvmask-old-empty`).
 - A view's `<variation key="default"><mask key="constraints">` excludes constraints of its own
   (`mask-*`): they stay in all objects (numbered there, after the installed ones) but leave the
   view's `UIViewAutolayoutConstraints`; the list's `UITraitStorages` holds a
@@ -978,6 +980,19 @@ cell's constraints (`cvcell-label-cell-constraints`); nomac refuses them.
 A top-level `<collectionReusableView>` is a `UICollectionReusableView`: a view's keys, then
 `UIReuseIdentifier` (`reusable-*`).
 
+
+A mask in a `<collectionViewCell>` with its constraints on the cell, an old cell's (`<view
+key="contentView">`), compiles against the content view, which installs the constraints, but its
+`_UIRelationshipTraitStorage` is the cell's: `UIObject` is the cell, and its descendants leave out
+the content view, a subviews mask's being empty. The trait storage list walks the cell, then its
+content view once (`sb-cvmask-holder-mask`). Subviews the default mask excludes do not count for the
+content view's safe area guide (`cvmask-old-*`). A current cell's content view has its own
+constraints and masks as any view (`cvmask-new-content*`); ibtool crashes on a mask on such a cell
+(`cvmask-new-on-cell`), which nomac refuses, as it does constraints on one.
+
+A prototype cell has `UIIBSystemGenerated` constraints to its content view, which then does not
+translate its mask, only with constraints of its own on the cell; constraints deeper in the cell do
+not count (`sb-cvmask-none`, `sb-cvmask-own-constraint`, `sb-cvmask-holder-constraint`).
 ## User-defined runtime attributes
 
 An object's `<userDefinedRuntimeAttributes>` (views of every kind and File's Owner; `udra-*`, round

@@ -263,7 +263,13 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Next actions
 
-1. Paused 2026-11-03 (usage). Assigned order: `layoutMarginsFollowReadableWidth` on cells (11
+1. Finished before this pause (round 114 to 116, docs/formats/nib.md): outlets to a controller's
+   navigation item and bar button items, from the controller and from its view's subviews;
+   collection views' section header and footer views; masks in collection view cells. Still
+   refused, with the destination named: a prototype cell's outlet to such an object
+   (`sb-outlet-bar-tvc-from-cell`) and toolbar items as outlet destinations (`<barButtonItem>` in a
+   toolbar's `<items>` does not compile yet).
+2. Paused 2026-11-03 (usage). Assigned order: `layoutMarginsFollowReadableWidth` on cells (11
    documents across corpus, holdout and sweep; not started), then colors (B-281: fit ColorSync's
    pipeline on round 61's grids in `~/nomac-out/wt-scratch/nibs/nib`), then B-266
    (DescriptionWelcome). nibs2-1 owns control actions and `<archive>` documents. Rank refusals

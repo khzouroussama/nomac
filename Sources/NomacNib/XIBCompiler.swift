@@ -268,7 +268,7 @@ struct DocumentCompiler {
     /// storages are those of a walk of the views, depth first from that object, a view writing its
     /// properties' storages, its subviews mask, its constraints mask, then its constraints' (all of
     /// them, then the installed ones again), the first constraint naming a view deeper than the
-    /// subviews walking it (`masks-walk-*`), then its subviews; a cell walks its content view and that view's subviews
+    /// subviews walking it (`masks-walk-*`), then its subviews; a table view cell walks its content view and that view's subviews, a collection view cell its content view (`sb-cvmask-holder-mask`)
     /// (`masks-*`, `mask-cell-group`; wikipedia's ShareViewController, PageHistoryCountsViewController,
     /// WelcomeContainerViewController). A storage walked again is a new object.
     mutating func traitStorageLists(_ topLevel: [NibArchivable]) throws -> [NibArchivable] {
@@ -279,7 +279,9 @@ struct DocumentCompiler {
         guard !traitStorages.isEmpty || !relationshipStorages.isEmpty else { return [] }
         let varied = traitStorages.map(\.object) + relationshipStorages.map(\.owner)
         func contains(_ object: NibArchivable) -> Bool {
-            Self.allObjects([object]).contains { candidate in varied.contains { $0 === candidate } }
+            var objects = [object]
+            if case .collectionCell(let cell)? = (object as? NibView)?.kind { objects.append(cell.contentView) }
+            return Self.allObjects(objects).contains { candidate in varied.contains { $0 === candidate } }
         }
         let staticCells = topLevel.compactMap { $0 as? NibStaticDataSource }.flatMap { $0.sections.flatMap(\.cells) }
         let cells = staticCells.filter(contains), containing = topLevel.filter(contains)
@@ -315,6 +317,7 @@ struct DocumentCompiler {
             }
             switch view.kind {
             case .cell(let cell): ([cell.contentView] + cell.contentView.subviews).forEach(walk)
+            case .collectionCell(let cell): walk(cell.contentView)
             default: view.subviews.forEach(walk)
             }
         }

@@ -79,7 +79,7 @@ import Testing
 
     /// `cvcell-label-cell-constraints`: ibtool drops a cell's constraints in Xcode 12's template.
     @Test func refusesCellConstraintsOfTheContentViewTemplate() {
-        #expect(throws: NomacError("nomac does not compile constraints of a collection view cell of Xcode 12's template yet (BACKLOG B-260)", path: "/tmp/View.xib")) {
+        #expect(throws: NomacError("nomac does not compile constraints or variations of a collection view cell of Xcode 12's template yet (BACKLOG B-260)", path: "/tmp/View.xib")) {
             try XIBCompiler.compile(Data(Self.cellXIB(Self.labels, Self.constraints(Self.cell)).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
         }
     }
