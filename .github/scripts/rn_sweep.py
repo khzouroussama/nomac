@@ -339,6 +339,8 @@ def install(root, entry, env):
         if entry.get("source") and not lockfile else env
     stages = [("packages", argv, folder, install_env)]
     has_expo = installed_version(app, top, "expo") is not None or "expo" in json.loads((app / "package.json").read_text()).get("dependencies", {})
+    if entry.get("source") and not lockfile and has_expo:
+        stages.append(("expo-fix", ["npx", "expo", "install", "--fix"], app, install_env))
     if not (app / "ios").is_dir() and has_expo:
         set_bundle_identifier(app, entry["id"])
         stages.append(("prebuild", ["npx", "expo", "prebuild", "--platform", "ios", "--no-install"], app, env))
@@ -358,6 +360,8 @@ def install(root, entry, env):
             with POD_LOCK if stage == "pods" else contextlib.nullcontext():
                 status = run_online(argv, cwd, stage_env, log_path)
         timings[stage] = round(time.time() - stage_started)
+        if stage == "expo-fix" and status == 0:
+            notes.append("npx expo install --fix (an example without a lockfile: its packages set to the Expo SDK's versions)")
         if status != 0:
             save_versions(result, app, top, manager, declared, lockfile)
             network = bool(NETWORK_ERRORS.search(log_path.read_bytes()[offset:].decode(errors="replace")))
@@ -893,8 +897,9 @@ def known_class(text):
         return "lipo refuses a command without an operation (Swift Build's CopyAndPreserveArchs)"
     if m := re.search(r"lld: error: ([^\n]+)", text):
         return f"lld: {template(normalize(m.group(1)))[:100]}"
-    if re.search(r"external macro implementation|macro plugin|-load-plugin", text):
-        return "Swift macro plugin"
+    if m := re.search(r"external macro implementation type '([^']+)' could not be found|"
+                      r"error: could not build the macro plugin (\S+)|failed to load (?:the )?(?:macro )?plugin '?([^' ]+)", text):
+        return f"Swift macro plugin ({m.group(1) or m.group(2) or m.group(3)})"
     return None
 
 
