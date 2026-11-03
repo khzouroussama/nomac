@@ -53,8 +53,9 @@ container's copy and build folders after its run, the logs gzipped; results stay
 `~/nomac-out/sweep/results` (`reclassify` reads the kept logs again). The Mac copy of an app goes as
 soon as it is in the container; the container's copy of an app that fails after its install stays
 6 hours (`--keep-failed`) at its Mac path in `nomac-sweep-run`, for other agents to look at (sooner
-gone when Docker's volume runs short); its result names it. Installs wait for 10 GB free on
-the Mac; builds start only with 25 GB free on the Mac, whose disk holds Docker's, and 15 GB in the
+gone when the Mac has less than 30 GB free: Docker's disk is on the Mac's, and 15 kept checkouts
+took 22 GB on 2026-11-03); its result names it. Installs wait for 30 GB free on
+the Mac (installed apps waiting for a build slot would otherwise take the builds' margin); builds start only with 25 GB free on the Mac, whose disk holds Docker's, and 15 GB in the
 volume (agent-common.md, after the VM filled up on 2026-11-02 and the Mac on 2026-11-03); each build's
 NOMAC_HOME goes with its derived data (4.7 GB a slot after 20 apps, mostly macro plugins).
 

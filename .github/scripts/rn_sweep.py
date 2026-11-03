@@ -75,7 +75,7 @@ WORK = Path("/work")
 NOMAC = WORK / "bin/current/nomac"
 DEVELOPER_DIR = WORK / "devdir/Xcode_27.app/Contents/Developer"
 MIN_FREE = 15 << 30
-MIN_FREE_MAC = 10 << 30
+MIN_FREE_MAC = 30 << 30
 MIN_FREE_MAC_BUILD = 25 << 30
 MANIFEST_LOCK, POD_LOCK = threading.Lock(), threading.Lock()
 LOCKFILES = [("bun.lock", "bun"), ("bun.lockb", "bun"), ("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"),
@@ -974,12 +974,13 @@ def linux_steps(root, entry, args, slot):
 
 def purge_kept(root, args):
     """Deletes the checkouts kept in the container for a look at their failure: those kept more
-    than --keep-failed hours, then the oldest while Docker's volume has less than 20 GB above its
-    minimum."""
+    than --keep-failed hours, then the oldest while the Mac (whose disk holds Docker's) has less
+    than MIN_FREE_MAC or the volume less than 20 GB above its minimum."""
     kept = sorted((r["kept"]["since"], r["id"]) for path in (root / "results").glob("*.json")
                   if "kept" in (r := json.loads(path.read_text())))
     for since, app_id in kept:
-        if time.time() - since > args.keep_failed * 3600 or volume_free(args.container) < MIN_FREE + (20 << 30):
+        if (time.time() - since > args.keep_failed * 3600 or free_bytes(root) < MIN_FREE_MAC
+                or volume_free(args.container) < MIN_FREE + (20 << 30)):
             result = load_result(root, app_id)
             docker("exec", result["kept"].get("container", args.container), "rm", "-rf", result["kept"]["path"])
             result.pop("kept")
