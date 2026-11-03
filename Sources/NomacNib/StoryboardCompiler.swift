@@ -38,10 +38,11 @@ public enum StoryboardCompiler {
     static let sizeWithoutDeviceOrTraitCollections: (width: Double, height: Double) = (393, 852)
 
     /// The size a storyboard gives its scenes' views on each device, in portrait, whatever their
-    /// frames say; `retina3_5`, which Xcode 27.0 does not offer, gets 393 x 852 in either orientation
-    /// (nib-experiments `sb-device-*`, `sb-device-retina3_5-frame`, `sb-vo-all-retina3_5-landscape`).
+    /// frames say; `retina3_5` and `retina6_72`, which Xcode 27.0 does not offer, get 393 x 852 in
+    /// either orientation (nib-experiments `sb-device-*`, `sb-device-retina3_5-frame`,
+    /// `sb-vo-all-retina3_5-landscape`, `sb-device-retina6_72*`).
     static let deviceSizes: [String: (width: Double, height: Double)] = [
-        "retina3_5": (393, 852), "retina4_0": (320, 568), "retina4_7": (375, 667), "retina5_5": (414, 736), "retina5_9": (375, 812),
+        "retina3_5": (393, 852), "retina6_72": (393, 852), "retina4_0": (320, 568), "retina4_7": (375, 667), "retina5_5": (414, 736), "retina5_9": (375, 812),
         "retina6_0": (390, 844), "retina6_1": (414, 896), "retina6_12": (393, 852), "retina6_3": (402, 874), "retina6_5": (414, 896),
         "retina6_7": (430, 932), "retina6_9": (440, 956), "ipad9_7": (768, 1024), "ipad11_0rounded": (834, 1210),
         "ipad12_9rounded": (1024, 1366),
@@ -81,7 +82,7 @@ extension DocumentCompiler {
         if let device = document.children(named: "device").first {
             let id = device.attributes["id"] ?? "retina6_12"
             let size = StoryboardCompiler.deviceSizes[id]!
-            let landscape = device.attributes["orientation"] == "landscape" && id != "retina3_5"
+            let landscape = device.attributes["orientation"] == "landscape" && !["retina3_5", "retina6_72"].contains(id)
             sceneSize = landscape ? (size.height, size.width) : size
             deviceSizeClasses = SizeClasses.device(id, landscape: landscape)
         } else if deploymentTarget.major < 17 {
@@ -99,10 +100,11 @@ extension DocumentCompiler {
         let tabChildren = Set(controllers.flatMap(\.children))
         let segueDestinations = Set(controllers.flatMap { $0.segues.compactMap(\.destination) })
         for root in roots {
-            // A navigation controller's root with its own identifier has its own nib too (`sb-nav-root-identifier`).
-            guard let controller = byID[root], !controller.isEntryPoint || controller.identifier != nil && root != initial && !tabChildren.contains(root),
-                  controller.root == nil || tabChildren.contains(root), controller.children.isEmpty,
-                  !segueDestinations.contains(root) || tabChildren.contains(root) else {
+            // A navigation controller's root with its own identifier, the initial controller or one
+            // segues reach has its own nib too (`sb-nav-root-identifier`, `sb-nav-root-initial`,
+            // `sb-nav-root-reached*`).
+            guard let controller = byID[root], !tabChildren.contains(root) || !controller.isEntryPoint,
+                  controller.root == nil || tabChildren.contains(root), controller.children.isEmpty else {
                 throw unsupportedScene("a navigation controller's root that is no plain view controller or that other controllers reach")
             }
         }
@@ -169,7 +171,7 @@ extension DocumentCompiler {
         }
         // A container's child that a segue reaches has its own nib too (`sb-split-showdetail*`), as
         // a navigation controller's root with an identifier.
-        let compiled = Set(controllers.map(\.id).filter { !roots.contains($0) || segueDestinations.contains($0) || byID[$0]!.identifier != nil }).subtracting(unreached)
+        let compiled = Set(controllers.map(\.id).filter { !roots.contains($0) || segueDestinations.contains($0) || byID[$0]!.isEntryPoint }).subtracting(unreached)
         var files: [String: Data] = [:]
         for (scene, controller) in zip(scenes, controllers) where compiled.contains(controller.id) {
             let grandchildren = controller.children.compactMap { byID[$0]!.root }
@@ -586,7 +588,8 @@ extension DocumentCompiler {
         try check(controller, attributes: ["id", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "sceneMemberID",
                                            "definesPresentationContext", "userLabel"] + ControllerSettings.attributes + (kind == "viewController" ? [] : ["clearsSelectionOnViewWillAppear"]),
                   children: Set(["layoutGuides", "view", "tableView", "collectionView", "connections", "freeformSimulatedSizeMetrics", "size", "nil", "navigationItem",
-                                 "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value"] + (kind == "tableViewController" ? ["refreshControl"] : [])))
+                                 "simulatedNavigationBarMetrics", "simulatedTabBarMetrics", "simulatedToolbarMetrics", "toolbarItems", "extendedEdge", "value"]
+                                 + (kind == "tableViewController" ? ["refreshControl"] : [])))
         try emptyToolbarItems(controller)
         let baseClass = ["tableViewController": "UITableViewController", "collectionViewController": "UICollectionViewController"][kind] ?? "UIViewController"
         let nibName = sceneController.nibName
@@ -914,7 +917,7 @@ extension DocumentCompiler {
         try check(controller, attributes: ["id", "sceneMemberID", "customClass", "customModule", "customModuleProvider", "definesPresentationContext",
                                            "storyboardIdentifier", "clearsSelectionOnViewWillAppear", "userLabel"] + ControllerSettings.attributes,
                   children: ["layoutGuides", "view", "tableView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value",
-                             "refreshControl"])
+                             "refreshControl", "simulatedTabBarMetrics", "simulatedToolbarMetrics"])
         try emptyToolbarItems(controller)
         let rootClass = rootKind == "tableViewController" ? "UITableViewController" : "UIViewController"
         let item = NibNavigationItem()
@@ -928,7 +931,7 @@ extension DocumentCompiler {
         let extras = try extraViews(extraElements)
         let rootCustomClass = try customClass(controller, original: rootClass)
         let rootViewController = NibRootViewController(item: item, viewNibName: view.nibName, segueTemplates: templates, baseClass: rootClass,
-                                                       customClass: rootCustomClass ?? (rootController.identifier == nil ? nil : (string(rootClass), string(rootClass))),
+                                                       customClass: rootCustomClass ?? (rootController.isEntryPoint ? (string(rootClass), string(rootClass)) : nil),
                                                        externalObjects: view.usesUpstream || !controlTemplates.isEmpty ? NibDictionary() : sharedExternals ?? NibDictionary())
         rootViewController.definesPresentationContext = try bool(controller, "definesPresentationContext", default: false)
         rootViewController.storyboardIdentifier = rootController.identifier.map { string($0) }

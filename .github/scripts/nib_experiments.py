@@ -6309,6 +6309,60 @@ REFRESH = {
 STORYBOARDS.update(REFRESH)
 
 
+
+# Round 110: what documents' headers still stop at: the retina6_72 device, the capability of
+# constraints with non-1.0 multipliers, an old <development> element.
+DEVICE_LINE = '<device id="retina6_12" orientation="portrait" appearance="light"/>'
+HEADERS = {
+    "device-retina6_72": xib(view()).replace(DEVICE_LINE, '<device id="retina6_72" orientation="portrait" appearance="light"/>'),
+    "header-capability-multipliers": xib(view()).replace('        <capability name="documents saved',
+                                                         '        <capability name="Constraints with non-1.0 multipliers" minToolsVersion="5.1"/>\n        <capability name="documents saved'),
+    "header-development-5100": xib(view()).replace('    <dependencies>\n', '    <dependencies>\n        <development version="5100" identifier="xcode"/>\n'),
+}
+EXPERIMENTS.update(HEADERS)
+STORYBOARDS["sb-device-retina6_72"] = storyboard(controller_scene(1), initial="vc1-aa-aaa").replace(DEVICE_LINE, '<device id="retina6_72" orientation="portrait" appearance="light"/>')
+STORYBOARDS["sb-device-retina6_72-landscape"] = storyboard(controller_scene(1), initial="vc1-aa-aaa").replace(DEVICE_LINE, '<device id="retina6_72" orientation="landscape" appearance="light"/>')
+
+
+
+# Round 111: navigation controllers' roots that are also the storyboard's initial controller or
+# that segues reach, as the corpus's wikipedia Places, gomap QuestSolver and uncloudnotes have them.
+SHOW_TO_1 = '                        <segue destination="vc1-aa-aaa" kind="show" identifier="Back" id="bck-aa-aaa"/>\n'
+NAV_ROOTS = {
+    "sb-nav-root-initial": storyboard(navigation_scene("vc1-aa-aaa", ' storyboardIdentifier="Nav"'), controller_scene(1), initial="vc1-aa-aaa"),
+    "sb-nav-root-reached": storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, connections='                        <segue destination="vc2-aa-aaa" kind="show" identifier="Go" id="gog-aa-aaa"/>\n'),
+                                      controller_scene(2, connections=SHOW_TO_1), initial="nvc-aa-aaa"),
+    "sb-nav-root-reached-identifier": storyboard(navigation_scene("vc1-aa-aaa"),
+                                                 controller_scene(1, ' storyboardIdentifier="One"', connections='                        <segue destination="vc2-aa-aaa" kind="show" identifier="Go" id="gog-aa-aaa"/>\n'),
+                                                 controller_scene(2, connections=SHOW_TO_1), initial="nvc-aa-aaa"),
+    "sb-nav-root-initial-titled": storyboard(navigation_scene("vc1-aa-aaa", ' storyboardIdentifier="Nav"'), controller_scene(1, after_view=navigation_item("Home")), initial="vc1-aa-aaa"),
+}
+STORYBOARDS.update(NAV_ROOTS)
+
+
+
+# Round 112: simulated bar metrics of controllers, IB's design-time bars: whether they change a
+# nib.
+def simulated(element):
+    return f"                    {element}\n"
+
+
+SIMULATED_BARS = {
+    "sb-sim-tab-bar": storyboard(controller_scene(1, after_view=simulated('<simulatedTabBarMetrics key="simulatedBottomBarMetrics"/>')), initial="vc1-aa-aaa"),
+    "sb-sim-toolbar": storyboard(controller_scene(1, after_view=simulated('<simulatedToolbarMetrics key="simulatedBottomBarMetrics"/>')), initial="vc1-aa-aaa"),
+    "sb-sim-toolbar-opaque": storyboard(controller_scene(1, after_view=simulated('<simulatedToolbarMetrics key="simulatedBottomBarMetrics" translucent="NO"/>')),
+                                        initial="vc1-aa-aaa"),
+    "sb-sim-nav-opaque": storyboard(controller_scene(1, after_view=simulated('<simulatedNavigationBarMetrics key="simulatedTopBarMetrics" translucent="NO" prompted="NO"/>')),
+                                    initial="vc1-aa-aaa"),
+    "sb-sim-nav-black": storyboard(controller_scene(1, after_view=simulated('<simulatedNavigationBarMetrics key="simulatedTopBarMetrics" barStyle="black" prompted="NO"/>')),
+                                   initial="vc1-aa-aaa"),
+    "sb-sim-tvc-toolbar": storyboard(tvc_scene(prototypes(tvc_cell(1)), after_view=simulated('<simulatedToolbarMetrics key="simulatedBottomBarMetrics"/>')), initial="tvc-aa-aaa"),
+    "sb-sim-tvc-plain": storyboard(tvc_scene(prototypes(tvc_cell(1))), initial="tvc-aa-aaa"),
+    "sb-sim-plain": storyboard(controller_scene(1), initial="vc1-aa-aaa"),
+}
+STORYBOARDS.update(SIMULATED_BARS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

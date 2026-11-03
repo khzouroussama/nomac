@@ -108,7 +108,7 @@ import Testing
     }
 
     @Test(arguments: [
-        (storyboard(navigation(), SceneTests.scene(1), SceneTests.scene(2, connections: SceneTests.segue(1, "show", 1, "Back"))),
+        (storyboard(navigation().replacingOccurrences(of: "vc1-aa-aaa", with: "tab-aa-aaa"), ContainerControllerTests.tab(), SceneTests.scene(1), SceneTests.scene(2)),
          "a navigation controller's root that is no plain view controller or that other controllers reach"),
         (storyboard(initial: "vc1-aa-aaa", SceneTests.scene(1, afterView: item(items: barItem("rightBarButtonItem", "pause", 1)))),
          "a bar button item of a system item not observed yet"),

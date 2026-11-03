@@ -77,13 +77,15 @@ Only inputs whose every element, attribute, value and option the experiments obs
   storyboard's
   `<inferredMetricsTieBreakers>` of segue references changes nothing (`sb-tie-breakers`). `<device>` ids retina3_5,
   retina4_0, retina4_7, retina5_5, retina5_9, retina6_0, retina6_1, retina6_12, retina6_3,
-  retina6_5, retina6_7, retina6_9, ipad9_7, ipad11_0rounded and ipad12_9rounded, portrait or
+  retina6_5, retina6_7, retina6_72, retina6_9, ipad9_7, ipad11_0rounded and ipad12_9rounded, portrait or
   landscape, light, dark or no appearance, `layout="fullscreen"`, `<adaptation id="fullscreen"/>`,
   or no `<device>`; a storyboard's Xcode 8 `<simulatedMetricsContainer key="defaultSimulatedMetrics">`
   (status bar and orientation without types, screen `retina4_7.fullscreen` or `retina4`) changes
   nothing (`sb-metrics-*`). `<dependencies>`: the Cocoa Touch plug-in (any version: two give the same
   nib), the capabilities named in `capabilities`, `capabilities-more` and `capability-multipliers`,
-  Xcode 5's `<development version="5100" identifier="xcode"/>` (`development-xcode-5100`), and
+  Xcode 5's `<development version="5100" identifier="xcode"/>` (`development-xcode-5100`; a
+  storyboard's retina6_72 scenes are 393 x 852 in either orientation, as retina3_5's:
+  `sb-device-retina6_72*`), and
   `<deployment identifier="iOS"/>`, with or without a `version` (major x 256 + minor x 16) from
   2048 (8.0) to 6912 (27.0), IB's numbers between iOS 18 and 26 included: none changes a nib, and
   below 5888 ibtool prints `<path>:global: warning: This file is set to build for a version older
@@ -106,7 +108,8 @@ Only inputs whose every element, attribute, value and option the experiments obs
   keys (B-259). `<image>` resources (any size: `image-view-size-*`).
 - **Outlets** and an outlet collection as in "Connections" below, and design-time settings that
   change nothing: `<freeformSimulatedSizeMetrics>` and `<nil>` simulated bar metrics on views
-  and view controllers (`view-freeform`, `view-simulated-nils`, `sb-simulated-nils`), except
+  and view controllers (`view-freeform`, `view-simulated-nils`, `sb-simulated-nils`), controllers'
+  simulated tab bars, toolbars, and opaque or black navigation bars (round 112, `sb-sim-*`), except
   that for a deployment target under 17.0 a xib's top-level `<view>` without freeform metrics
   takes the document device's size in its orientation (600 x 600 without a device), keeping its
   origin, its subviews autoresized as a storyboard's scene views are; from 17.0 on it keeps its
@@ -1257,7 +1260,9 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   `sb-embed-nav`). A container view without a segue is a plain view (`sb-container-empty`).
 - A navigation controller's root with its own identifier is also compiled as a scene of its own;
   in the navigation controller's nib it is a `UIClassSwapper` with `UIStoryboardIdentifier` after
-  `UINibName` (`sb-nav-root-identifier`).
+  `UINibName` (`sb-nav-root-identifier`). So is a root that is the storyboard's initial
+  controller, a class swapper too, or that segues reach (round 111, `sb-nav-root-initial*`,
+  `sb-nav-root-reached*`; the corpus's wikipedia Places, gomap QuestSolver).
 - Round 78: a navigation controller with its own identifier writes `UIStoryboardIdentifier` first
   in a nib of that name (`sb-nav-identifier*`); IB's frameless `<toolbar key="toolbar">` is a
   `UIToolbar` after `UINavigationBar` (`UIBounds` 0 x 0 x 1000 x 54, `UICenter` 500, 27,

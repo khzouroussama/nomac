@@ -38,7 +38,7 @@ public enum XIBCompiler {
     static let targetDeviceSets: Set<Set<String>> = [["iphone"], ["ipad"], ["iphone", "ipad"]]
     /// The devices a document's `<device>` may name, all observed to give the same nibs (`device-*`);
     /// a storyboard sizes its scenes' views by them (`StoryboardCompiler.deviceSizes`).
-    static let devices: Set<String> = ["retina3_5", "retina4_0", "retina4_7", "retina5_5", "retina5_9", "retina6_0", "retina6_1",
+    static let devices: Set<String> = ["retina3_5", "retina6_72", "retina4_0", "retina4_7", "retina5_5", "retina5_9", "retina6_0", "retina6_1",
                                        "retina6_12", "retina6_3", "retina6_5", "retina6_7", "retina6_9", "ipad9_7", "ipad11_0rounded",
                                        "ipad12_9rounded"]
     /// `<document>` attributes and the values observed (`tools-version-*`, `use-safe-areas`,
@@ -1001,8 +1001,14 @@ struct DocumentCompiler {
             try value(child, "key", in: ["simulatedTopBarMetrics", "simulatedBottomBarMetrics", "simulatedStatusBarMetrics"])
         }
         for child in element.children(named: "simulatedNavigationBarMetrics") {
-            try check(child, attributes: ["key", "prompted", "translucent"], children: [])
+            try check(child, attributes: ["key", "prompted", "translucent", "barStyle"], children: [])
             try value(child, "key", in: ["simulatedTopBarMetrics"])
+            try value(child, "barStyle", in: ["black"])
+        }
+        // A controller's simulated tab bar and toolbar change nothing either (round 112, `sb-sim-*`).
+        for child in element.children.filter({ ["simulatedTabBarMetrics", "simulatedToolbarMetrics"].contains($0.name) }) {
+            try check(child, attributes: ["key", "translucent"], children: [])
+            try value(child, "key", in: ["simulatedBottomBarMetrics"])
         }
     }
 
@@ -1283,7 +1289,7 @@ extension DocumentCompiler {
         guard deploymentTarget.major < 17, !views.isEmpty else { return }
         let size: (width: Double, height: Double)
         if let device = document.children(named: "device").first {
-            guard let id = device.attributes["id"], id != "retina3_5", let portrait = StoryboardCompiler.deviceSizes[id] else {
+            guard let id = device.attributes["id"], !["retina3_5", "retina6_72"].contains(id), let portrait = StoryboardCompiler.deviceSizes[id] else {
                 throw unsupported("top-level views without freeform metrics on the device \(device.attributes["id"] ?? "") for iOS before 17")
             }
             size = device.attributes["orientation"] == "landscape" ? (portrait.height, portrait.width) : portrait

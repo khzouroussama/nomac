@@ -298,6 +298,9 @@ Current step: control actions of every event and the remaining gesture recognize
 (`~/nomac-out/scripts/nib_refusals.py`).
 
 Just finished:
+- Controllers' simulated bars, which change nothing (round 112).
+- Navigation roots that are the initial controller or that segues reach (round 111), the
+  retina6_72 device and older header elements (round 110).
 - Table view controllers' refresh controls (round 109, 5 experiments identical).
 - The corners' content modes as IB spells them (round 108; 7 documents stopped at `TopLeft`).
 - Text views of one font, color and alignment sharing their attributes (round 106), and a
