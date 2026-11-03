@@ -146,16 +146,20 @@ extension PDFPage {
                 let (cx, cy, dr) = (x1 - x0, y1 - y0, r1 - r0)
                 let (px, py) = (point.x - x0, point.y - y0)
                 let a = cx * cx + cy * cy - dr * dr, b = px * cx + py * cy + r0 * dr, c = px * px + py * py - r0 * r0
-                var candidates: [Double] = []
+                var best: Double?
+                func consider(_ candidate: Double) {
+                    guard r0 + candidate * dr >= 0, candidate >= 0 || extend.0, candidate <= 1 || extend.1 else { return }
+                    if best.map({ candidate > $0 }) ?? true { best = candidate }
+                }
                 if abs(a) < 1e-12 {
-                    if abs(b) > 1e-12 { candidates = [c / (2 * b)] }
+                    if abs(b) > 1e-12 { consider(c / (2 * b)) }
                 } else {
                     let discriminant = b * b - a * c
                     guard discriminant >= 0 else { return nil }
-                    candidates = [(b + discriminant.squareRoot()) / a, (b - discriminant.squareRoot()) / a]
+                    consider((b + discriminant.squareRoot()) / a)
+                    consider((b - discriminant.squareRoot()) / a)
                 }
-                let valid = candidates.filter { r0 + $0 * dr >= 0 }.sorted(by: >).filter { ($0 >= 0 || extend.0) && ($0 <= 1 || extend.1) }
-                guard let best = valid.first else { return nil }
+                guard let best else { return nil }
                 s = best
             }
             if s < 0 { return extend.0 ? domain[0] : nil }

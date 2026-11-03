@@ -240,12 +240,16 @@ enum PDFRaster {
             softMasks[softMask.serial] = result
             return result
         }
-        /// The color a shading gives at a pixel, through `matrix` to its space.
-        func shade(_ shading: PDFPage.Shading, inverse: PDFPage.Matrix, pixel index: Int) -> [Double]? {
+        /// The step of its 1,024-step table a shading gives a pixel, through `inverse` to its space.
+        func shade(_ shading: PDFPage.Shading, inverse: PDFPage.Matrix, pixel index: Int) -> Int? {
             let point = inverse.apply(page.box.minX + (Double(index % width) + 0.5) / scaleX, page.box.minY + (Double(height) - Double(index / width) - 0.5) / scaleY)
-            guard let t = shading.parameter(at: point), let table = colors.shadings[shading.key] else { return nil }
+            guard let t = shading.parameter(at: point) else { return nil }
             let step = Int(((t - shading.domain[0]) / max(shading.domain[1] - shading.domain[0], 1e-12) * 1023).rounded())
-            return (extended ? table.extended : table.sRGB)[min(max(step, 0), 1023)]
+            return min(max(step, 0), 1023)
+        }
+        /// A shading's colors, three values a step, looked up once for all its pixels.
+        func table(_ shading: PDFPage.Shading) -> [Double]? {
+            colors.shadings[shading.key].map { (extended ? $0.extended : $0.sRGB).flatMap { $0 } }
         }
         func paint(_ coverage: [Double], clips: [PDFPage.Clip], softMask: PDFPage.SoftMask?, rgb: [Double], alpha opacity: Double,
                    on canvas: inout IconRenderer.Canvas, pattern: PDFPage.Pattern? = nil) {
@@ -260,18 +264,19 @@ enum PDFRaster {
                 for index in coverage.indices { coverage[index] *= mask[index] }
             }
             let inverse = pattern?.matrix.inverted
+            let shades = pattern.flatMap { table($0.shading) }
             for index in coverage.indices where coverage[index] > 0 {
-                var color = rgb
+                var color = (rgb[0], rgb[1], rgb[2])
                 if let pattern {
-                    guard let inverse, let shaded = shade(pattern.shading, inverse: inverse, pixel: index) else { continue }
-                    color = shaded
+                    guard let inverse, let shades, let step = shade(pattern.shading, inverse: inverse, pixel: index) else { continue }
+                    color = (shades[step * 3], shades[step * 3 + 1], shades[step * 3 + 2])
                 }
                 let alpha = Float(min(max(coverage[index] * opacity, 0), 1))
                 let keep = 1 - alpha
                 let base = index * 4
-                for channel in 0..<3 {
-                    canvas.pixels[base + channel] = Float(color[channel]) * alpha + canvas.pixels[base + channel] * keep
-                }
+                canvas.pixels[base] = Float(color.0) * alpha + canvas.pixels[base] * keep
+                canvas.pixels[base + 1] = Float(color.1) * alpha + canvas.pixels[base + 1] * keep
+                canvas.pixels[base + 2] = Float(color.2) * alpha + canvas.pixels[base + 2] * keep
                 canvas.pixels[base + 3] = alpha + canvas.pixels[base + 3] * keep
             }
         }
@@ -304,7 +309,8 @@ enum PDFRaster {
                         paint(coverage, clips: fill.clips, softMask: fill.softMask, rgb: [0, 0, 0], alpha: fill.alpha, on: &canvas)
                         continue
                     }
-                    for index in coverage.indices where shade(fill.shading, inverse: inverse, pixel: index) == nil { coverage[index] = 0 }
+                    let known = colors.shadings[fill.shading.key] != nil
+                    for index in coverage.indices where !known || shade(fill.shading, inverse: inverse, pixel: index) == nil { coverage[index] = 0 }
                     paint(coverage, clips: fill.clips, softMask: fill.softMask, rgb: [0, 0, 0], alpha: fill.alpha, on: &canvas,
                           pattern: PDFPage.Pattern(key: fill.shading.key, shading: fill.shading, matrix: fill.matrix))
                 case .image(let image):
