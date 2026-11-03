@@ -9,13 +9,6 @@
 
 Early preview. Supports Xcode 27.0 (27A266a), iOS devices only.
 
-Works with React Native and Expo apps: a fresh React Native 0.88 app and a fresh Expo SDK 58 app
-(with one line changed in Expo's autolinking) build, install and run on an iPhone from Linux
-([docs/DEMO.md](docs/DEMO.md)). Of 58 public React
-Native and Expo apps that install and that Xcode builds, 46 reach an IPA ([docs/PROGRESS.md](docs/PROGRESS.md)).
-
-`nomac test` runs an app's unit tests on an iPhone from Linux; UI tests not yet.
-
 ## Installation
 
 On Ubuntu 24.04 (x86_64 or arm64), with your own Xcode 27.0 download:
@@ -118,6 +111,13 @@ flowchart LR
 ```
 
 Measured on real open-source apps against Xcode 27's output; details in [docs/PROGRESS.md](docs/PROGRESS.md).
+
+Works with React Native and Expo apps: a fresh React Native 0.88 app and a fresh Expo SDK 58 app
+(with one line changed in Expo's autolinking) build, install and run on an iPhone from Linux
+([docs/DEMO.md](docs/DEMO.md)). Of 58 public React Native and Expo apps that install and that
+Xcode builds, 46 reach an IPA.
+
+`nomac test` runs an app's unit tests on an iPhone from Linux; UI tests not yet.
 
 Apps nomac never saw:
 

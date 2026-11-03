@@ -46,6 +46,29 @@ as tested on a clean Ubuntu 24.04 container.
 3. Later snapshots: `public_snapshot.py <dir> --ref main --onto https://github.com/khzouroussama/nomac.git`,
    then push main from `<dir>`.
 
+## Continuous publishing
+
+The public repository is khzouroussama/nomac (published on 2026-11-03 from nomac-dev e39a9bd5 as
+public 18dfabb). nomac-dev keeps the full history and stays the development repository for now.
+
+Phase 1 (running): every commit that lands on nomac-dev main goes to public main as its own
+commit. `~/nomac-out/scripts/public_sync.sh`, run after each merge, keeps a map of nomac-dev
+commits to public commits, gives each new nomac-dev commit's tree to `public_snapshot.py
+--follow` (the snapshot's transforms: NOTICE written again, `.github/tags` without tag lines;
+its checks; the commit's own message, author, committer and dates; nothing when the public
+tree would not change), runs the leak scan over the result and pushes main as a fast-forward.
+It never forces: when public main is not the last commit it published, it stops. A rerun
+drops only unpushed local commits.
+
+Phase 2 (planned): the public repository becomes the only origin.
+1. Freeze merges for one round; run public_sync.sh so public main matches nomac-dev main.
+2. Each agent rebases its branch once, from nomac-dev main onto public main: the trees are
+   the same, so `git rebase --onto public/main <nomac-dev main> <branch>` replays only its own
+   commits; history is never rewritten on public main.
+3. The merge gate pushes to public main directly (fast-forward), with the leak scan of each
+   push before it; public_sync.sh is retired.
+4. nomac-dev stays read-only as the archive of the history before 2026-11-03.
+
 ## Reproduce
 
 ```sh

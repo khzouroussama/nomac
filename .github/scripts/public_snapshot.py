@@ -14,6 +14,11 @@ Usage: public_snapshot.py <output-dir> [--ref main] [--onto <public repository>]
   --message     the commit's title (default "nomac early preview"); the body names the commit of
                 this repository the tree comes from
   --co-author   the Co-Authored-By trailer (default Claude Opus 5.5 <noreply@anthropic.com>)
+  --repo        the development repository to read (default: the one holding this script)
+  --follow      <output-dir> is an existing clone of the public repository: the tree of --ref
+                becomes its next commit, with --ref's message, author, committer and dates, or
+                nothing happens when the public tree would not change (continuous publishing,
+                docs/state/release.md); no leak scan runs, the caller runs it before pushing
   --leak-scan   the owner's scan for signing identifiers (default $NOMAC_LEAK_SCAN), which reads
                 identifiers kept outside the repository and prints where they occur, never them;
                 the snapshot is refused without it
@@ -75,6 +80,38 @@ def findings(root):
     return found
 
 
+def stage(repo, commit, out):
+    """Puts the tree of `commit`, with the snapshot's changes, in the work tree of `out`, and
+    stops when the result has something that must not be published."""
+    if (out / ".git").exists():
+        git(out, "rm", "-r", "-q", "--ignore-unmatch", ".")
+    with tarfile.open(fileobj=io.BytesIO(git(repo, "archive", "--format=tar", commit))) as archive:
+        archive.extractall(out, filter="tar")
+    tags = out / ".github/tags"
+    tags.write_text("".join(line for line in tags.read_text().splitlines(True) if line.startswith("#") or not line.strip()))
+    subprocess.run([sys.executable, str(out / ".github/scripts/third_party_notices.py"), str(out)], check=True, capture_output=True)
+    problems = findings(out)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        sys.exit(f"error: {len(problems)} findings in the tree of {commit[:12]}; nothing was committed")
+
+
+def follow(repo, commit, out):
+    """The tree of `commit` as the next commit of the public clone `out`, with its metadata."""
+    if git(out, "status", "--porcelain", text=True).strip():
+        sys.exit(f"error: {out} has uncommitted changes")
+    stage(repo, commit, out)
+    git(out, "add", "-A")
+    if not git(out, "status", "--porcelain", text=True).strip():
+        print(f"{commit[:12]}: no change to the public tree")
+        return
+    fields = git(repo, "show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B", commit, text=True).split("\0", 6)
+    names = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]
+    environment = {**os.environ, **dict(zip(names, fields[:6]))}
+    subprocess.run(["git", "-C", str(out), "commit", "-q", "--cleanup=verbatim", "-F", "-"], input=fields[6].encode(), check=True, env=environment)
+    print(f"{commit[:12]} -> {git(out, 'rev-parse', '--short=12', 'HEAD', text=True).strip()}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("output")
@@ -83,31 +120,26 @@ def main():
     parser.add_argument("--onto")
     parser.add_argument("--message", default="nomac early preview")
     parser.add_argument("--co-author", default="Claude Opus 5.5 <noreply@anthropic.com>")
+    parser.add_argument("--follow", action="store_true")
+    parser.add_argument("--repo", help="the development repository (default: the one holding this script)")
     args = parser.parse_args()
-    repo = pathlib.Path(__file__).resolve().parents[2]
+    repo = pathlib.Path(args.repo).resolve() if args.repo else pathlib.Path(__file__).resolve().parents[2]
     out = pathlib.Path(args.output).resolve()
+    commit = git(repo, "rev-parse", "--verify", f"{args.ref}^{{commit}}", text=True).strip()
+    if args.follow:
+        follow(repo, commit, out)
+        return
     if not args.leak_scan or not pathlib.Path(args.leak_scan).is_file():
         sys.exit("error: no leak scan (--leak-scan or NOMAC_LEAK_SCAN); the snapshot is not made without it")
     if out.exists() and any(out.iterdir()):
         sys.exit(f"error: {out} is not empty")
-    commit = git(repo, "rev-parse", "--verify", f"{args.ref}^{{commit}}", text=True).strip()
     name = git(repo, "config", "user.name", text=True).strip()
     email = git(repo, "config", "user.email", text=True).strip()
 
     out.mkdir(parents=True, exist_ok=True)
     if args.onto:
         subprocess.run(["git", "clone", "-q", "--branch", "main", args.onto, str(out)], check=True)
-        git(out, "rm", "-r", "-q", "--ignore-unmatch", ".")
-    with tarfile.open(fileobj=io.BytesIO(git(repo, "archive", "--format=tar", commit))) as archive:
-        archive.extractall(out, filter="tar")
-    tags = out / ".github/tags"
-    tags.write_text("".join(line for line in tags.read_text().splitlines(True) if line.startswith("#") or not line.strip()))
-    subprocess.run([sys.executable, str(out / ".github/scripts/third_party_notices.py"), str(out)], check=True, capture_output=True)
-
-    problems = findings(out)
-    if problems:
-        print("\n".join(problems), file=sys.stderr)
-        sys.exit(f"error: {len(problems)} findings in the snapshot of {commit[:12]}; nothing was committed")
+    stage(repo, commit, out)
 
     environment = {**os.environ, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
                    "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
