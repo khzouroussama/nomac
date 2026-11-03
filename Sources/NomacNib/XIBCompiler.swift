@@ -541,6 +541,7 @@ struct DocumentCompiler {
             : isStack ? StackContent.attributes : isTable ? TableContent.attributes : isScroll ? ScrollContent.attributes
             : isCollection ? CollectionContent.attributes
             : element.name == "navigationBar" ? ["translucent"] : element.name == "searchBar" ? SearchBarContent.attributes
+            : element.name == "wkWebView" ? WebViewContent.attributes
             : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate"]
             : Self.controlAttributes[element.name] ?? []
         try check(element, attributes: Self.viewAttributes + kindAttributes + ["customClass", "customModule", "customModuleProvider"],

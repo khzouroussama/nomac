@@ -932,7 +932,18 @@ a view's keys, then `configuration`, a `WKWebViewConfiguration` of IB's defaults
 `websiteDataStore` a `WKWebsiteDataStore` with `isDefaultDataStore` true, `applicationNameForUserAgent`
 the empty string, `dataDetectorTypes` 127 and IB's other booleans), `allowsBackForwardNavigationGestures`
 false, `customUserAgent` the same empty string, `allowsLinkPreview` true and `findInteractionEnabled`
-false. Configurations other than IB's (media types other than `none`, other preferences) are refused.
+false. The document's settings change their values only, the keys and their order staying (round 114,
+`web-config-*`, `web-media-*`, `web-detect-*`, `web-prefs-*`, `web-view-*`): the configuration's
+`allowsInlineMediaPlayback`, `allowsAirPlayForMediaPlayback`, `allowsPictureInPictureMediaPlayback`,
+`suppressesIncrementalRendering`, `ignoresViewportScaleLimits`, `applicationNameForUserAgent` and
+`selectionGranularity` (dynamic 0, character 1); `mediaTypesRequiringUserActionForPlayback` a boolean,
+false for `none`, true for audio, video, both or no `<audiovisualMediaTypes>`; `dataDetectorTypes`
+127 without a `<dataDetectorTypes>`, else its bits (phone number 1, link 2, address 4, calendar event
+8, tracking number 16, flight number 32, lookup suggestion 64; 0 for `none` or none named); the
+preferences' `javaScriptCanOpenWindowsAutomatically` and `javaScriptEnabled`; the web view's
+`allowsBackForwardNavigationGestures`, `allowsLinkPreview` and `customUserAgent`, a string of the
+document's pool like the application name, so equal ones are one object. ibtool fails on a web view
+without a configuration or preferences, and nomac refuses those.
 
 ## Navigation bars among subviews
 

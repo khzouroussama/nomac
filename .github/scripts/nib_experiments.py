@@ -6643,6 +6643,62 @@ SB_CV_MASKS["sb-cvc-cvmask-one"] = cvc_mask_cell(cv_mask(["c02-aa-aaa"], indent=
 SB_CV_MASKS["sb-cvc-cvmask-size-class"] = cvc_mask_cell(cv_mask(["c02-aa-aaa"], indent=4), cv_mask(["c02-aa-aaa"], "heightClass=regular-widthClass=compact", "include", indent=4))
 STORYBOARDS.update(SB_CV_MASKS)
 
+# Round 114: a web view's configuration, each attribute one at a time, its media types, data
+# detectors and preferences, and the web view's own attributes.
+def web_configured(attributes="", media='none="YES"', preferences='<wkPreferences key="preferences"/>', children="", view_attributes=""):
+    return constrained(web_view(view_attributes, preferences=preferences + children).replace(
+        '<wkWebViewConfiguration key="configuration">', f'<wkWebViewConfiguration key="configuration"{attributes}>').replace(
+        '<audiovisualMediaTypes key="mediaTypesRequiringUserActionForPlayback" none="YES"/>',
+        f'<audiovisualMediaTypes key="mediaTypesRequiringUserActionForPlayback" {media}/>'), "")
+
+
+WEB_DETECTORS = ["phoneNumber", "link", "address", "calendarEvent", "trackingNumber", "flightNumber", "lookupSuggestion"]
+WEB_CONFIGURATIONS = {
+    "web-config-inline": web_configured(' allowsInlineMediaPlayback="YES"'),
+    "web-config-inline-no": web_configured(' allowsInlineMediaPlayback="NO"'),
+    "web-config-airplay-no": web_configured(' allowsAirPlayForMediaPlayback="NO"'),
+    "web-config-pip-no": web_configured(' allowsPictureInPictureMediaPlayback="NO"'),
+    "web-config-airplay-pip-no": web_configured(' allowsAirPlayForMediaPlayback="NO" allowsPictureInPictureMediaPlayback="NO"'),
+    "web-config-incremental": web_configured(' suppressesIncrementalRendering="YES"'),
+    "web-config-app-name": web_configured(' applicationNameForUserAgent="Tester"'),
+    "web-config-viewport": web_configured(' ignoresViewportScaleLimits="YES"'),
+    "web-config-granularity": web_configured(' selectionGranularity="character"'),
+    "web-config-all": web_configured(' allowsInlineMediaPlayback="YES" allowsAirPlayForMediaPlayback="NO" allowsPictureInPictureMediaPlayback="NO" suppressesIncrementalRendering="YES"'),
+    "web-media-audio": web_configured(media='audio="YES"'),
+    "web-media-video": web_configured(media='video="YES"'),
+    "web-media-both": web_configured(media='audio="YES" video="YES"'),
+    "web-media-absent": web_configured().replace('<audiovisualMediaTypes key="mediaTypesRequiringUserActionForPlayback" none="YES"/>', ''),
+    "web-detect-none": web_configured(children='\n    <dataDetectorTypes key="dataDetectorTypes" none="YES"/>'),
+    "web-detect-all": web_configured(children='\n    <dataDetectorTypes key="dataDetectorTypes" ' + " ".join(f'{name}="YES"' for name in WEB_DETECTORS) + '/>'),
+    "web-prefs-popups": web_configured(preferences='<wkPreferences key="preferences" javaScriptCanOpenWindowsAutomatically="YES"/>'),
+    "web-prefs-no-js": web_configured(preferences='<wkPreferences key="preferences" javaScriptEnabled="NO"/>'),
+    "web-prefs-font-popups": web_configured(preferences='<wkPreferences key="preferences" minimumFontSize="6" javaScriptCanOpenWindowsAutomatically="YES"/>'),
+    "web-view-gestures": web_configured(view_attributes=' allowsBackForwardNavigationGestures="YES"'),
+    "web-view-no-preview": web_configured(view_attributes=' allowsLinkPreview="NO"'),
+    "web-view-agent": web_configured(view_attributes=' customUserAgent="Agent"'),
+    "web-view-agent-and-name": web_configured(' applicationNameForUserAgent="Tester"', view_attributes=' customUserAgent="Agent"'),
+}
+WEB_CONFIGURATIONS.update({f"web-detect-{name.lower()}": web_configured(children=f'\n    <dataDetectorTypes key="dataDetectorTypes" {name}="YES"/>') for name in WEB_DETECTORS})
+WEB_MORE = {
+    "web-config-granularity-dynamic": web_configured(' selectionGranularity="dynamic"'),
+    "web-config-airplay-yes": web_configured(' allowsAirPlayForMediaPlayback="YES"'),
+    "web-config-pip-yes": web_configured(' allowsPictureInPictureMediaPlayback="YES"'),
+    "web-config-incremental-no": web_configured(' suppressesIncrementalRendering="NO"'),
+    "web-config-viewport-no": web_configured(' ignoresViewportScaleLimits="NO"'),
+    "web-config-app-name-empty": web_configured(' applicationNameForUserAgent=""'),
+    "web-prefs-js-yes": web_configured(preferences='<wkPreferences key="preferences" javaScriptEnabled="YES"/>'),
+    "web-prefs-popups-no": web_configured(preferences='<wkPreferences key="preferences" javaScriptCanOpenWindowsAutomatically="NO"/>'),
+    "web-view-agent-empty": web_configured(view_attributes=' customUserAgent=""'),
+    "web-view-gestures-no": web_configured(view_attributes=' allowsBackForwardNavigationGestures="NO"'),
+    "web-view-preview-yes": web_configured(view_attributes=' allowsLinkPreview="YES"'),
+    "web-detect-two": web_configured(children='\n    <dataDetectorTypes key="dataDetectorTypes" phoneNumber="YES" link="YES"/>'),
+    "web-detect-element-empty": web_configured(children='\n    <dataDetectorTypes key="dataDetectorTypes"/>'),
+    "web-same-agent-and-name": web_configured(' applicationNameForUserAgent="Same"', view_attributes=' customUserAgent="Same"'),
+}
+WEB_CONFIGURATIONS.update(WEB_MORE)
+EXPERIMENTS.update(WEB_CONFIGURATIONS)
+
+
 
 def main():
     out = Path(sys.argv[1]).resolve()
