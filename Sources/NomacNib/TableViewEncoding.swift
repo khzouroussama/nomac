@@ -4,6 +4,8 @@ import Foundation
 /// nib-experiments `table-*`): its scroll view's, then its style, separators, row and section
 /// heights.
 struct TableContent {
+    /// Its table view controller's refresh control, after its bounce (`sb-tvc-refresh*`).
+    var refreshControl: NibView?
     /// The `<tableView>` attributes observed, besides a view's.
     static let attributes = ["dataMode", "alwaysBounceVertical", "style", "separatorStyle", "rowHeight", "estimatedRowHeight", "sectionHeaderHeight",
                              "sectionFooterHeight", "keyboardDismissMode", "indicatorStyle", "allowsSelection", "allowsSelectionDuringEditing", "scrollEnabled",
@@ -56,6 +58,7 @@ struct TableContent {
         if !canCancelContentTouches { encoder.encode(.boolean(false), forKey: "UICanCancelContentTouches") }
         if bouncesZoom { encoder.encode(.boolean(true), forKey: "UIBouncesZoom") }
         if alwaysBounceVertical { encoder.encode(.boolean(true), forKey: "UIAlwaysBounceVertical") }
+        if let refreshControl { try encoder.encode(refreshControl, forKey: "UIRefreshControl") }
         if let keyboardDismissMode { encoder.encode(.integer(keyboardDismissMode), forKey: "UIKeyboardDismissMode") }
         encoder.encode(.integer(0), forKey: "UIScrollViewContentInsetAdjustmentBehavior")
         encoder.encode(.integer(style), forKey: "UITableViewStyle")
@@ -312,5 +315,31 @@ extension DocumentCompiler {
         content.allowsMultipleSelectionDuringEditing = try bool(element, "allowsMultipleSelectionDuringEditing", default: false)
         content.insetsContentViewsToSafeArea = try bool(element, "contentViewInsetsToSafeArea", default: true)
         return content
+    }
+}
+
+extension DocumentCompiler {
+    /// A table view controller's `<refreshControl>`: a view of IB's frame, 1000 x 1000 at the
+    /// origin whatever the document says, writing `UIDisabled` when disabled and its style 2, and
+    /// its actions (`sb-tvc-refresh*`).
+    mutating func refreshControl(_ element: XIBElement) throws -> NibView {
+        try check(element, attributes: ["key", "opaque", "multipleTouchEnabled", "contentMode", "insetsLayoutMarginsFromSafeArea", "enabled",
+                                        "contentHorizontalAlignment", "contentVerticalAlignment", "id"], children: ["rect", "autoresizingMask", "connections"])
+        try value(element, "contentHorizontalAlignment", in: ["center"])
+        try value(element, "contentVerticalAlignment", in: ["center"])
+        if let rect = element.child("rect", key: "frame") {
+            guard rect.attributes == ["key": "frame", "x": "0.0", "y": "0.0", "width": "1000", "height": "1000"] else {
+                throw unsupported("a refresh control of another frame than IB's")
+            }
+        }
+        let viewElement = XIBElement(name: "view", attributes: element.attributes.filter {
+            !["key", "enabled", "contentHorizontalAlignment", "contentVerticalAlignment"].contains($0.key)
+        })
+        viewElement.children = [XIBElement(name: "rect", attributes: ["key": "frame", "x": "0", "y": "0", "width": "1000", "height": "1000"])]
+            + element.children(named: "autoresizingMask")
+        let view = try self.view(viewElement, topLevel: false)
+        view.kind = NibView.Kind.refreshControl(enabled: try bool(element, "enabled", default: true))
+        try connections(of: element, source: view)
+        return view
     }
 }

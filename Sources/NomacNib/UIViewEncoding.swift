@@ -78,6 +78,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         /// `UIDatePicker` of date and time or a count-down timer (`date-picker-*`).
         case datePicker(countDown: Bool, usesCurrentDate: Bool)
         case pickerView
+        case refreshControl(enabled: Bool)
         case searchBar(SearchBarContent)
 
         var isCellLabel: Bool {
@@ -184,6 +185,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .navigationBar: return "UINavigationBar"
         case .datePicker: return "UIDatePicker"
         case .pickerView: return "UIPickerView"
+        case .refreshControl: return "UIRefreshControl"
         case .searchBar: return "UISearchBar"
         case .view: return isImageView ? "UIImageView" : label != nil ? "UILabel" : "UIView"
         }
@@ -206,7 +208,7 @@ final class NibView: NibArchivable, NibObjectChildren {
                 + constraints + movedOutConstraints
         case .cellContentView: return constraints + excludedSubviews
         case .cellSeparator, .systemBackground: return []
-        case .tableView: return constraints
+        case .tableView(let table): return constraints + [table.refreshControl].compactMap { $0 }
         case .collectionCell(let cell):
             let safeArea = safeAreaPlaceholder.map { [$0] } ?? []
             return cell.legacy ? safeArea + cell.contentView.subviews + cell.contentView.constraints : [cell.contentView] + safeArea
@@ -217,7 +219,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .segment: return []
         case .navigationBar(let items, _): return constraints + items.elements
         case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .toolbar, .webView, .datePicker,
-             .pickerView, .searchBar: break
+             .pickerView, .searchBar, .refreshControl: break
         }
         let guides = subviews.filter { $0.layoutGuide != nil }
         return (safeAreaPlaceholder.map { [$0] } ?? []) + layoutGuidePlaceholders + constraints + guides + subviews.filter { $0.layoutGuide == nil }
@@ -353,6 +355,9 @@ final class NibView: NibArchivable, NibObjectChildren {
             if !usesCurrentDate { encoder.encode(.boolean(false), forKey: "UIDatePickerUseCurrentDateDuringDecoding") }
         case .pickerView:
             encoder.encode(.boolean(true), forKey: "UIAllowSelectingCells")
+        case .refreshControl(let enabled):
+            if !enabled { encoder.encode(.boolean(true), forKey: "UIDisabled") }
+            encoder.encode(.integer(2), forKey: "UIRefreshControlStyle")
         default: break
         }
         if let customClass {
@@ -366,9 +371,12 @@ final class NibView: NibArchivable, NibObjectChildren {
         [7] + values.flatMap { NibArchive.littleEndian($0.bitPattern) }
     }
 
-    /// `UIViewContentMode`, by the names documents use.
-    static let contentModes = ["scaleToFill", "scaleAspectFit", "scaleAspectFill", "redraw", "center", "top", "bottom", "left",
-                               "right", "topLeft", "topRight", "bottomLeft", "bottomRight"]
+    /// `UIViewContentMode`, by the names IB writes: top left is `TopLeft`, capitalized, the other
+    /// corners `topRight`, `bottomLeft`, `bottomRight`; ibtool takes the other spellings of the
+    /// corners as scale to fill (round 108, `*-mode-*`).
+    static let contentModes = ["scaleToFill": 0, "scaleAspectFit": 1, "scaleAspectFill": 2, "redraw": 3, "center": 4, "top": 5, "bottom": 6, "left": 7,
+                               "right": 8, "TopLeft": 9, "topRight": 10, "bottomLeft": 11, "bottomRight": 12,
+                               "topLeft": 0, "TopRight": 0, "BottomLeft": 0, "BottomRight": 0]
     /// `UISemanticContentAttribute`, by the names documents use.
     static let semanticContentAttributes = ["unspecified", "playback", "spatial", "forceLeftToRight", "forceRightToLeft"]
     /// `UIViewAutoresizing` bits, by the names documents use.

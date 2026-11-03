@@ -198,7 +198,7 @@ write `true` and `false`).
 | `UIAutoresizingMask` | the mask (flexibleMinX 1, widthSizable 2, flexibleMaxX 4, flexibleMinY 8, heightSizable 16, flexibleMaxY 32); 36 without an `autoresizingMask` element or, for a top-level view, with `translatesAutoresizingMaskIntoConstraints="NO"`; left out when 0 |
 | `UIClearsContextBeforeDrawing` | false for `clearsContextBeforeDrawing="NO"` (`image-view-clears`, `view-clears-no`) |
 | `UIAlpha` | float, when `alpha` is given and not 1 (`alpha-1.000`, `alpha-1.0` write none) |
-| `UIContentMode` | `UIViewContentMode`, unless `scaleToFill` |
+| `UIContentMode` | `UIViewContentMode`, unless `scaleToFill`; the corners as IB spells them, `TopLeft` 9 capitalized, `topRight` 10, `bottomLeft` 11, `bottomRight` 12, ibtool taking `topLeft`, `TopRight`, `BottomLeft` and `BottomRight` as scale to fill (round 108, `*-mode-*`) |
 | `UIContentStretch` | the `<rect key="contentStretch">`'s x, y, width and height as doubles, the document's values exactly; left out at 0, 0, 1, 1 (`view-stretch*`, `image-view-stretch`, `label-stretch`, `button-stretch`, `cell-stretch*`) |
 | `UIClipsToBounds` | true for `clipsSubviews="YES"` |
 | `UITintColor` | the `<color key="tintColor">` (`view-tint-*`, `button-tint-*`) |
@@ -639,7 +639,11 @@ A `<tableViewController>` scene (`sb-tvc-*`) compiles as a view controller's: a 
 scenes' views; the table's `dataSource` and `delegate` outlets to the controller go through
 `UpstreamPlaceholder-1`. In a document using safe areas, a table or collection view controller's view
 without a safe area guide compiles as in one without them (round 87, `sb-tvc-safe-areas-*`,
-`sb-cvc-safe-areas-no-guide`; kickstarter's and nextcloud's settings storyboards).
+`sb-cvc-safe-areas-no-guide`; kickstarter's and nextcloud's settings storyboards). A table view controller's `<refreshControl>` is its table view's `UIRefreshControl`,
+written after `UIAlwaysBounceVertical` and listed after the table view in all objects: a
+`UIRefreshControl` of IB's frame, 1000 x 1000 at the origin whatever the document gives, with a
+view's keys, `UIDisabled` true for `enabled="NO"` and `UIRefreshControlStyle` 2; its actions are
+event connections of the view nib (round 109, `sb-tvc-refresh*`).
 
 - Prototype cells (`dataMode="prototypes"`): each a nib of its own, File's Owner, First Responder
   and the cell compiled as a xib's cell (no safe area guide), in the table's

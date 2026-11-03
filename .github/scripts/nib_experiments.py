@@ -6201,6 +6201,44 @@ GESTURE_SOURCES["sb-gesture-controller-collection-zzz"] = gesture_scene(['<outle
 STORYBOARDS.update(GESTURE_SOURCES)
 
 
+
+# Round 108: the content modes of the corners in IB's spellings and others: `TopLeft`, capitalized,
+# against `topLeft`, and the other corners in both cases.
+def mode_case(mode):
+    return mode.lower() + ("-capital" if mode[0].isupper() else "")
+
+
+CONTENT_MODE_CASES = {
+    "label-mode-topleft-capital": constrained(label(LABEL_ATTRIBUTES.replace('contentMode="left"', 'contentMode="TopLeft"')), ""),
+    "label-mode-topleft": constrained(label(LABEL_ATTRIBUTES.replace('contentMode="left"', 'contentMode="topLeft"')), ""),
+}
+CONTENT_MODE_CASES.update({f"image-view-mode-{mode_case(mode)}": constrained(subview("img-aa-aa1", tag="imageView", attributes=f' contentMode="{mode}"'), "")
+                           for mode in ["TopLeft", "topLeft", "TopRight", "BottomLeft", "BottomRight", "topRight", "bottomLeft", "bottomRight"]})
+EXPERIMENTS.update(CONTENT_MODE_CASES)
+
+
+
+# Round 109: table view controllers' refresh controls, as IB writes them, with an action and an
+# outlet.
+def refresh_control(attributes="", connections=""):
+    body = '                        <autoresizingMask key="autoresizingMask"/>\n' + connections
+    return ('                    <refreshControl key="refreshControl" opaque="NO" multipleTouchEnabled="YES" contentMode="center"' + attributes
+            + ' enabled="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" id="rfc-aa-aa1">\n' + body + '                    </refreshControl>\n')
+
+
+REFRESH_ACTION = ('                        <connections>\n                            <action selector="refresh:" destination="tvc-aa-aaa" eventType="valueChanged" '
+                  'id="rfa-aa-aa1"/>\n                        </connections>\n')
+REFRESH = {
+    "sb-tvc-refresh": storyboard(tvc_scene(prototypes(tvc_cell(1)), after_view=refresh_control()), initial="tvc-aa-aaa"),
+    "sb-tvc-refresh-margins": storyboard(tvc_scene(prototypes(tvc_cell(1)), after_view=refresh_control(' insetsLayoutMarginsFromSafeArea="NO"')), initial="tvc-aa-aaa"),
+    "sb-tvc-refresh-action": storyboard(tvc_scene(prototypes(tvc_cell(1)), after_view=refresh_control(connections=REFRESH_ACTION)), initial="tvc-aa-aaa"),
+    "sb-tvc-refresh-nav": storyboard(navigation_scene("tvc-aa-aaa"), tvc_scene(prototypes(tvc_cell(1)), after_view=navigation_item() + refresh_control(connections=REFRESH_ACTION)),
+                                     initial="nvc-aa-aaa"),
+    "sb-tvc-refresh-enabled": storyboard(tvc_scene(prototypes(tvc_cell(1)), after_view=refresh_control().replace(' enabled="NO"', '')), initial="tvc-aa-aaa"),
+}
+STORYBOARDS.update(REFRESH)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

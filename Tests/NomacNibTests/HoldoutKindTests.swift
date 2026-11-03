@@ -4,8 +4,9 @@ import Testing
 @testable import NomacNib
 
 /// What ibtool (Xcode 27.0) writes for presentation segues' styles, text views adjusting their font
-/// and detecting calendar events, table view cells' accessibility and top-level stack views
-/// (`.github/scripts/nib_experiments.py` round 104): sizes and SHA-256 digests of Xcode's nibs.
+/// and detecting calendar events, table view cells' accessibility, top-level stack views and the
+/// corners' content modes (`.github/scripts/nib_experiments.py` rounds 104 and 108): sizes and
+/// SHA-256 digests of Xcode's nibs.
 @Suite struct HoldoutKindTests {
     static func presenting(_ extra: String) -> String {
         let segue = "<segue destination=\"vc2-aa-aaa\" kind=\"presentation\"\(extra) id=\"bsg-aa-aaa\"/>"
@@ -38,6 +39,10 @@ import Testing
         + #"<rect key="frame" x="0.0" y="0.0" width="200" height="100"/>"# + "\n"
         + #"<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>"# + "\n"
         + #"<point key="canvasLocation" x="0" y="0"/>"# + "\n</stackView>\n"
+    static func corner(_ mode: String) -> String {
+        ConstraintTests.constrained(ConstraintTests.subview("img-aa-aa1", tag: "imageView", attributes: " contentMode=\"\(mode)\""), "")
+    }
+
     static let styleFont = #"<fontDescription key="fontDescription" style="UICTFontTextStyleBody"/>"# + "\n"
     static let xibCases: [(String, String, Int, String)] = [
         ("text-view-adjusts", TextViewTests.xib(TextViewTests.attributes + #" adjustsFontForContentSizeCategory="YES""#,
@@ -52,10 +57,15 @@ import Testing
                                                 + #"<bool key="isElement" value="YES"/>"# + "\n</accessibility>\n"),
          1576, "e8e7be7540fa86b4d8a0f2a96fa59fa440a936189a3aaffb0b17c25a1e8548f0"),
         ("tl-stack", XIBCompilerTests.xib(stack), 962, "4921ed165d0f03d8a570de182e9b7265abc1211211446c3b67180707d206ebe6"),
+        ("image-view-mode-topleft-capital", corner("TopLeft"), 903, "9374dc18051e9c3f3e1c1db6f2233a0027e870bd091630455fadb4364f62470d"),
+        ("image-view-mode-topleft", corner("topLeft"), 886, "6200eb663c00be3e091d5978410dca95075e0c6284f7883d2d594e2ec450ebe8"),
+        ("image-view-mode-topright", corner("topRight"), 903, "32c0b9a1a01a18445bbd4985c718dd93e606bc59c1ed451bb31b7a37d6115f0d"),
+        ("image-view-mode-topright-capital", corner("TopRight"), 886, "6200eb663c00be3e091d5978410dca95075e0c6284f7883d2d594e2ec450ebe8"),
     ]
 
     /// `UIAdjustsFontForContentSizeCategory` before the font, calendar events as data detector bit 8,
-    /// a cell's accessibility configuration as a view's, a top-level stack view as any view.
+    /// a cell's accessibility configuration as a view's, a top-level stack view as any view; top left
+    /// as IB writes it, `TopLeft`, the other corners lowercase, other spellings scale to fill.
     @Test(arguments: xibCases)
     func compilesAsXcode(name: String, xib: String, size: Int, digest: String) throws {
         let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)

@@ -509,7 +509,7 @@ struct DocumentCompiler {
                                 + (isLabel ? ["fontDescription", "string", "variation", "attributedString"] : [])
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
                                 + (element.name == "toolbar" ? ["items"] : []) + (element.name == "wkWebView" ? ["wkWebViewConfiguration"] : [])
-                                + (element.name == "navigationBar" ? ["items"] : []) + (isTable ? ["prototypes", "sections", "inset"] : [])
+                                + (element.name == "navigationBar" ? ["items"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
                                 + (isButton ? ["fontDescription", "state", "inset", "buttonConfiguration"] : []) + (element.name == "segmentedControl" ? ["segments"] : [])
                                 + (isEffect ? ["view", "blurEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
                                 + (element.name == "textView" ? ["fontDescription", "textInputTraits", "string", "dataDetectorType"] : [])
@@ -552,7 +552,7 @@ struct DocumentCompiler {
         flags.preservesSuperviewLayoutMargins = try bool(element, "preservesSuperviewLayoutMargins", default: false)
         let translates = try bool(element, "translatesAutoresizingMaskIntoConstraints", default: true)
         flags.doesNotTranslateAutoresizingMask = topLevel && !translates
-        flags.contentMode = try named(element.attributes["contentMode"] ?? "scaleToFill", in: NibView.contentModes, "contentMode")
+        flags.contentMode = try mapped(element.attributes["contentMode"] ?? "scaleToFill", NibView.contentModes, "contentMode")
         flags.semanticContentAttribute = try named(element.attributes["semanticContentAttribute"] ?? "unspecified",
                                                    in: NibView.semanticContentAttributes, "semanticContentAttribute")
         var frame = NibView.frameWithoutRect
@@ -579,7 +579,7 @@ struct DocumentCompiler {
                  ("collectionViewLayout", "collectionViewLayout"), ("cells", nil),
                  ("userDefinedRuntimeAttributes", nil), ("accessibility", "accessibilityConfiguration"), ("textInputTraits", "textInputTraits"),
                  ("dataDetectorType", "dataDetectorTypes"), ("imageReference", "image"),
-                 ("preferredSymbolConfiguration", "preferredSymbolConfiguration"), ("items", nil),
+                 ("preferredSymbolConfiguration", "preferredSymbolConfiguration"), ("items", nil), ("refreshControl", "refreshControl"),
                  ("wkWebViewConfiguration", "configuration"):
                 continue
             case ("color", _) where Self.controlAttributes[element.name] != nil:
@@ -708,7 +708,12 @@ struct DocumentCompiler {
             try switchFramePair(view)
         }
         if isTable {
-            view.kind = .tableView(try tableContent(element))
+            var table = try tableContent(element)
+            table.refreshControl = try element.children(named: "refreshControl").first.map { try refreshControl($0) }
+            guard table.refreshControl == nil || table.keyboardDismissMode == nil else {
+                throw unsupported("a table view's refresh control beside a keyboard dismiss mode")
+            }
+            view.kind = .tableView(table)
             if view.backgroundColor == nil, view.kind.groupedTable {
                 view.backgroundColor = try color(XIBElement(name: "color", attributes: ["systemColor": "systemGroupedBackgroundColor"]))
             } else if let background = view.backgroundColor, background.name != nil, background.components == .gray(white: 1, alpha: 1),
@@ -976,7 +981,7 @@ struct DocumentCompiler {
     }
 
     /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`).
-    static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker"]
+    static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker", "refreshControl"]
                                         + NibGestureRecognizer.elements)
 
     /// Records an object's `<connections>` for `outletConnections`.

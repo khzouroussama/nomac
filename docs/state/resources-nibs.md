@@ -279,6 +279,8 @@ Current step: control actions of every event and the remaining gesture recognize
 (`~/nomac-out/scripts/nib_refusals.py`).
 
 Just finished:
+- Table view controllers' refresh controls (round 109, 5 experiments identical).
+- The corners' content modes as IB spells them (round 108; 7 documents stopped at `TopLeft`).
 - Text views of one font, color and alignment sharing their attributes (round 106), and a
   scene's recognizer numbered after its controller when the view nib's connections reach the
   controller first (round 107); wikipedia's EditSaveViewController equivalent under ADR 0260.

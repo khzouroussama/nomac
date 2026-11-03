@@ -585,8 +585,8 @@ extension DocumentCompiler {
         }
         try check(controller, attributes: ["id", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "sceneMemberID",
                                            "definesPresentationContext", "userLabel"] + ControllerSettings.attributes + (kind == "viewController" ? [] : ["clearsSelectionOnViewWillAppear"]),
-                  children: ["layoutGuides", "view", "tableView", "collectionView", "connections", "freeformSimulatedSizeMetrics", "size", "nil", "navigationItem",
-                             "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value"])
+                  children: Set(["layoutGuides", "view", "tableView", "collectionView", "connections", "freeformSimulatedSizeMetrics", "size", "nil", "navigationItem",
+                                 "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value"] + (kind == "tableViewController" ? ["refreshControl"] : [])))
         try emptyToolbarItems(controller)
         let baseClass = ["tableViewController": "UITableViewController", "collectionViewController": "UICollectionViewController"][kind] ?? "UIViewController"
         let nibName = sceneController.nibName
@@ -711,8 +711,15 @@ extension DocumentCompiler {
             }
         }
         let views = controller.children.filter { $0.name == (["tableViewController": "tableView", "collectionViewController": "collectionView"][controller.name] ?? "view") }
-        guard views.count == 1, let viewElement = views.first, viewElement.attributes["key"] == "view", let viewID = viewElement.attributes["id"] else {
+        guard views.count == 1, var viewElement = views.first, viewElement.attributes["key"] == "view", let viewID = viewElement.attributes["id"] else {
             throw unsupportedScene("a view controller without one view")
+        }
+        // A table view controller's refresh control is its table view's (`sb-tvc-refresh*`).
+        let refreshControls = controller.children(named: "refreshControl")
+        if !refreshControls.isEmpty {
+            let table = XIBElement(name: viewElement.name, attributes: viewElement.attributes)
+            table.children = viewElement.children + refreshControls
+            viewElement = table
         }
         let viewNibName = "\(id)-view-\(viewID)"
         let responder = NibProxy(identifier: "IBFirstResponder")
@@ -906,7 +913,8 @@ extension DocumentCompiler {
         let (controller, objects) = try sceneObjects(rootScene, controller: rootKind)
         try check(controller, attributes: ["id", "sceneMemberID", "customClass", "customModule", "customModuleProvider", "definesPresentationContext",
                                            "storyboardIdentifier", "clearsSelectionOnViewWillAppear", "userLabel"] + ControllerSettings.attributes,
-                  children: ["layoutGuides", "view", "tableView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value"])
+                  children: ["layoutGuides", "view", "tableView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value",
+                             "refreshControl"])
         try emptyToolbarItems(controller)
         let rootClass = rootKind == "tableViewController" ? "UITableViewController" : "UIViewController"
         let item = NibNavigationItem()
