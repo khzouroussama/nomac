@@ -65,7 +65,11 @@ extension DocumentCompiler {
                     let (a, b) = (first.constraint, second.constraint)
                     let sameItems = a.first === b.first && a.second?.item === b.second?.item && a.multiplier == b.multiplier
                     if sameItems, a.constant == b.constant, a.relation == b.relation, a.priority == b.priority { continue }
-                    guard first.key != second.key || sameItems, !first.normalized, !second.normalized else {
+                    let settledTie = first.key == second.key && [a, b].allSatisfy { constraint in
+                        constraint.priority == 1000 && satisfiedByFrames(constraint, owner: pending.owner) && !namesDeeperView(constraint, owner: pending.owner)
+                    }
+                    settledTies = settledTies || settledTie
+                    guard settledTie || first.key != second.key || sameItems, !first.normalized, !second.normalized else {
                         throw unsupportedConstraints("constraints that differ only in their constants or relations")
                     }
                 }
@@ -428,6 +432,56 @@ extension DocumentCompiler {
             guard let id = element.attributes["id"], let constraint = documentConstraints[id], let view = documentViews[target]?.view else { continue }
             cell.movedOutConstraints.append(constraint)
             cell.movedOutConstraints.sort { a, b in view.constraints.firstIndex { $0 === a }! < view.constraints.firstIndex { $0 === b }! }
+        }
+    }
+
+    /// Whether a constraint names a view deeper than `owner`'s subviews, which all objects lists in
+    /// that constraint's place, so in a tie's order (`deep-other-*`).
+    func namesDeeperView(_ constraint: NibLayoutConstraint, owner: String) -> Bool {
+        let ids = Dictionary(documentViews.map { (ObjectIdentifier($0.value.view), $0.key) }) { first, _ in first }
+        return ([constraint.first] + [constraint.second?.item].compactMap { $0 }).contains { item in
+            ids[ObjectIdentifier(item)].map { depth(of: $0, in: owner) > 1 } ?? false
+        }
+    }
+
+    /// Whether the document's frames satisfy a constraint, its items in `owner`'s coordinates: ties
+    /// of such required constraints are written in document order, ibtool's own order being
+    /// equivalent (ADR 0253). A safe area's edges are known across only: its insets above and
+    /// below depend on the device; margins are not checked.
+    func satisfiedByFrames(_ constraint: NibLayoutConstraint, owner: String) -> Bool {
+        guard let ownerView = documentViews[owner] else { return false }
+        let ids = Dictionary(documentViews.map { (ObjectIdentifier($0.value.view), $0.key) }) { first, _ in first }
+        func value(_ item: NibArchivable, _ attribute: Int) -> Double? {
+            let frame: (x: Double, y: Double, width: Double, height: Double)
+            if item === ownerView.view {
+                frame = (0, 0, ownerView.frame.width, ownerView.frame.height)
+            } else if let guide = item as? NibViewLayoutGuide, guide.owningView === ownerView.view, [1, 2, 5, 6, 7, 9].contains(attribute) {
+                frame = (0, 0, ownerView.frame.width, ownerView.frame.height)
+            } else if let id = ids[ObjectIdentifier(item)], let inOwner = self.frame(of: id, in: owner) {
+                frame = inOwner
+            } else {
+                return nil
+            }
+            switch attribute {
+            case 1, 5: return frame.x
+            case 2, 6: return frame.x + frame.width
+            case 3: return frame.y
+            case 4: return frame.y + frame.height
+            case 7: return frame.width
+            case 8: return frame.height
+            case 9: return frame.x + frame.width / 2
+            case 10: return frame.y + frame.height / 2
+            default: return nil
+            }
+        }
+        guard let first = value(constraint.first, constraint.firstAttribute) else { return false }
+        let second = constraint.second.map { value($0.item, $0.attribute).map { $0 * constraint.multiplier } } ?? 0
+        guard let second else { return false }
+        let difference = first - (second + constraint.constant)
+        switch constraint.relation {
+        case -1: return difference <= 0.01
+        case 1: return difference >= -0.01
+        default: return abs(difference) <= 0.01
         }
     }
 

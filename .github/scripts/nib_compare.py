@@ -182,8 +182,190 @@ def canonical_connections(data):
                      for index, name, items in sorted(lines, key=lambda line: numbering[line[0]]))
 
 
+def tie_canonical(data):
+    """The NIBArchive as a graph renumbered depth first from the root, the constraints of each
+    settled tie (ADR 0253: one item's required constraints by the same attributes to several views,
+    all satisfied by the archive's frames) in one canonical order, every set's elements sorted, nested
+    archives likewise (NibTieComparison.swift), or None when it is not one."""
+    data = bytes(data)
+    if data[:10] != b"NIBArchive" or len(data) < 50:
+        return None
+
+    def varint(p):
+        value = shift = 0
+        while True:
+            byte = data[p]
+            p += 1
+            value |= (byte & 0x7F) << shift
+            shift += 7
+            if byte & 0x80:
+                return value, p
+
+    try:
+        _, _, count, objects_at, key_count, keys_at, value_count, values_at, class_count, classes_at = struct.unpack_from("<10I", data, 10)
+        keys, p = [], keys_at
+        for _ in range(key_count):
+            n, p = varint(p)
+            keys.append(data[p:p + n].decode())
+            p += n
+        classes, p = [], classes_at
+        for _ in range(class_count):
+            n, p = varint(p)
+            fallbacks, p = varint(p)
+            p += 4 * fallbacks
+            classes.append(data[p:p + n].rstrip(b"\0").decode())
+            p += n
+        sizes = {0: 1, 1: 2, 2: 4, 3: 8, 4: 0, 5: 0, 6: 4, 7: 8, 9: 0, 10: 4}
+        values, p = [], values_at
+        for _ in range(value_count):
+            key, p = varint(p)
+            kind = data[p]
+            p += 1
+            n, p = varint(p) if kind == 8 else (sizes[kind], p)
+            raw = data[p:p + n]
+            payload = struct.unpack("<I", raw)[0] if kind == 10 else raw
+            values.append([keys[key], kind, payload])
+            p += n
+        objects, p = [], objects_at
+        for _ in range(count):
+            index, p = varint(p)
+            first, p = varint(p)
+            n, p = varint(p)
+            objects.append([classes[index], values[first:first + n]])
+    except (IndexError, KeyError, struct.error, UnicodeDecodeError):
+        return None
+
+    def fields(i):
+        return {k: v for k, t, v in objects[i][1]}
+
+    def refs(i):
+        return [v for k, t, v in objects[i][1] if t == 10 and (k == "UINibEncoderEmptyKey" or k.startswith("NS.object."))]
+
+    def number(raw, kind):
+        return {0: "<b", 1: "<h", 2: "<i", 3: "<q", 6: "<f", 7: "<d"}.get(kind) and struct.unpack({0: "<b", 1: "<h", 2: "<i", 3: "<q", 6: "<f", 7: "<d"}[kind], raw)[0]
+
+    def scalar(i, key, default=None):
+        for k, t, v in objects[i][1]:
+            if k == key:
+                return number(v, t) if t not in (8, 9, 10, 4, 5) else (True if t == 5 else False if t == 4 else v)
+        return default
+
+    parents, frames = {}, {}
+    for i, (name, vals) in enumerate(objects):
+        f = fields(i)
+        if "UISubviews" in f:
+            for child in refs(f["UISubviews"]):
+                parents[child] = i
+        if "UICenter" in f and "UIBounds" in f:
+            cx, cy = struct.unpack("<2d", f["UICenter"][1:17])
+            w, h = struct.unpack("<4d", f["UIBounds"][1:33])[2:]
+            frames[i] = (cx - w / 2, cy - h / 2, w, h)
+
+    root = fields(0)
+    paths = {}
+    if "UINibTopLevelObjectsKey" in root:
+        queue = [(top, (n,)) for n, top in enumerate(refs(root["UINibTopLevelObjectsKey"]))]
+        while queue:
+            item, path = queue.pop(0)
+            if item in paths:
+                continue
+            paths[item] = path
+            f = fields(item)
+            if "UISubviews" in f:
+                queue += [(child, path + (n,)) for n, child in enumerate(refs(f["UISubviews"]))]
+
+    def in_owner(item, owner):
+        if item == owner:
+            frame = frames.get(owner)
+            return (0, 0, frame[2], frame[3]) if frame else None
+        if item not in frames:
+            return None
+        x, y, w, h = frames[item]
+        current = parents.get(item)
+        while current is not None and current != owner:
+            if current not in frames:
+                return None
+            x += frames[current][0]
+            y += frames[current][1]
+            current = parents.get(current)
+        return (x, y, w, h) if current == owner else None
+
+    def value(item, attribute, owner):
+        if objects[item][0] == "UILayoutGuide" and scalar(item, "UILayoutGuideOwningView") == owner and attribute in (1, 2, 5, 6, 7, 9):
+            frame = in_owner(owner, owner)
+        else:
+            frame = in_owner(item, owner)
+        if frame is None:
+            return None
+        x, y, w, h = frame
+        return {1: x, 5: x, 2: x + w, 6: x + w, 3: y, 4: y + h, 7: w, 8: h, 9: x + w / 2, 10: y + h / 2}.get(attribute)
+
+    def satisfied(c, owner):
+        first = value(scalar(c, "NSFirstItem"), scalar(c, "NSFirstAttributeV2"), owner)
+        second = value(scalar(c, "NSSecondItem"), scalar(c, "NSSecondAttributeV2"), owner)
+        if first is None or second is None:
+            return False
+        difference = first - (second * scalar(c, "NSMultiplier", 1) + scalar(c, "NSConstantV2", 0))
+        relation = scalar(c, "NSRelation", 0)
+        return difference <= 0.01 if relation == -1 else difference >= -0.01 if relation == 1 else abs(difference) <= 0.01
+
+    def signature(c):
+        return tuple(scalar(c, k) for k in ("NSFirstItem", "NSFirstAttributeV2", "NSSecondAttributeV2", "NSRelation", "NSMultiplier"))
+
+    runs = []
+    for owner in range(len(objects)):
+        f = fields(owner)
+        if "UIViewAutolayoutConstraints" not in f:
+            continue
+        listed = refs(f["UIViewAutolayoutConstraints"])
+        start = 0
+        while start < len(listed):
+            end = start + 1
+            while end < len(listed) and signature(listed[end]) == signature(listed[start]):
+                end += 1
+            run = listed[start:end]
+            seconds = {scalar(c, "NSSecondItem") for c in run}
+            if (len(seconds) > 1 and None not in seconds and all(scalar(c, "NSPriority") is None and satisfied(c, owner) for c in run)
+                    and all(s in paths for s in seconds)):
+                runs.append(sorted(run, key=lambda c: (paths[scalar(c, "NSSecondItem")], scalar(c, "NSConstantV2", 0), scalar(c, "NSSecondAttributeV2"))))
+            start = end
+    for run in runs:
+        members = set(run)
+        for name, vals in objects:
+            if name not in ("NSArray", "NSMutableArray", "NSOrderedSet"):
+                continue
+            slots = [n for n, v in enumerate(vals) if v[1] == 10 and v[2] in members]
+            if len(slots) == len(run):
+                for slot, member in zip(slots, run):
+                    vals[slot][2] = member
+
+    order, stack = {}, [0]
+    while stack:
+        item = stack.pop()
+        if item in order:
+            continue
+        order[item] = len(order)
+        stack += [v for k, t, v in reversed(objects[item][1]) if t == 10]
+    canonical = []
+    for item in sorted(order, key=order.get):
+        name, vals = objects[item]
+        out = []
+        for k, t, v in vals:
+            if t == 10:
+                v = order[v]
+            elif t == 8 and v[:10] == b"NIBArchive":
+                v = tie_canonical(v)
+            out.append((k, t, v))
+        if name in ("NSSet", "NSMutableSet"):
+            elements = sorted(v for k, t, v in out if t == 10 and k.startswith("NS.object."))
+            out = [(k, t, elements.pop(0)) if t == 10 and k.startswith("NS.object.") else (k, t, v) for k, t, v in out]
+        canonical.append((name, tuple(out)))
+    return tuple(canonical)
+
+
 def same(mine, theirs):
-    """Whether the files are identical, equivalent (nibs differing only in their sets' order) or neither (None)."""
+    """Whether the files are identical, equivalent (nibs differing only in their sets' order, their outlet collections'
+    order, ADR 0260, or their settled ties' order, ADR 0253) or neither (None)."""
     if mine == theirs:
         return "identical"
     if mine.keys() != theirs.keys():
@@ -192,12 +374,15 @@ def same(mine, theirs):
         if mine[name] == theirs[name]:
             continue
         mine_sorted, theirs_sorted = sorting_sets(mine[name]), sorting_sets(theirs[name])
-        if mine_sorted is None or theirs_sorted is None:
-            return None
-        if mine_sorted != theirs_sorted:
+        if mine_sorted is not None and theirs_sorted is not None:
+            if mine_sorted == theirs_sorted:
+                continue
             mine_text = canonical_connections(mine_sorted)
-            if mine_text is None or mine_text != canonical_connections(theirs_sorted):
-                return None
+            if mine_text is not None and mine_text == canonical_connections(theirs_sorted):
+                continue
+        mine_ties = tie_canonical(mine[name])
+        if mine_ties is None or mine_ties != tie_canonical(theirs[name]):
+            return None
     return "equivalent"
 
 

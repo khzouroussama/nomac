@@ -267,6 +267,7 @@ extension DocumentCompiler {
         nested.traitStorages = []
         nested.relationshipStorages = []
         nested.keyValuePairs = []
+        nested.settledTies = false
         nested.cellSegueOutlets = []
         nested.emptyArray = NibArray([])
         let owner = NibProxy(identifier: "IBFilesOwner"), responder = NibProxy(identifier: "IBFirstResponder")

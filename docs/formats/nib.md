@@ -516,7 +516,12 @@ The order of a view's constraints depends on their content, not on their ids or 
   (`cross-attribute-normalized`, `norm-*`), one written from the subview by the subview's, but
   one whose second attribute alone is a centerX or centerY by that center, from the view or the
   subview (`order-cross`, `cross-attribute-*`, `norm-cross-*`; cwa's contact diary and home cells,
-  uncloudnotes' launch screens). Constraints of the same items and
+  uncloudnotes' launch screens). Constraints from one item by the same attributes,
+  relation, multiplier and priority to several views tie, and ibtool's order of them is not in the
+  document (rounds 48, 49, 59, 60; ADR 0253): nomac writes such a tie in document order when every
+  constraint in it is required and satisfied by the frames (a safe area across only), not naming a
+  view deeper than the subviews nor beside runtime attributes of several objects, which `nomac
+  verify` counts equivalent; others are refused (B-265). Constraints of the same items and
   multiplier that differ only in their constants, or not at all, keep their document order
   (`tie-constant-reversed`; tofu's duplicated constraints), identical ones also when written from
   the view (`tie-identical-normalized`; nextcloud's). Constraints of one item and attribute to

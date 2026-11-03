@@ -231,6 +231,8 @@ private struct TaskRun {
                 } else if tool == "ibtool", let left = NibSetComparison.sortingSets(xcode), let right = NibSetComparison.sortingSets(nomac),
                           let canonical = NibConnectionComparison.canonical(left), canonical == NibConnectionComparison.canonical(right) {
                     equivalent.append("equivalent \(reference.derivedData + path): identical but for the order of outlet collections of several sources (ADR 0260)")
+                } else if tool == "ibtool", let left = NibTieComparison.canonical(xcode), left == NibTieComparison.canonical(nomac) {
+                    equivalent.append("equivalent \(reference.derivedData + path): identical but for the order of settled constraint ties (ADR 0253)")
                 } else {
                     differences.append("different \(reference.derivedData + path)")
                 }

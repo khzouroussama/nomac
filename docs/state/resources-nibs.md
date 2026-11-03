@@ -23,6 +23,11 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- ADR 0253: settled constraint ties (required, satisfied by the frames) compile in document order
+  and compare equivalent (`NomacVerify.NibTieComparison`, `nib_compare.py`). Across the corpus,
+  holdout and sweep the tie refusal drops from 62 to 14 documents; corpus 440 identical and 9
+  equivalent (from 426 and 1), 0 different.
+
 - Rounds 59 and 60 (`safe-tie-grid-*`, `sub-tie-*`): ties of one item to several views, the
   largest refusal across the corpus, holdout and sweep (62 of 1,071 documents), stay refused. The
   rule the self-written documents fit fails the corpus's consistent layouts (B-265).

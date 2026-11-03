@@ -88,10 +88,17 @@ extension DocumentCompiler {
     /// ArticlePopoverViewController, ScrollableEducationPanelView), and places under 9 beside places
     /// past 38, where place 3 falls between 38 and 39 (`udra-order-many-37`, `-40`, `-40-every-3`).
     mutating func takeKeyValuePairs(allObjects: [NibArchivable]) throws -> [NibArchivable] {
-        defer { keyValuePairs = [] }
+        defer {
+            keyValuePairs = []
+            settledTies = false
+        }
         let places = Dictionary(allObjects.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
         let keyed = keyValuePairs.enumerated().map { (place: places[ObjectIdentifier($0.element.object)] ?? Int.max, offset: $0.offset, pair: $0.element) }
         let objectPlaces = Set(keyed.map(\.place))
+        guard !settledTies || objectPlaces.count < 2 else {
+            throw NomacError("nomac does not compile constraints tied to several views beside the user-defined runtime attributes of several objects, "
+                             + "whose order follows places the tie's order moves, yet (BACKLOG B-265)", path: path)
+        }
         guard objectPlaces.count > 1, let last = objectPlaces.max(), last > 8 else {
             return keyed.sorted { ($0.place, $0.offset) < ($1.place, $1.offset) }.map(\.pair)
         }

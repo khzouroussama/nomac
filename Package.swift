@@ -261,7 +261,7 @@ let package = Package(
         ),
         .testTarget(
             name: "NomacVerifyTests",
-            dependencies: ["NomacVerify"]
+            dependencies: ["NomacVerify", "NomacNib"]
         ),
         .testTarget(
             name: "NomacPluginAPITests",
