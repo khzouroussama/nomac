@@ -6386,6 +6386,122 @@ STORYBOARDS["sb-cell-content-a11y"] = storyboard(tvc_scene(prototypes(tvc_cell(1
     indented(A11Y_CELL, "                                    ") + "                                </tableViewCellContentView>"))), initial="tvc-aa-aaa")
 
 
+# Round 110: outlets to objects of a controller's own nib: a controller's bar button items and
+# navigation item, standing alone and as a navigation controller's root; from a view of its scene;
+# and, in xibs, to a navigation bar's and a toolbar's items.
+def controller_connections(*outlets):
+    return ('                    <connections>\n' + "".join(f'                        <outlet property="{name}" destination="{destination}" id="out-aa-aa{number}"/>\n'
+                                                            for number, (name, destination) in enumerate(outlets, 1))
+            + '                    </connections>\n')
+
+
+DONE_OUTLET = controller_connections(("doneButton", "bbi-aa-aa1"))
+CUSTOM_CONTROLLER = ' customClass="Controller" customModule="T" customModuleProvider="target"'
+
+
+def done_bar(target, action="done:", key="rightBarButtonItem", system="done", number=1):
+    return navigation_item(items=bar_item(key, system, number, action, target=target)).replace("nvi-aa-aaa", f"nvi-aa-aa{number}" if number > 1 else "nvi-aa-aaa")
+
+
+def tvc_outlets(after_view, attributes=""):
+    return tvc_scene(prototypes(tvc_cell(1)), attributes=attributes, after_view=after_view)
+
+
+def cvc_outlets(after_view, attributes=""):
+    return cvc_scene(attributes=attributes).replace("                    </collectionView>\n", "                    </collectionView>\n" + after_view)
+
+
+TWO_BARS = navigation_item(items=bar_item("leftBarButtonItem", "cancel", 2, "cancel:", target="tvc-aa-aaa") + bar_item("rightBarButtonItem", "done", 1, "done:", target="tvc-aa-aaa"))
+OUTLET_DESTINATIONS = {
+    "sb-outlet-bar-tvc": storyboard(tvc_outlets(done_bar("tvc-aa-aaa") + DONE_OUTLET), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tvc-custom": storyboard(tvc_outlets(done_bar("tvc-aa-aaa") + DONE_OUTLET, CUSTOM_CONTROLLER), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tvc-no-action": storyboard(tvc_outlets(done_bar("tvc-aa-aaa", action=None) + DONE_OUTLET), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tvc-two": storyboard(tvc_outlets(TWO_BARS + controller_connections(("doneButton", "bbi-aa-aa1"), ("cancelButton", "bbi-aa-aa2"))), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tvc-identifier": storyboard(tvc_outlets(done_bar("tvc-aa-aaa") + DONE_OUTLET, CUSTOM_CONTROLLER + ' storyboardIdentifier="Table"'), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tvc-nav": storyboard(navigation_scene("tvc-aa-aaa"), tvc_outlets(done_bar("tvc-aa-aaa") + DONE_OUTLET, CUSTOM_CONTROLLER), initial="nvc-aa-aaa"),
+    "sb-outlet-item-tvc": storyboard(tvc_outlets(navigation_item() + controller_connections(("item", "nvi-aa-aaa"))), initial="tvc-aa-aaa"),
+    "sb-outlet-item-tvc-nav": storyboard(navigation_scene("tvc-aa-aaa"), tvc_outlets(navigation_item() + controller_connections(("item", "nvi-aa-aaa"))), initial="nvc-aa-aaa"),
+    "sb-outlet-item-and-bar-tvc": storyboard(tvc_outlets(done_bar("tvc-aa-aaa") + controller_connections(("doneButton", "bbi-aa-aa1"), ("item", "nvi-aa-aaa"))), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-cvc": storyboard(cvc_outlets(done_bar("cvc-aa-aaa") + DONE_OUTLET), initial="cvc-aa-aaa"),
+    "sb-outlet-bar-cvc-custom": storyboard(cvc_outlets(done_bar("cvc-aa-aaa") + DONE_OUTLET, CUSTOM_CONTROLLER), initial="cvc-aa-aaa"),
+    "sb-outlet-bar-cvc-nav": storyboard(navigation_scene("cvc-aa-aaa"), cvc_outlets(done_bar("cvc-aa-aaa") + DONE_OUTLET, CUSTOM_CONTROLLER), initial="nvc-aa-aaa"),
+    "sb-outlet-bar-vc": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-vc-custom": storyboard(controller_scene(1, attributes=CUSTOM_CONTROLLER, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-vc-and-view": storyboard(controller_scene(1, attributes=CUSTOM_CONTROLLER, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'
+                                                             '                        <outlet property="zzz" destination="vw1-aa-aaa" id="out-aa-aa2"/>\n'), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-vc-segue": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n' + segue("vc2-aa-aaa", "show", 1, "Detail")),
+                                         controller_scene(2), initial="vc1-aa-aaa"),
+}
+BAR_VIEW = ('                        <subviews>\n                            <view contentMode="scaleToFill" customClass="Holder" customModule="T" customModuleProvider="target" id="hld-aa-aa1">\n'
+            '                                <rect key="frame" x="0.0" y="100" width="100" height="100"/>\n'
+            '                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+            '                                <connections>\n                                    <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'
+            '                                </connections>\n                            </view>\n                        </subviews>\n')
+OUTLET_DESTINATIONS["sb-outlet-bar-from-view"] = storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=BAR_VIEW), initial="vc1-aa-aaa")
+OUTLET_DESTINATIONS["sb-outlet-bar-from-view-nav"] = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=BAR_VIEW), initial="nvc-aa-aaa")
+STORYBOARDS.update(OUTLET_DESTINATIONS)
+
+
+def holder_view(*outlets, identifier="hld-aa-aa1", y=100):
+    connections = "".join(f'                                    <outlet property="{name}" destination="{destination}" id="{identifier[:3]}-ou-t{number}"/>\n'
+                          for number, (name, destination) in enumerate(outlets, 1))
+    return (f'                            <view contentMode="scaleToFill" customClass="Holder" customModule="T" customModuleProvider="target" id="{identifier}">\n'
+            f'                                <rect key="frame" x="0.0" y="{y}" width="100" height="100"/>\n'
+            '                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+            f'                                <connections>\n{connections}                                </connections>\n                            </view>\n')
+
+
+def holders(*views):
+    return "                        <subviews>\n" + "".join(views) + "                        </subviews>\n"
+
+
+VC_TWO_BARS = navigation_item(items=bar_item("leftBarButtonItem", "cancel", 2, "cancel:") + bar_item("rightBarButtonItem", "done", 1, "done:"))
+OUTLET_FROM_VIEW = {
+    "sb-outlet-bar-from-view-and-controller": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=holders(holder_view(("doneButton", "bbi-aa-aa1"), ("owner", "vc1-aa-aaa")))), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-from-view-controller-first": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=holders(holder_view(("doneButton", "bbi-aa-aa1"), ("aaa", "vc1-aa-aaa")))), initial="vc1-aa-aaa"),
+    "sb-outlet-two-bars-from-view": storyboard(controller_scene(1, after_view=VC_TWO_BARS, view_extra=holders(holder_view(("doneButton", "bbi-aa-aa1"), ("cancelButton", "bbi-aa-aa2")))), initial="vc1-aa-aaa"),
+    "sb-outlet-two-bars-from-view-names-swapped": storyboard(controller_scene(1, after_view=VC_TWO_BARS, view_extra=holders(holder_view(("aaa", "bbi-aa-aa1"), ("zzz", "bbi-aa-aa2")))), initial="vc1-aa-aaa"),
+    "sb-outlet-item-from-view": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=holders(holder_view(("item", "nvi-aa-aaa")))), initial="vc1-aa-aaa"),
+    "sb-outlet-item-and-bar-from-view": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=holders(holder_view(("item", "nvi-aa-aaa"), ("doneButton", "bbi-aa-aa1")))), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-from-two-views": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), view_extra=holders(holder_view(("doneButton", "bbi-aa-aa1")), holder_view(("doneButton", "bbi-aa-aa1"), identifier="hl2-aa-aa1", y=300))), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-from-view-root-outlet": storyboard(controller_scene(1, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="zzz" destination="bbi-aa-aa1" id="out-aa-aa9"/>\n', view_extra=holders(holder_view(("doneButton", "bbi-aa-aa1")))), initial="vc1-aa-aaa"),
+    "sb-outlet-bar-tvc-from-cell": storyboard(tvc_scene(prototypes(tvc_cell(1).replace('</tableViewCell>', '    <connections>\n    <outlet property="doneButton" destination="bbi-aa-aa1" id="clo-aa-aa1"/>\n</connections>\n</tableViewCell>')), after_view=done_bar("tvc-aa-aaa")), initial="tvc-aa-aaa"),
+    "sb-outlet-bar-tab-nav": storyboard(tab_scene(["nvc-aa-aaa"]), navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="doneButton" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'), initial="tab-aa-aaa"),
+}
+SECOND_NAV = navigation_scene("vc2-aa-aaa").replace("nvs-aa-aaa", "nvs-aa-aab").replace("nvc-aa-aaa", "nvc-aa-aab").replace("nvb-aa-aaa", "nvb-aa-aab").replace("rel-aa-aaa", "rel-aa-aab").replace("nfr-aa-aaa", "nfr-aa-aab")
+OUTLET_FROM_VIEW["sb-outlet-bar-tab-two-navs"] = storyboard(tab_scene(["nvc-aa-aaa", "nvc-aa-aab"]), navigation_scene("vc1-aa-aaa"), SECOND_NAV,
+    controller_scene(1, after_view=done_bar("vc1-aa-aaa"), connections='                        <outlet property="zzz" destination="bbi-aa-aa1" id="out-aa-aa1"/>\n'),
+    controller_scene(2, after_view=done_bar("vc2-aa-aaa", number=2), connections='                        <outlet property="aaa" destination="bbi-aa-aa2" id="out-aa-aa2"/>\n'), initial="tab-aa-aaa")
+OUTLET_FROM_VIEW["sb-outlet-extra-from-view"] = storyboard(controller_scene(1, view_extra=holders(holder_view(("extra", "xtr-aa-aa1")))).replace(
+    '                <placeholder placeholderIdentifier="IBFirstResponder" id="fr1-aa-aaa"',
+    '                <view contentMode="scaleToFill" id="xtr-aa-aa1">\n                    <rect key="frame" x="0.0" y="0.0" width="100" height="100"/>\n'
+    '                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n                </view>\n'
+    '                <placeholder placeholderIdentifier="IBFirstResponder" id="fr1-aa-aaa"'), initial="vc1-aa-aaa")
+OUTLET_FROM_VIEW["sb-outlet-bar-tab-two-navs-actions"] = storyboard(tab_scene(["nvc-aa-aaa", "nvc-aa-aab"]), navigation_scene("vc1-aa-aaa"), SECOND_NAV,
+    controller_scene(1, after_view=done_bar("vc1-aa-aaa", action="zzz:")), controller_scene(2, after_view=done_bar("vc2-aa-aaa", action="aaa:", number=2)), initial="tab-aa-aaa")
+OUTLET_FROM_VIEW["sb-bar-same-selector"] = storyboard(controller_scene(1, after_view=navigation_item(items=bar_item("leftBarButtonItem", "cancel", 2, "done:") + bar_item("rightBarButtonItem", "done", 1, "done:"))), initial="vc1-aa-aaa")
+OUTLET_FROM_VIEW["sb-bar-same-selector-right-first"] = storyboard(controller_scene(1, after_view=navigation_item(items=bar_item("rightBarButtonItem", "done", 1, "done:") + bar_item("leftBarButtonItem", "cancel", 2, "done:"))), initial="vc1-aa-aaa")
+OUTLET_FROM_VIEW["sb-bar-same-selector-ids-swapped"] = storyboard(controller_scene(1, after_view=navigation_item(items=bar_item("leftBarButtonItem", "cancel", 1, "done:") + bar_item("rightBarButtonItem", "done", 2, "done:"))), initial="vc1-aa-aaa")
+OUTLET_FROM_VIEW["sb-bar-same-selector-left-done"] = storyboard(controller_scene(1, after_view=navigation_item(items=bar_item("leftBarButtonItem", "done", 1, "done:") + bar_item("rightBarButtonItem", "cancel", 2, "done:"))), initial="vc1-aa-aaa")
+STORYBOARDS.update(OUTLET_FROM_VIEW)
+
+
+def owner_outlets(document, *outlets):
+    connections = ('            <connections>\n' + "".join(f'                <outlet property="{name}" destination="{destination}" id="out-aa-aa{number}"/>\n'
+                                                           for number, (name, destination) in enumerate(outlets, 1)) + '            </connections>\n')
+    return document.replace('<placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File\'s Owner"/>\n',
+                            '<placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File\'s Owner" customClass="Owner">\n' + connections + '        </placeholder>\n')
+
+
+DONE_ITEM = '<navigationItem title="Hello" id="nvi-aa-aa1">\n    <barButtonItem key="rightBarButtonItem" style="done" systemItem="done" id="dne-aa-aa1"/>\n</navigationItem>'
+XIB_OUTLET_DESTINATIONS = {
+    "outlet-nav-bar-button": owner_outlets(constrained(sub_nav_bar(DONE_ITEM), ""), ("doneButton", "dne-aa-aa1")),
+    "outlet-nav-bar-item": owner_outlets(constrained(sub_nav_bar(DONE_ITEM), ""), ("item", "nvi-aa-aa1")),
+    "outlet-toolbar-button": owner_outlets(constrained(toolbar(items='<items>\n    <barButtonItem style="plain" systemItem="flexibleSpace" id="flx-aa-aa1"/>\n</items>'), ""), ("space", "flx-aa-aa1")),
+}
+EXPERIMENTS.update(XIB_OUTLET_DESTINATIONS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
