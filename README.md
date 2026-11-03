@@ -114,8 +114,8 @@ Measured on real open-source apps against Xcode 27's output; details in [docs/PR
 
 Works with React Native and Expo apps: a fresh React Native 0.88 app and a fresh Expo SDK 58 app
 (with one line changed in Expo's autolinking) build, install and run on an iPhone from Linux
-([docs/DEMO.md](docs/DEMO.md)). Of 58 public React Native and Expo apps that install and that
-Xcode builds, 46 reach an IPA.
+([docs/DEMO.md](docs/DEMO.md)). Of the first 61 of 106 public React Native and Expo apps, 49 reach
+an IPA (a partial run).
 
 `nomac test` runs an app's unit tests on an iPhone from Linux; UI tests not yet.
 
@@ -123,7 +123,7 @@ Apps nomac never saw:
 
 | Area | | Result |
 |---|---|---|
-| React Native and Expo apps to an IPA | `████████░░` | 46 / 58 |
+| React Native and Expo apps to an IPA (partial run) | `████████░░` | 49 / 61 |
 | Projects read as Xcode reads them | `██████████` | 19 / 19 |
 
 The 20 apps nomac was developed against:
@@ -133,9 +133,9 @@ The 20 apps nomac was developed against:
 | Apps that build end to end on Linux | `█░░░░░░░░░` | 2 / 20 |
 | Projects read as Xcode reads them | `██████████` | 19 / 19 measured (signal pending) |
 | Build products | `████████░░` | 929 / 1,198 |
-| Storyboards and xibs | `██████░░░░` | 271 / 485 |
+| Storyboards and xibs | `████████░░` | 457 / 588 |
 | Asset catalogs | `█████░░░░░` | 54 / 99 |
-| PDF images | `████████░░` | 1,287 / 1,535 |
+| PDF images | `█████████░` | 1,328 / 1,535 |
 | Strings | `██████████` | 3,022 / 3,022 |
 | Core Data models | `██████████` | 11 / 11 |
 | Signing and export | `██████████` | 12 / 12 |

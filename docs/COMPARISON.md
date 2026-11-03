@@ -16,7 +16,7 @@ parts of that, and several do things nomac does not.
 | Input | `.xcodeproj`, `.xcworkspace`, Swift packages | A SwiftPM package | Theos makefiles | SwiftPM (`swift build --swift-sdk`) | macOS programs | `.xcodeproj`, `.xcworkspace` |
 | Output the same as Xcode's | The goal, measured per file (docs/PROGRESS.md) | Not a goal described | No | No | – | Not described |
 | Storyboards, asset catalogs | Own `ibtool`, `actool` (partial, measured) | Not described | Not described | No | – | Not described |
-| CocoaPods, React Native, Expo | Yes: 46 of 58 React Native and Expo apps that install reach an IPA | SwiftPM packages only | Not described | SwiftPM only | – | Not described |
+| CocoaPods, React Native, Expo | Yes: 49 of the first 61 of 106 public React Native and Expo apps reach an IPA (a partial run) | SwiftPM packages only | Not described | SwiftPM only | – | Not described |
 | Signing, device install | Yes | Yes, and Apple Developer Services | Not described | No | – | No |
 | Status | Early preview | Largely one author's work, by its author's account | Rolling releases | Experimental, last change 2024-12 | "Many CLI tools already functional"; "Xcode itself doesn't run yet" | Archived on 2021-01-02 |
 | Apple SDK from | Your Xcode | Your `Xcode.xip` | Its Linux guide points to a repository of patched SDKs | Your extracted Xcode | – | Not described |

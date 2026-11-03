@@ -14,7 +14,7 @@ These say the most about an app nomac has not seen.
 
 | Set | What is counted | Result | Measured |
 |---|---|---|---|
-| React Native and Expo sweep: 106 public Expo examples and open-source apps, unmodified (corpus/rn-sweep.json) | Install, `nomac check`, build, archive and export an IPA on Linux | 95 tried so far: 46 reach an IPA; 8 fail with Xcode too (the app's own errors); 29 did not install (npm, CocoaPods or the network, before nomac runs); 12 stop in nomac. Of the 58 that install and that Xcode builds, 46 reach an IPA. | 2026-11-03, `.github/scripts/rn_sweep.py`, nomac at main of that day; docs/state/rn-sweep.md |
+| React Native and Expo sweep: 106 public Expo examples and open-source apps, unmodified (corpus/rn-sweep.json) | Install, `nomac check`, build, archive and export an IPA on Linux | Partial: round 2 stopped at 61 of the 106 apps. 49 reach an IPA; 8 stop on the app's own errors; 3 stop at the build (a compile error, a nomac refusal, a tool without that Linux subcommand); 1 did not install. | 2026-11-03, `.github/scripts/rn_sweep.py`, nomac a9b571ab and ad202e5b; docs/state/rn-sweep.md |
 | Holdout: 19 open-source apps never used for development | Project loading: the PIF, `-list` and every build setting as Xcode 27.0 gives them | 19 of 19 apps identical; 3,509 of 3,514 settings identical, the other 5 equivalent (B-015) | 2026-11-03, docs/state/loader.md |
 
 ## The 20 apps nomac was developed against (corpus/)
@@ -24,18 +24,21 @@ These say the most about an app nomac has not seen.
 | Whole apps | Apps whose every build check passes on Linux | 2 of 20 (Retro Rampage, Flappy Fly Bird) | 2026-11-02, corpus/RESULTS.md |
 | Project loading | Apps whose PIF, `-list` and every build setting are Xcode's | 19 of 19 measured; signal not measured yet (its Xcode reference waits on the Metal Toolchain). corpus/RESULTS.md's 17 of 20 predates the B-098 references. | 2026-11-03, main d71f3a75, docs/state/loader.md |
 | Build | Build products the same as Xcode's (compiled code counts when equivalent, ADR 0101), on Linux | 929 of 1,198, in 16 apps | 2026-11-02 |
-| Storyboards and xibs | `nomac verify`'s nib checks | 271 of 485, in 15 apps | 2026-11-02 |
-| | Compiled documents, counted by the nib workstream | 401 the same as ibtool's, 1 equivalent, 0 different; the rest refused (no total in the state file yet, so the README's bar uses the checks above) | 2026-11-03, docs/state/resources-nibs.md |
+| Storyboards and xibs | Documents in the 20 apps | 457 of 588: 446 identical to ibtool's, 11 equivalent, 0 different, 131 refused | 2026-11-03, main 7a88242e, `nib_compare.py` |
+| | Documents in the 20 apps and the holdout that compile | 685 of 1,065. Measured on the unmerged branch res/nibs-2 (98078ba4); main's last recorded count is 637. | 2026-11-03 |
+| | `nomac verify`'s nib checks | 271 of 485, in 15 apps | 2026-11-02 |
 | Asset catalogs | `nomac verify`'s catalog checks | 54 of 99, in 18 apps | 2026-11-02 |
-| | Image sets drawn from PDFs | 1,287 of 1,535 the same as Xcode's (rendered pixels judged equivalent, ADR 0204), 165 different, 83 refused | 2026-11-03, assets/pdf-8 (docs/state/assets-pdf.md) |
+| | Image sets drawn from PDFs | 1,328 of 1,535 the same as Xcode's (5 identical, the rest with rendered pixels judged equivalent, ADR 0204), 201 different, 6 refused | 2026-11-03, assets/pdf-10, docs/state/assets-pdf.md |
 | Strings | `.strings`, `.stringsdict` and `.xcstrings` checks | 3,022 of 3,022, in 13 apps | 2026-11-02 |
 | Core Data | Models and mapping models | 11 of 11 checks, in 5 apps | 2026-11-02 |
 | Signing and export | Code signatures and exported IPAs | 12 of 12 checks, in 4 apps | 2026-11-02 |
 | Tests on a device | Apps whose tests pass on an iPhone | 0 of 20 | 2026-11-02 |
 
 Outside the corpus, `nomac test` ran a self-written app's hosted unit-test bundle on an iPhone
-from Linux: 2 tests, 0 failures, `** TEST EXECUTE SUCCEEDED **` (2026-11-03, device/install).
+from Linux: 2 tests, 0 failures, `** TEST EXECUTE SUCCEEDED **` (2026-11-03, docs/state/device.md).
 UI tests have not run yet.
+
+Rows dated 2026-11-02 are older than a day and have not been measured again.
 
 Outside the corpus: an iPhone (iOS 27.0.1) installed and launched two apps nomac built and signed
 on Linux, through a Mac's usbmuxd forwarded into a Linux container (docs/state/device.md);
