@@ -79,8 +79,11 @@ Only inputs whose every element, attribute, value and option the experiments obs
   retina4_0, retina4_7, retina5_5, retina5_9, retina6_0, retina6_1, retina6_12, retina6_3,
   retina6_5, retina6_7, retina6_9, ipad9_7, ipad11_0rounded and ipad12_9rounded, portrait or
   landscape, light, dark or no appearance, `layout="fullscreen"`, `<adaptation id="fullscreen"/>`,
-  or no `<device>`. `<dependencies>`: the Cocoa Touch plug-in (any version: two give the same
-  nib), the capabilities named in `capabilities` and `capabilities-more`, and
+  or no `<device>`; a storyboard's Xcode 8 `<simulatedMetricsContainer key="defaultSimulatedMetrics">`
+  (status bar and orientation without types, screen `retina4_7.fullscreen` or `retina4`) changes
+  nothing (`sb-metrics-*`). `<dependencies>`: the Cocoa Touch plug-in (any version: two give the same
+  nib), the capabilities named in `capabilities`, `capabilities-more` and `capability-multipliers`,
+  Xcode 5's `<development version="5100" identifier="xcode"/>` (`development-xcode-5100`), and
   `<deployment identifier="iOS"/>`, with or without a `version` (major x 256 + minor x 16) from
   2048 (8.0) to 6912 (27.0), IB's numbers between iOS 18 and 26 included: none changes a nib, and
   below 5888 ibtool prints `<path>:global: warning: This file is set to build for a version older
@@ -1346,6 +1349,8 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   items (tofu's accounts navigation: the root's templates before its item's add button).
 - A controller's freeform size (`<freeformSimulatedSizeMetrics>` with `<size key="freeformSize">`,
   its view's frame) is its scene view's size whatever the device or deployment target
+  A scene's view keeps its document origin (such as y 64 below an opaque simulated bar); a device
+  resizes it only (`sb-view-at-*`, round 63).
   (`sb-freeform`, `sb-freeform-no-device`).
 - `launchScreen="YES"`, declared layout guides, `systemVersion`, `<adaptation>` (other than through
   its device), a First Responder of class `UIResponder` and a dark appearance change nothing

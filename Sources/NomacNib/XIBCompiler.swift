@@ -54,7 +54,7 @@ public enum XIBCompiler {
     static let capabilities: Set<String> = ["documents saved in the Xcode 8 format", "Safe area layout guides",
                                             "System colors in document resources", "Named colors", "Constraints to layout margins",
                                             "Image references", "Aspect ratio constraints", "Stack View standard spacing",
-                                            "collection view cell content view"]
+                                            "collection view cell content view", "Constraints with non-1.0 multipliers"]
 
     /// The font files of a xib's or storyboard's `<customFonts>`, in document order, which ibtool writes
     /// as the partial Info.plist's `UIAppFonts` (nib-experiments `custom-fonts*`, `sb-custom-fonts`).
@@ -418,17 +418,36 @@ struct DocumentCompiler {
             try dependencies(&deploymentWarning, element)
         case "accessibilityOverrides":
             try check(element, attributes: ["isEnabled", "dynamicTypePreference"], children: [])
+        case "simulatedMetricsContainer":
+            // Xcode 8's default simulated metrics change no storyboard's nibs, with or without a
+            // <device>, its scenes' frames matching its screen or not (`sb-metrics-*`, round 62).
+            try check(element, attributes: ["key"], children: ["simulatedStatusBarMetrics", "simulatedOrientationMetrics", "simulatedScreenMetrics"])
+            try value(element, "key", in: ["defaultSimulatedMetrics"])
+            for metrics in element.children {
+                try check(metrics, attributes: ["key", "type"], children: [])
+                switch metrics.name {
+                case "simulatedStatusBarMetrics":
+                    try value(metrics, "key", in: ["statusBar"])
+                    guard metrics.attributes["type"] == nil else { throw unsupported("simulated status bar metrics of a type") }
+                case "simulatedOrientationMetrics":
+                    try value(metrics, "key", in: ["orientation"])
+                    guard metrics.attributes["type"] == nil else { throw unsupported("simulated orientation metrics of a type") }
+                default:
+                    try value(metrics, "key", in: ["destination"])
+                    try value(metrics, "type", in: ["retina4_7.fullscreen", "retina4"])
+                }
+            }
         default:
             break
         }
     }
 
     /// The plug-in (any version, two observed), the capabilities observed and `<deployment>`
-    /// for iOS (`plugin-version`, `capabilities`, `deployment-ios`). Its `version` (major x 256 +
+    /// for iOS (`plugin-version`, `capabilities`, `capability-multipliers`, `deployment-ios`). Its `version` (major x 256 +
     /// minor x 16) changes no nib from 8.0 (2048) to 27.0 (6912); below 5888 ibtool warns
     /// (`document-version-*`, `sb-document-version-*`, round 58; gomap's QuestBuilder at 5376).
     func dependencies(_ deploymentWarning: inout String?, _ element: XIBElement) throws {
-        try check(element, attributes: [], children: ["plugIn", "capability", "deployment"])
+        try check(element, attributes: [], children: ["plugIn", "capability", "deployment", "development"])
         for child in element.children {
             switch child.name {
             case "plugIn":
@@ -437,6 +456,11 @@ struct DocumentCompiler {
             case "capability":
                 try check(child, attributes: ["name", "minToolsVersion"], children: [])
                 try value(child, "name", in: XIBCompiler.capabilities)
+            case "development":
+                // Xcode 5's development version changes nothing (`development-xcode-5100`).
+                try check(child, attributes: ["version", "identifier"], children: [])
+                try value(child, "identifier", in: ["xcode"])
+                try value(child, "version", in: ["5100"])
             default:
                 try check(child, attributes: ["identifier", "version"], children: [])
                 try value(child, "identifier", in: ["iOS"])

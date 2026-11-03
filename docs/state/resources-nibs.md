@@ -23,6 +23,11 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- Rounds 61 to 63: colors' ColorSync pipeline not reproduced yet (B-281, the grids recorded);
+  Xcode 8's `<simulatedMetricsContainer>`, Xcode 5's `<development>`, the multipliers capability
+  change nothing; a scene's view keeps its origin (below an opaque bar at 64), a device resizing it.
+  10 of the 16 storyboards with the container compile.
+
 - ADR 0253: settled constraint ties (required, satisfied by the frames) compile in document order
   and compare equivalent (`NomacVerify.NibTieComparison`, `nib_compare.py`). Across the corpus,
   holdout and sweep the tie refusal drops from 62 to 14 documents; corpus 440 identical and 9
@@ -255,7 +260,7 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Next actions
 
-1. B-266 (DescriptionWelcome);
+1. `layoutMarginsFollowReadableWidth` on cells (11); colors (B-281); B-266 (DescriptionWelcome);
    variations of other properties the walk meets (stack views' `axis` and `spacing`).
 2. B-266: the order of `UIViewControllerIdentifiersToNibNames` when segues reach scenes out of
    document order (graph experiments, `sbinfo_sim.py` in scratch); tofu's Info.plist then.

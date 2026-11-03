@@ -55,7 +55,7 @@ extension DocumentCompiler {
         var scenes: [XIBElement] = []
         for child in document.children {
             switch child.name {
-            case "device", "dependencies", "resources", "accessibilityOverrides":
+            case "device", "dependencies", "resources", "accessibilityOverrides", "simulatedMetricsContainer":
                 try headerElement(child)
             case "scenes":
                 try check(child, attributes: [], children: ["scene"])
@@ -1161,9 +1161,8 @@ extension DocumentCompiler {
         guard (view.safeAreaPlaceholder != nil) == usesSafeAreas || usesSafeAreas && tableOrCollection else {
             throw unsupportedScene(usesSafeAreas ? "useSafeAreas without one safe area layout guide" : "a safe area layout guide without useSafeAreas")
         }
-        guard let frame = view.frame, frame.x == 0, frame.y == 0 else {
-            throw unsupportedScene("a scene's view whose frame does not start at 0, 0")
-        }
+        // A scene's view keeps its origin, a device resizing it only (`sb-view-at-*`, round 63).
+        guard let frame = view.frame else { throw unsupportedScene("a scene's view without a frame") }
         var layoutGuides: [NibView] = []
         if !view.kind.isTableView, !view.kind.isCollection, !usesSafeAreas || !layoutGuideIDs.isEmpty {
             layoutGuides = NibView.viewControllerLayoutGuides(for: view)
@@ -1175,7 +1174,7 @@ extension DocumentCompiler {
         }
         try compileConstraints()
         if let size {
-            try resize(view, to: size)
+            try resize(view, to: size, keepingOrigin: true)
         }
         if !layoutGuides.isEmpty {
             view.subviews += layoutGuides
