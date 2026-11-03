@@ -123,7 +123,9 @@ docker run -d --name nomac-sweep -v nomac-sweep:/work -v nomac-build:/ref:ro nom
 #   nomac toolchain install /ref/toolchains/swift-6.4.0-RELEASE-ubuntu24.04-aarch64/usr --llvm-tools /ref/llvm-tools \
 #     --developer-dir /work/devdir/Xcode_27.app/Contents/Developer; the Linux Node 24.22.1 in /work/node-linux
 #   (--llvm-tools: a build whose lld.patches.sha256 and cctools.patches.sha256 are LinuxToolchain.builtPatches;
-#   nomac-build's /ref/llvm-tools may be ahead of main)
+#   nomac-build's /ref/llvm-tools may be ahead of main). The developer directory's launchers (xcodebuild,
+#   ditto, ...) name the binary's real path at install: install from its final folder and never move it
+#   (a moved binary fails every nested xcodebuild: "line 5: <old path>/nomac: No such file or directory")
 python3 .github/scripts/rn_sweep.py container           # the run container, without network
 python3 .github/scripts/rn_sweep.py run [app ...]       # Mac: every step, app by app
 python3 .github/scripts/rn_sweep.py report              # the tables below
