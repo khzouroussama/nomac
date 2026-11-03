@@ -189,9 +189,27 @@ Xcode never saw lists no app service. From pymobiledevice3's `mobile_image_mount
 
 ## Next actions
 
-1. With the iPhone attached: `nomac run` from Linux end to end (an archive built in the
-   container, needing a Linux developer directory in this workstream's volume), and of a corpus
-   app (retro-rampage's copy; expect the TN3187 stop, which `nomac device check` warns about).
-2. B-403 (mounting the Developer Disk Image): waits for the owner's answer on TSS requests and
-   unmounting; cryptex images are B-403b.
-3. B-404: the network route (pairing over Wi-Fi, no USB).
+Paused 2026-11-03 at main 628f8602 (everything merged; no background runs). Phone use only when
+the owner asks (no relaunches).
+
+1. `.xcresult` for `nomac test` (no phone): capture Xcode's result bundles of
+   `xctest_experiments.py`'s unit-only project on a simulator created and deleted for it
+   (`xcodebuild test`, all passing and mixed), dissect `Info.plist`, `database.sqlite3` (schema,
+   rows) and `Data/` (compression, objects); aim for a bundle `xcresulttool get test-results
+   summary/tests` reads as it reads Xcode's (ids and times aside). The earlier device bundle was
+   deleted; only `xcresulttool` JSON of it is in `~/nomac-out/xctest/out/test-pass` (holds the
+   UDID: never commit).
+2. Sign the UI test runner (B-302): a signing experiment on the Mac with a
+   `com.apple.product-type.bundle.ui-testing` target, manual signing and the development profile
+   in dev_keychain.py's temporary keychain; read the entitlements Xcode signs into
+   `AppUITests-Runner.app` against the profile's, implement the rule in `ManualSigning`, then
+   `nomac build ... build-for-testing` of the full project (unit and UI tests).
+3. With the phone, when the owner allows: the UI tests with `nomac test`; the mixed project
+   (failing, skipped, expected failure: status and output against Xcode's `test-mixed`).
+4. B-403 mount on a device: needs a restart on a host whose CoreDevice does not remount the
+   image (a Linux host, B-407); the iPhone refuses to unmount Xcode's cryptex image.
+5. B-404: the network route (pairing over Wi-Fi, no USB).
+
+Staged for these: nomac-built unit-test products in `~/nomac-out/device/apps/xctest-unit`, the
+iOS_DDI copy in `~/nomac-out/device/apps/iOS_DDI`, the crash demo archive in
+`~/nomac-out/device/apps/crashdemo`; the usbmuxd forwarder (PID 63372) still runs.
