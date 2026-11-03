@@ -5339,6 +5339,26 @@ STORYBOARDS["sb-view-at-10-20"] = _NO_DEVICE.replace('x="0.0" y="0.0" width="393
 EXPERIMENTS["development-xcode-5100"] = BASE.replace('        <plugIn', '        <development version="5100" identifier="xcode"/>\n        <plugIn', 1)
 EXPERIMENTS["capability-multipliers"] = BASE.replace('        <plugIn', '        <capability name="Constraints with non-1.0 multipliers" minToolsVersion="5.1"/>\n        <plugIn', 1)
 STORYBOARDS["sb-development-xcode-5100"] = STORYBOARD.replace('        <plugIn', '        <development version="5100" identifier="xcode"/>\n        <plugIn', 1)
+# Round 64: a subview that does not translate its autoresizing mask into constraints and has a mask,
+# constrained or not, by mask.
+_MASKS = {"flexible": 'flexibleMaxX="YES" flexibleMaxY="YES"', "sizable": 'widthSizable="YES" heightSizable="YES"', "empty": "",
+          "all": 'flexibleMinX="YES" widthSizable="YES" flexibleMaxX="YES" flexibleMinY="YES" heightSizable="YES" flexibleMaxY="YES"'}
+
+
+def masked_subview(mask):
+    bits = f" {_MASKS[mask]}" if _MASKS[mask] else ""
+    return subview("sss-ss-ss1", (20, 40, 100, 50)).replace('<rect key="frame" x="20" y="40" width="100" height="50"/>\n',
+                                                         f'<rect key="frame" x="20" y="40" width="100" height="50"/>\n'
+                                                         f'                    <autoresizingMask key="autoresizingMask"{bits}/>\n')
+
+
+for _mask in _MASKS:
+    EXPERIMENTS[f"no-translate-mask-{_mask}"] = constrained(masked_subview(_mask), pin("sss-ss-ss1", 0, 20, 40))
+    EXPERIMENTS[f"no-translate-mask-{_mask}-unconstrained"] = constrained(masked_subview(_mask), "")
+STORYBOARDS["sb-no-translate-mask-flexible"] = storyboard(scene(view_extra='                        <subviews>\n'
+    + masked_subview("flexible").replace("                ", "                            ") + '                        </subviews>\n'
+    + '                        <constraints>\n' + pin("sss-ss-ss1", 0, 20, 40).replace(ROOT, "8bC-Xf-vdC").replace("                <", "                            <")
+    + '                        </constraints>\n'))
 STORYBOARDS["sb-view-opaque-bar-at-0"] = _NO_DEVICE.replace('x="0.0" y="0.0" width="393" height="852"', 'x="0.0" y="0.0" width="375" height="603"').replace(
     "                </viewController>", _OPAQUE_BAR + "                </viewController>").replace("</document>", metrics_container("retina4_7.fullscreen") + "</document>")
 STORYBOARDS["sb-guide-bottom-position"] = guide_scene(
