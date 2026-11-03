@@ -6131,6 +6131,30 @@ EXPERIMENTS.update(HOLDOUT_KINDS)
 
 
 
+# Round 105: controls' actions of every event, a date picker's action, and long press recognizers.
+MORE_EVENTS = ["touchDown", "touchDownRepeat", "touchDragInside", "touchDragOutside", "touchDragEnter", "touchDragExit", "touchUpOutside",
+               "touchCancel", "menuActionTriggered"]
+CONTROL_EVENTS = {f"act-control-{event}": constrained(control_view(connections=actions(("acted:", event))), pin("ctl-aa-aaa", 0, 10, 20))
+                  for event in MORE_EVENTS}
+CONTROL_EVENTS["act-control-every-event"] = constrained(control_view(connections=actions(*[(f"{event}:", event) for event in MORE_EVENTS + ["touchUpInside", "valueChanged"]])),
+                                                        pin("ctl-aa-aaa", 0, 10, 20))
+CONTROL_EVENTS["act-date-picker"] = constrained(subview("dpk-aa-aa1", (0, 0, 350, 216), "datePicker", ' contentHorizontalAlignment="center" contentVerticalAlignment="center" '
+                                                        'datePickerMode="countDownTimer" minuteInterval="1" useCurrentDate="NO"').replace(
+    "                </datePicker>\n", actions(("picked:", "valueChanged")) + "                </datePicker>\n"), "")
+CONTROL_EVENTS["gesture-long-press"] = gestures(recognizer("pongPressGestureRecognizer", "lpr-aa-aa1", ' allowableMovement="10" minimumPressDuration="0.5"'),
+                                                attach=(("sss-ss-ss1", "lpr-aa-aa1"),))
+CONTROL_EVENTS["gesture-long-press-long"] = gestures(recognizer("pongPressGestureRecognizer", "lpr-aa-aa1", ' allowableMovement="20" minimumPressDuration="5"'),
+                                                     attach=(("sss-ss-ss1", "lpr-aa-aa1"),))
+CONTROL_EVENTS["gesture-pinch"] = gestures(recognizer("pinchGestureRecognizer", "pnc-aa-aa1"), attach=(("sss-ss-ss1", "pnc-aa-aa1"),))
+CONTROL_EVENTS["gesture-rotation"] = gestures(recognizer("rotationGestureRecognizer", "rot-aa-aa1"), attach=(("sss-ss-ss1", "rot-aa-aa1"),))
+CONTROL_EVENTS["gesture-edge-pan"] = gestures(recognizer("screenEdgePanGestureRecognizer", "edg-aa-aa1", ' minimumNumberOfTouches="1"'), attach=(("sss-ss-ss1", "edg-aa-aa1"),))
+EXPERIMENTS.update(CONTROL_EVENTS)
+STORYBOARDS["sb-gesture-long-press"] = sb_gestures([sb_subview("sub-vi-ew1", 10, ["lpr-aa-aa1"])],
+                                                  [sb_recognizer("lpr-aa-aa1", "pongPressGestureRecognizer").replace(' id="lpr-aa-aa1"', ' minimumPressDuration="1" id="lpr-aa-aa1"', 1)])
+STORYBOARDS["sb-gesture-pinch"] = sb_gestures([sb_subview("sub-vi-ew1", 10, ["pnc-aa-aa1"])], [sb_recognizer("pnc-aa-aa1", "pinchGestureRecognizer")])
+
+
+
 # Round 106: two text views: which of their attributed texts' objects a nib shares.
 def second_text_view(document_view):
     return document_view.replace('id="txv-aa-aa1"', 'id="txv-aa-aa2"').replace('<rect key="frame" x="16" y="40"', '<rect key="frame" x="16" y="200"')

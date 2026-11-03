@@ -976,8 +976,8 @@ struct DocumentCompiler {
     }
 
     /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`).
-    static let actionHolders: Set = ["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "tapGestureRecognizer",
-                                     "swipeGestureRecognizer", "panGestureRecognizer"]
+    static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker"]
+                                        + NibGestureRecognizer.elements)
 
     /// Records an object's `<connections>` for `outletConnections`.
     mutating func connections(of element: XIBElement, source: NibArchivable) throws {

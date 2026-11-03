@@ -99,8 +99,12 @@ extension DocumentCompiler {
     static let switchAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "on"]
     /// `UIControl.Event` of the events observed, the `UIEventMask` of an action's connection
     /// (`act-field-all-events`, `act-control-*`).
-    static let eventMasks = ["touchUpInside": 64, "valueChanged": 4096, "primaryActionTriggered": 8192, "editingDidBegin": 65536,
-                             "editingChanged": 131072, "editingDidEnd": 262144, "editingDidEndOnExit": 524288]
+    /// `UIControl.Event` bits by IB's event names (`ev-*`, `act-*`; round 105: `act-control-*`);
+    /// `menuActionTriggered` writes no mask, as an action without an event (`act-control-menuActionTriggered`).
+    static let eventMasks = ["touchDown": 1, "touchDownRepeat": 2, "touchDragInside": 4, "touchDragOutside": 8, "touchDragEnter": 16,
+                             "touchDragExit": 32, "touchUpInside": 64, "touchUpOutside": 128, "touchCancel": 256, "valueChanged": 4096,
+                             "primaryActionTriggered": 8192, "editingDidBegin": 65536, "editingChanged": 131072, "editingDidEnd": 262144,
+                             "editingDidEndOnExit": 524288]
 
     /// A text, as an `NSLocalizableString` keyed `<id>.<property>` in a document of an `.lproj`
     /// folder (`label-lproj`, the corpus's tofu storyboard).

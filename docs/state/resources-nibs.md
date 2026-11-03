@@ -282,6 +282,8 @@ Just finished:
 - Text views of one font, color and alignment sharing their attributes (round 106), and a
   scene's recognizer numbered after its controller when the view nib's connections reach the
   controller first (round 107); wikipedia's EditSaveViewController equivalent under ADR 0260.
+- Control actions of every event, date pickers' actions, long press, pinch, rotation and screen
+  edge pan recognizers (round 105, 18 experiments identical).
 - ADR 0260: outlet collections of several sources, whose order ibtool changes from run to run,
   compiled by name and compared by a canonical form (`nomac verify`, `nib_compare.py`).
 - What the holdout stops at next (rounds 103 and 104, 29 experiments identical): cells' and

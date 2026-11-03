@@ -750,9 +750,12 @@ none), `UISwitchEnabled` true, `UISwitchOn` true for `on="YES"`, `UISwitchOnTint
 A control's `<action>` (`ev-*`, `act-*`) is a `UIRuntimeEventConnection`: `UILabel` the selector,
 `UISource`, `UIDestination` (any object of the nib: File's Owner, a view, a cell, a scene's
 controller through `UpstreamPlaceholder-1`), `UIEventMask`, `UIControl.Event`'s value
-(touchUpInside 64, valueChanged 4096, primaryActionTriggered 8192, editingDidBegin 65536,
-editingChanged 131072, editingDidEnd 262144, editingDidEndOnExit 524288), left out for an action
-without `eventType`. The nib lists the actions after the outlets, by event mask (none first), then
+(touchDown 1, touchDownRepeat 2, touchDragInside 4, touchDragOutside 8, touchDragEnter 16,
+touchDragExit 32, touchUpInside 64, touchUpOutside 128, touchCancel 256, valueChanged 4096,
+primaryActionTriggered 8192, editingDidBegin 65536, editingChanged 131072, editingDidEnd 262144,
+editingDidEndOnExit 524288; round 105, `act-control-*`), left out for an action without
+`eventType` or of `menuActionTriggered`. Date pickers hold actions as other controls
+(`act-date-picker`). The nib lists the actions after the outlets, by event mask (none first), then
 selector, then source in all objects (`act-with-outlets`, `act-field-mixed-no-event`); of two
 actions of one control without an event ibtool keeps one, which nomac refuses. Text fields,
 switches, buttons, segmented controls, sliders and page controls take actions (`act-button-*`,
@@ -1004,7 +1007,13 @@ Top-level `<tapGestureRecognizer>`, `<swipeGestureRecognizer>` and `<panGestureR
 for a tap `UITapGestureRecognizer._imp`, a `UITapRecognizer` writing
 `UITapRecognizer.numberOfTapsRequired` and `numberOfTouchesRequired` when not 1; for a swipe
 `UISwipeGestureRecognizer.direction` (left 2, up 4, down 8; right not written); for a pan
-`UIPanGestureRecognizer.allowedScrollTypesMask` 0. A view attaches them with an outlet collection
+`UIPanGestureRecognizer.allowedScrollTypesMask` 0. IB's `<pongPressGestureRecognizer>` is a
+`UILongPressGestureRecognizer`: its `_imp` a `UITapRecognizer` of `numberOfTapsRequired` 0, then
+`minimumPressDuration` and `allowableMovement` floats unless 0.5 and 10; pinch and rotation
+recognizers write nothing more; a screen edge pan recognizer has `allowedTouchTypes` 11, then
+`UIPanGestureRecognizer.allowedScrollTypesMask` 0 and `UIScreenEdgePanGestureRecognizer.edges` 0
+(round 105, `gesture-long-press*`, `gesture-pinch`, `gesture-rotation`, `gesture-edge-pan`,
+`sb-gesture-long-press`, `sb-gesture-pinch`). A view attaches them with an outlet collection
 `gestureRecognizers` with `appends="YES"`: `addsContentToExistingCollection` true and, without a
 `collectionClass`, `runtimeCollectionClassName` `NSArray`. Their actions are
 `UIRuntimeEventConnection`s without an event; two recognizers' actions of one selector, whose order

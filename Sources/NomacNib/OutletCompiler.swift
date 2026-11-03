@@ -46,7 +46,7 @@ extension DocumentCompiler {
                     try check(element, attributes: ["selector", "destination", "eventType", "id"], children: [])
                     guard let selector = element.attributes["selector"] else { throw unsupported("an action without a selector") }
                     if otherScenesControllers.contains(element.attributes["destination"] ?? "") { continue }
-                    let mask = try element.attributes["eventType"].map { try mapped($0, Self.eventMasks, "eventType") }
+                    let mask = try element.attributes["eventType"].flatMap { $0 == "menuActionTriggered" ? nil : try mapped($0, Self.eventMasks, "eventType") }
                     if mask == nil, events.contains(where: { $0.source === pending.source && $0.eventMask == nil }) {
                         throw unsupported("two actions of a control without an event")
                     }
