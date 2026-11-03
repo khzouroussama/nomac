@@ -219,7 +219,7 @@ struct DocumentCompiler {
             case "customFonts":
                 try customFonts(child)
             case "objects":
-                try check(child, attributes: [], children: Set(["placeholder", "view", "tableViewCell", "collectionViewCell", "collectionReusableView"]
+                try check(child, attributes: [], children: Set(["placeholder", "view", "stackView", "tableViewCell", "collectionViewCell", "collectionReusableView"]
                                                                + NibGestureRecognizer.elements))
                 for object in child.children {
                     let compiled = try topLevelObject(object)

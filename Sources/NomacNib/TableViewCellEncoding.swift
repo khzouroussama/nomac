@@ -100,10 +100,11 @@ extension DocumentCompiler {
     mutating func tableViewCell(_ element: XIBElement) throws -> NibView {
         try check(element, attributes: ["id", "contentMode", "selectionStyle", "indentationWidth", "indentationLevel", "reuseIdentifier", "rowHeight",
                                         "accessoryType", "editingAccessoryType", "showsReorderControl", "style", "textLabel", "detailTextLabel", "clipsSubviews", "preservesSuperviewLayoutMargins", "restorationIdentifier", "opaque", "hidesAccessoryWhenEditing",
-                                        "clearsContextBeforeDrawing",
+                                        "clearsContextBeforeDrawing", "layoutMarginsFollowReadableWidth",
                                         "customClass", "customModule", "customModuleProvider", "userLabel"],
                   children: ["rect", "autoresizingMask", "tableViewCellContentView", "viewLayoutGuide", "point", "connections", "color",
-                             "edgeInsets", "directionalEdgeInsets", "inset", "constraints", "userDefinedRuntimeAttributes"])
+                             "edgeInsets", "directionalEdgeInsets", "inset", "constraints", "userDefinedRuntimeAttributes",
+                             "accessibility"])
         try value(element, "contentMode", in: ["scaleToFill"])
         let selectionStyles = ["none": 0, "blue": 1, "gray": 2, "default": 3]
         guard let selectionStyle = selectionStyles[element.attributes["selectionStyle"] ?? "default"] else {
@@ -126,6 +127,7 @@ extension DocumentCompiler {
             throw unsupported("a table view cell without one content view")
         }
         try check(content, attributes: ["key", "opaque", "clipsSubviews", "multipleTouchEnabled", "contentMode", "tableViewCell", "id", "clearsContextBeforeDrawing",
+                                        "layoutMarginsFollowReadableWidth",
                                         "preservesSuperviewLayoutMargins", "insetsLayoutMarginsFromSafeArea", "ambiguous"],
                   children: ["rect", "frame", "autoresizingMask", "subviews", "constraints", "color", "variation", "edgeInsets", "directionalEdgeInsets",
                              "userDefinedRuntimeAttributes"])
@@ -147,6 +149,7 @@ extension DocumentCompiler {
         flags.clipsToBounds = try bool(element, "clipsSubviews", default: false)
         flags.opaque = try bool(element, "opaque", default: true)
         flags.clearsContextBeforeDrawing = try bool(element, "clearsContextBeforeDrawing", default: true)
+        flags.layoutMarginsFollowReadableWidth = try bool(element, "layoutMarginsFollowReadableWidth", default: false)
         flags.contentStretch = try contentStretch(element)
         flags.preservesSuperviewLayoutMargins = try bool(element, "preservesSuperviewLayoutMargins", default: false)
         _ = try bool(element, "hidesAccessoryWhenEditing", default: true)
@@ -213,6 +216,7 @@ extension DocumentCompiler {
         }
         try connections(of: element, source: cell)
         try runtimeAttributes(of: element, object: cell)
+        try accessibility(of: element, object: cell)
         for segue in cellSeguePlaceholders[id] ?? [] {
             cellSegueOutlets.append(NibOutletConnection(label: string(segue.accessory ? "accessoryActionSegueTemplate" : "selectionSegueTemplate"), source: cell,
                                                         destination: segue.placeholder))

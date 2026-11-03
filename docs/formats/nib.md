@@ -399,7 +399,9 @@ and top 1, firstBaseline 2, center 3, trailing and bottom 4, lastBaseline 5; IB'
 `spacingType="standard"` writes nothing (`stack-spacing-type-standard`). A stack view with
 arranged subviews writes `UIViewDoesNotTranslateAutoresizingMaskIntoConstraints`, and so do its
 arranged subviews that do not translate their masks, with mask 36 whatever their
-`autoresizingMask` (`stack-arranged-*mask`); an empty one writes neither (`stack-empty`).
+`autoresizingMask` (`stack-arranged-*mask`); an empty one writes neither (`stack-empty`). A
+xib's top-level `<stackView>` is compiled as any top-level view and keeps its frame under iOS 17
+too, unlike a `<view>` (round 104, `tl-stack`, `tl-stack-15`, `tl-stack-arranged`).
 
 ## UIScrollView
 
@@ -669,7 +671,13 @@ A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClas
 `UIOriginalClassName` `UITableViewCell` for a custom class): a view's keys (no
 `UIOpaque` for `opaque="NO"`: `cell-opaque-*`; no `UIAutoresizingMask` for an empty mask;
 `UIClearsContextBeforeDrawing` false for the cell's or its content view's
-`clearsContextBeforeDrawing="NO"`: `cell-clears-*`, `cell-content-clears-no`; `UIViewPreservesSuperviewMargins` true and
+`clearsContextBeforeDrawing="NO"`: `cell-clears-*`, `cell-content-clears-no`;
+`UIViewLayoutMarginsFollowReadableWidth` true for the cell's or its content view's
+`layoutMarginsFollowReadableWidth="YES"`, before the preserved margins: `cell-readable*`,
+`cell-content-readable`; an accessibility configuration as a view's: `cell-a11y*`;
+`UIViewLayoutMarginsFollowReadableWidth` true for the cell's or its content view's
+`layoutMarginsFollowReadableWidth="YES"`, before the preserved margins: `cell-readable*`,
+`cell-content-readable`; `UIViewPreservesSuperviewMargins` true and
 `UIViewPreservesSpecificSuperviewMargins` 15 for `preservesSuperviewLayoutMargins`, on any view,
 before `UIViewInsetsLayoutMarginsFromSafeArea`: the corpus's netnewswire settings cells), then
 `UIReuseIdentifier`, `UIShowsReorderControl` true for `showsReorderControl`,
@@ -848,9 +856,11 @@ wikipedia's LibrariesUsed; `text-view-length-*-lproj`, round 80) with an `NSDict
 (the text color, when there is one), `NSFont` (the view's font) and `NSParagraphStyle` (an
 `NSMutableParagraphStyle` of `NSAlignment` in AppKit's values, center 2, natural 4, none for left,
 and `NSTabStops` nil); then `UIFont` (the system font of 17 points without a description,
-`text-view-no-font`), `UITextColor` when there is one, `UITextAlignment` always (natural 4, center 1,
+`text-view-no-font`; before it `UIAdjustsFontForContentSizeCategory` true for a text style's font
+with `adjustsFontForContentSizeCategory="YES"`, `text-view-adjusts*`), `UITextColor` when there is one, `UITextAlignment` always (natural 4, center 1,
 0 without the attribute), then, each only when it differs from IB's, `UIEditable` false,
-`UIDataDetectorTypes` (phone number 1, link 2, address 4), `UISelectable` false and the input traits:
+`UIDataDetectorTypes` (phone number 1, link 2, address 4, calendar event 8: `text-view-detect-*`),
+`UISelectable` false and the input traits:
 `UIAutocapitalizationType` (0 without the attribute, nothing for sentences, words 1),
 `UIAutocorrectionType` and `UISpellCheckingType` (no 1, yes 2), `UIKeyboardType` (URL 3),
 `UIKeyboardAppearance` (alert 1), `UIReturnKeyType` (done 9), `UIEnablesReturnKeyAutomatically`
@@ -1119,7 +1129,12 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   `UIDestinationViewControllerIdentifier` the destination's nib name, `UIActionName`
   `showViewController:sender:`; a `showDetail` segue's the same with `showDetailViewController:sender:`:
   `sb-segue-showDetail`, `sb-cellseg-prototype-showDetail*`) or
-  `UIStoryboardPresentationSegueTemplate` (the first two); equal
+  `UIStoryboardPresentationSegueTemplate` (the first two, then `UIModalPresentationStyle` and
+  `UIModalTransitionStyle` for the segue's `modalPresentationStyle` and `modalTransitionStyle`,
+  whatever their values, coverVertical 0 too: fullScreen 0, pageSheet 1, formSheet 2,
+  currentContext 3, overFullScreen 5, overCurrentContext 6, popover 7, automatic -2;
+  coverVertical 0, flipHorizontal 1, crossDissolve 2, partialCurl 3; `sb-segue-style-*`,
+  `sb-segue-transition-*`; other kinds of segues with them are refused); equal
   strings of a controller's templates are one object. All objects lists them after the
   controller; each connects to it with a `viewController` outlet, after the others, by template
   class byte by byte (`UIStoryboardPopover...` before `...Presentation...`, `...Show...` and

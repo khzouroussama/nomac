@@ -6,7 +6,7 @@ import Foundation
 /// then UIKit's highlight attributes and number pad popover.
 struct TextViewContent {
     /// `UIDataDetectorTypes` bits of the types observed (`text-view-detectors*`, `text-view-all-flags`).
-    static let dataDetectorTypes = ["phoneNumber": 1, "link": 2, "address": 4]
+    static let dataDetectorTypes = ["phoneNumber": 1, "link": 2, "address": 4, "calendarEvent": 8]
     /// The `<textInputTraits>` observed, as their `UITextInputTraits` values, in the order ibtool
     /// writes them (`text-view-traits-*`); `autocapitalizationType` is apart, IB's sentences being
     /// UIKit's default.
@@ -23,6 +23,8 @@ struct TextViewContent {
     var scroll: ScrollContent
     /// Written after the scroll view's keys, for a text view without text (`text-view-editing-attributes`).
     var allowsEditingTextAttributes = false
+    /// Written before the font, with a text style's font (`text-view-adjusts*`).
+    var adjustsFontForContentSizeCategory = false
     var text: NibArchivable?
     var attributedText: NibTextViewAttributedString?
     var font: NibFont
@@ -43,6 +45,7 @@ struct TextViewContent {
         if allowsEditingTextAttributes { encoder.encode(.boolean(true), forKey: "UIAllowsEditingTextAttributes") }
         if let text { try encoder.encode(text, forKey: "UIText") }
         if let attributedText { try encoder.encode(attributedText, forKey: "UIAttributedText") }
+        if adjustsFontForContentSizeCategory { encoder.encode(.boolean(true), forKey: "UIAdjustsFontForContentSizeCategory") }
         try encoder.encode(font, forKey: "UIFont")
         if let textColor { try encoder.encode(textColor, forKey: "UITextColor") }
         encoder.encode(.integer(textAlignment), forKey: "UITextAlignment")
@@ -62,7 +65,8 @@ struct TextViewContent {
         encoder.encode(.boolean(true), forKey: "UITextAllowsNumberPadPopover")
     }
 
-    static let attributes = ScrollContent.attributes + ["text", "textAlignment", "editable", "selectable", "allowsEditingTextAttributes"]
+    static let attributes = ScrollContent.attributes + ["text", "textAlignment", "editable", "selectable", "allowsEditingTextAttributes",
+                                                        "adjustsFontForContentSizeCategory"]
 }
 
 /// A text view's text with its color, font and alignment as attributes (`text-view-text-color`,
@@ -198,6 +202,10 @@ extension DocumentCompiler {
             highlightAttributes: dictionary([("NSColor", systemColor("systemBlueColor", NibColor.systemColors["systemBlueColor"]!)),
                                              ("NSTextHighlightOutlineColor", systemColor("secondarySystemFillColor", NibColor.systemColors["secondarySystemFillColor"]!))]))
         content.allowsEditingTextAttributes = allowsEditingTextAttributes
+        content.adjustsFontForContentSizeCategory = try bool(element, "adjustsFontForContentSizeCategory", default: false)
+        guard !content.adjustsFontForContentSizeCategory || element.child("fontDescription", key: "fontDescription")?.attributes["style"] != nil else {
+            throw unsupported("a text view adjusting a font other than a text style's to the content size category")
+        }
         return content
     }
 }

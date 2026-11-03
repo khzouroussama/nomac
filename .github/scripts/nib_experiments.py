@@ -6011,6 +6011,64 @@ STORYBOARDS.update({name.replace("sb-tint-", "sb-untinted-"): document.replace(G
 
 
 
+# Round 103: table view cells' and their content views' layoutMarginsFollowReadableWidth, as the
+# holdout's storyboards and xibs have them; a view's for reference.
+READABLE = {
+    "cell-readable": cell_xib(' layoutMarginsFollowReadableWidth="YES"'),
+    "cell-readable-no": cell_xib(' layoutMarginsFollowReadableWidth="NO"'),
+    "cell-content-readable": cell_xib("", content_attributes=' layoutMarginsFollowReadableWidth="YES"'),
+    "cell-readable-both": cell_xib(' layoutMarginsFollowReadableWidth="YES"', content_attributes=' layoutMarginsFollowReadableWidth="YES"'),
+    "cell-readable-preserves": cell_xib(' layoutMarginsFollowReadableWidth="YES" preservesSuperviewLayoutMargins="YES"'),
+    "view-readable": constrained(subview("sub-vi-ew1", attributes=' layoutMarginsFollowReadableWidth="YES"'), ""),
+}
+EXPERIMENTS.update(READABLE)
+
+
+
+# Round 104: what the holdout's documents stop at next: segues' presentation and transition styles,
+# text views adjusting their font to the content size category, all data detectors, top-level stack
+# and table views, and table view cells' accessibility.
+def presenting(extra):
+    return storyboard(controller_scene(1, view_extra=segue_button(f'<segue destination="vc2-aa-aaa" kind="presentation"{extra} id="bsg-aa-aaa"/>')),
+                      controller_scene(2), initial="vc1-aa-aaa")
+
+
+SEGUE_STYLES = {f"sb-segue-style-{style}": presenting(f' modalPresentationStyle="{style}"')
+                for style in ["fullScreen", "pageSheet", "formSheet", "currentContext", "overFullScreen", "overCurrentContext", "automatic", "popover"]}
+SEGUE_STYLES.update({f"sb-segue-transition-{style}": presenting(f' modalTransitionStyle="{style}"')
+                     for style in ["coverVertical", "crossDissolve", "flipHorizontal", "partialCurl"]})
+SEGUE_STYLES["sb-segue-style-both"] = presenting(' modalPresentationStyle="overFullScreen" modalTransitionStyle="crossDissolve"')
+SEGUE_STYLES["sb-segue-style-controller"] = storyboard(controller_scene(1, connections='                        <segue destination="vc2-aa-aaa" kind="presentation" '
+                                                       'identifier="Go" modalPresentationStyle="fullScreen" id="csg-aa-aa1"/>\n'),
+                                                       controller_scene(2), initial="vc1-aa-aaa")
+STORYBOARDS.update(SEGUE_STYLES)
+
+TV_STYLE_FONT = '<fontDescription key="fontDescription" style="UICTFontTextStyleBody"/>\n'
+HOLDOUT_KINDS = {
+    "text-view-adjusts": constrained(text_view(TV_ATTRIBUTES + ' adjustsFontForContentSizeCategory="YES"', TV_BACKGROUND + TV_TEXT + TV_STYLE_FONT + TV_TRAITS), "",
+                                     resources=TVR),
+    "text-view-adjusts-no": constrained(text_view(TV_ATTRIBUTES + ' adjustsFontForContentSizeCategory="NO"', TV_BACKGROUND + TV_TEXT + TV_STYLE_FONT + TV_TRAITS), "",
+                                        resources=TVR),
+    "text-view-detect-all": constrained(text_view(children=TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS
+        + '<dataDetectorType key="dataDetectorTypes" phoneNumber="YES" link="YES" address="YES" calendarEvent="YES"/>\n'), "", resources=TVR),
+    "text-view-detect-calendar": constrained(text_view(children=TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS
+        + '<dataDetectorType key="dataDetectorTypes" calendarEvent="YES"/>\n'), "", resources=TVR),
+    "tl-stack": xib('        <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" id="iN0-l3-epB">\n'
+                    '            <rect key="frame" x="0.0" y="0.0" width="200" height="100"/>\n'
+                    '            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+                    '            <point key="canvasLocation" x="0" y="0"/>\n        </stackView>\n'),
+    "cell-a11y": cell_xib("", cell_extra='            <accessibility key="accessibilityConfiguration" identifier="cell"/>\n'),
+    "cell-a11y-label": cell_xib("", cell_extra='            <accessibility key="accessibilityConfiguration" label="Row">\n'
+                                '                <bool key="isElement" value="YES"/>\n            </accessibility>\n'),
+}
+HOLDOUT_KINDS["tl-stack-15"] = HOLDOUT_KINDS["tl-stack"]
+HOLDOUT_KINDS["tl-stack-arranged"] = HOLDOUT_KINDS["tl-stack"].replace(
+    '            <point key="canvasLocation"', '            <subviews>\n' + label(frame=(0, 0, 200, 50)).replace('                ', '                ', 1)
+    + label(frame=(0, 50, 200, 50), identifier="lbl-aa-aa2") + '            </subviews>\n            <point key="canvasLocation"')
+OPTIONS["tl-stack-15"] = {"deployment": "15.0"}
+EXPERIMENTS.update(HOLDOUT_KINDS)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

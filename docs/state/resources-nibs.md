@@ -276,6 +276,12 @@ holders (bar button items, flow layouts, storyboard controllers), then the ADR f
 of mixed outlet collections.
 
 Just finished:
+- What the holdout stops at next (rounds 103 and 104, 29 experiments identical): cells' and
+  content views' layoutMarginsFollowReadableWidth and accessibility, presentation segues'
+  presentation and transition styles, text views' adjustsFontForContentSizeCategory and calendar
+  event detection, top-level stack views.
+- Table view cells' and content views' layoutMarginsFollowReadableWidth (round 103, 6
+  experiments identical; 14 holdout documents stopped there).
 - Storyboards' global tint (round 102, 15 experiments identical; 17 holdout storyboards stopped
   there).
 - User-defined runtime attributes of cells, content views, switches, flow layouts, navigation

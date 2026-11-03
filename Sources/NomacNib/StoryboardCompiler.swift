@@ -161,6 +161,8 @@ extension DocumentCompiler {
                 let template = NibSegueTemplate(kind: segue.kind, identifier: identifier, destination: destination, action: action,
                                                 arrowDirections: segue.arrowDirections)
                 template.segueClass = try segue.classElement.flatMap { try customClass($0)?.name }
+                template.presentationStyle = segue.presentationStyle
+                template.transitionStyle = segue.transitionStyle
                 templates.append(template)
             }
             return templates
@@ -393,6 +395,15 @@ extension DocumentCompiler {
         var containerSize: (width: Double, height: Double)?
         /// A custom segue's element, whose class it names (`sb-segue-custom*`).
         var classElement: XIBElement?
+        /// A presentation segue's presentation and transition styles (`sb-segue-style-*`,
+        /// `sb-segue-transition-*`).
+        var presentationStyle: Int?
+        var transitionStyle: Int?
+        /// Written whatever their value, coverVertical too, unlike a controller's
+        /// (`sb-segue-transition-coverVertical`).
+        static let presentationStyles = ["fullScreen": 0, "pageSheet": 1, "formSheet": 2, "currentContext": 3, "overFullScreen": 5, "overCurrentContext": 6,
+                                         "popover": 7, "automatic": -2]
+        static let transitionStyles = ["coverVertical": 0, "flipHorizontal": 1, "crossDissolve": 2, "partialCurl": 3]
         /// The bar button item that triggers it, for a navigation item's segue, and anchors it
         /// when a popover (`sb-popover-bar-item`).
         var barItem: String?
@@ -401,7 +412,8 @@ extension DocumentCompiler {
     /// A `<segue>` of a scene whose exit is `exit`.
     func segue(_ element: XIBElement, exit: String?) throws -> Segue {
         try check(element, attributes: ["destination", "kind", "identifier", "id", "unwindAction", "popoverAnchorView", "popoverAnchorBarButtonItem",
-                                        "customClass", "customModule", "customModuleProvider", "trigger"], children: ["popoverArrowDirection"])
+                                        "customClass", "customModule", "customModuleProvider", "trigger", "modalPresentationStyle", "modalTransitionStyle"],
+                  children: ["popoverArrowDirection"])
         try value(element, "trigger", in: ["accessoryAction"])
         guard let kind = element.attributes["kind"].flatMap(Segue.Kind.init), let destination = element.attributes["destination"],
               let id = element.attributes["id"] else {
@@ -425,6 +437,10 @@ extension DocumentCompiler {
             }
         }
         segue.anchorView = element.attributes["popoverAnchorView"]
+        let styled = ["modalPresentationStyle", "modalTransitionStyle"].contains { element.attributes[$0] != nil }
+        guard !styled || kind == .presentation else { throw unsupportedScene("presentation or transition styles of a \(kind) segue") }
+        segue.presentationStyle = try element.attributes["modalPresentationStyle"].map { try mapped($0, Segue.presentationStyles, "modalPresentationStyle") }
+        segue.transitionStyle = try element.attributes["modalTransitionStyle"].map { try mapped($0, Segue.transitionStyles, "modalTransitionStyle") }
         guard (kind == .custom) == (element.attributes["customClass"] != nil) else {
             throw unsupportedScene("a custom segue without a class, or another segue with one")
         }

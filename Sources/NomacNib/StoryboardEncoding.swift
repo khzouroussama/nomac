@@ -198,6 +198,8 @@ final class NibSegueTemplate: NibArchivable {
     let arrowDirections: Int?
     /// A custom segue's class name (`sb-segue-custom*`).
     var segueClass: NibString?
+    var presentationStyle: Int?
+    var transitionStyle: Int?
 
     /// Equal strings of a controller's templates are one object (`sb-segorder-*`).
     init(kind: DocumentCompiler.Segue.Kind, identifier: NibString?, destination: NibString?, action: NibString?, arrowDirections: Int? = nil) {
@@ -235,6 +237,8 @@ final class NibSegueTemplate: NibArchivable {
             encoder.encode(.integer(0), forKey: "UISplitViewControllerIndex")
         }
         if let action { try encoder.encode(action, forKey: kind == .unwind ? "UIAction" : "UIActionName") }
+        if let presentationStyle { encoder.encode(.integer(presentationStyle), forKey: "UIModalPresentationStyle") }
+        if let transitionStyle { encoder.encode(.integer(transitionStyle), forKey: "UIModalTransitionStyle") }
         if kind == .embed {
             encoder.encode(.boolean(true), forKey: "UIPerformOnViewLoad")
             encoder.encode(.null, forKey: "UIContainerView")
