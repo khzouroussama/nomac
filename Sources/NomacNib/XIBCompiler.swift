@@ -64,10 +64,16 @@ public enum XIBCompiler {
 
     /// The compiled nib of the document at `path`.
     public static func compile(_ data: Data, path: String, options: Options) throws -> Data {
+        try compileReportingWarnings(data, path: path, options: options).nib
+    }
+
+    /// The nib and ibtool's document warnings, `<path>:global: warning: <message>` lines.
+    public static func compileReportingWarnings(_ data: Data, path: String, options: Options) throws -> (nib: Data, warnings: [String]) {
         let deploymentTarget = try check(options, path: path)
         let document = try XIBReader.read(data, path: path)
         var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
-        return try compiler.compile(document)
+        let nib = try compiler.compile(document)
+        return (nib, compiler.deploymentWarning.map { ["\(path):global: warning: \($0)"] } ?? [])
     }
 
     /// Refuses the options the experiments have not observed, and returns the deployment target.
@@ -171,6 +177,8 @@ struct DocumentCompiler {
     var controlSeguePlaceholders: [(segue: Segue, placeholder: NibProxy)] = []
     /// ibtool's document warnings, by object id.
     var warnings: [(id: String, message: String)] = []
+    /// ibtool's warning about the document's `<deployment version>`, for the whole document.
+    var deploymentWarning: String?
     /// The sizes of the container views embedding controllers, by controller id (`sb-embed*`).
     var embeddedSizes: [String: (width: Double, height: Double)] = [:]
     var cellSegueOutlets: [NibOutletConnection] = []
@@ -386,7 +394,7 @@ struct DocumentCompiler {
     /// `<device>`, `<dependencies>`, `<resources>` and IB's dynamic type preview
     /// (`<accessibilityOverrides>`), none of which changes a xib's nib (`device-*`, `no-device`,
     /// `capabilities*`, `a11y-overrides-*`, `sb-a11y-overrides`).
-    func headerElement(_ element: XIBElement, deviceAttributes: [String] = ["id", "orientation", "appearance", "layout"]) throws {
+    mutating func headerElement(_ element: XIBElement, deviceAttributes: [String] = ["id", "orientation", "appearance", "layout"]) throws {
         switch element.name {
         case "device":
             try check(element, attributes: deviceAttributes, children: ["adaptation"])
@@ -399,7 +407,7 @@ struct DocumentCompiler {
                 try value(adaptation, "id", in: ["fullscreen"])
             }
         case "dependencies":
-            try dependencies(element)
+            try dependencies(&deploymentWarning, element)
         case "accessibilityOverrides":
             try check(element, attributes: ["isEnabled", "dynamicTypePreference"], children: [])
         default:
@@ -408,8 +416,10 @@ struct DocumentCompiler {
     }
 
     /// The plug-in (any version, two observed), the capabilities observed and `<deployment>`
-    /// for iOS (`plugin-version`, `capabilities`, `deployment-ios`).
-    func dependencies(_ element: XIBElement) throws {
+    /// for iOS (`plugin-version`, `capabilities`, `deployment-ios`). Its `version` (major x 256 +
+    /// minor x 16) changes no nib from 8.0 (2048) to 27.0 (6912); below 5888 ibtool warns
+    /// (`document-version-*`, `sb-document-version-*`, round 58; gomap's QuestBuilder at 5376).
+    func dependencies(_ deploymentWarning: inout String?, _ element: XIBElement) throws {
         try check(element, attributes: [], children: ["plugIn", "capability", "deployment"])
         for child in element.children {
             switch child.name {
@@ -420,8 +430,17 @@ struct DocumentCompiler {
                 try check(child, attributes: ["name", "minToolsVersion"], children: [])
                 try value(child, "name", in: XIBCompiler.capabilities)
             default:
-                try check(child, attributes: ["identifier"], children: [])
+                try check(child, attributes: ["identifier", "version"], children: [])
                 try value(child, "identifier", in: ["iOS"])
+                guard let text = child.attributes["version"] else { continue }
+                guard let version = Int(text), version >= 2048 else {
+                    throw NomacError("nomac does not compile documents whose <deployment version=\"\(text)\"> is before iOS 8.0 (ibtool writes nib bundles) yet (BACKLOG B-263)",
+                                     path: path)
+                }
+                guard version <= 6912 else { throw unsupported("<deployment version=\"\(text)\">") }
+                if version < 5888 {
+                    deploymentWarning = "This file is set to build for a version older than the deployment target. Functionality may be limited. [9]"
+                }
             }
         }
     }

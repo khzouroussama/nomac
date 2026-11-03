@@ -89,7 +89,12 @@ struct IBToolCommand: ParsableCommand {
                     compiled.warnings.forEach { print($0) }
                 }
             } else if let output {
-                try FileSystem.write(try XIBCompiler.compile(data, path: path, options: options), to: FileSystem.absolute(output))
+                let compiled = try XIBCompiler.compileReportingWarnings(data, path: path, options: options)
+                try FileSystem.write(compiled.nib, to: FileSystem.absolute(output))
+                if !compiled.warnings.isEmpty {
+                    print("/* com.apple.ibtool.document.warnings */")
+                    compiled.warnings.forEach { print($0) }
+                }
             }
             if let partialInfoPlist {
                 let fonts = try XIBCompiler.customFontFiles(data, path: path)

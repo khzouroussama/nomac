@@ -23,6 +23,10 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Just finished
 
+- Round 58 (`document-version-*`): a document's `<deployment version>` changes no nib from 8.0 to
+  27.0; below 5888 (23.0) ibtool prints a global document warning, which `nomac ibtool` now prints
+  for xibs too. Corpus 426 identical (from 411), 0 different.
+
 - Round 57 (`same-distance-*`): subviews whose frames lie as far from the origin sort by x;
   the same x above each other stays refused (their constraints interleave).
 
@@ -242,7 +246,7 @@ iPad, expo-default's `SplashScreen` at 16.4).
 
 ## Next actions
 
-1. `<deployment version>` in xibs (B-260); then B-266 (DescriptionWelcome);
+1. B-266 (DescriptionWelcome);
    variations of other properties the walk meets (stack views' `axis` and `spacing`).
 2. B-266: the order of `UIViewControllerIdentifiersToNibNames` when segues reach scenes out of
    document order (graph experiments, `sbinfo_sim.py` in scratch); tofu's Info.plist then.

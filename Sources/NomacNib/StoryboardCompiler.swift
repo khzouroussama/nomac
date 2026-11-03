@@ -234,6 +234,10 @@ extension DocumentCompiler {
     /// The document warnings, ordered as a Foundation hash table of their objects' ids orders them
     /// (`sb-segue-push-two`, `sb-segue-modal-push`, `sb-segue-push-three`).
     func documentWarnings() throws -> [String] {
+        if let deploymentWarning {
+            guard warnings.isEmpty else { throw unsupportedScene("a document version ibtool warns about beside other warnings") }
+            return ["\(path):global: warning: \(deploymentWarning)"]
+        }
         let messages = Dictionary(warnings.map { ($0.id, $0.message) }) { first, _ in first }
         return try FoundationHashTable.inserting(warnings.map(\.id)).keys.map { "\(path):\($0): warning: \(messages[$0]!)" }
     }

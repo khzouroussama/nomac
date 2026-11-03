@@ -81,7 +81,13 @@ Only inputs whose every element, attribute, value and option the experiments obs
   landscape, light, dark or no appearance, `layout="fullscreen"`, `<adaptation id="fullscreen"/>`,
   or no `<device>`. `<dependencies>`: the Cocoa Touch plug-in (any version: two give the same
   nib), the capabilities named in `capabilities` and `capabilities-more`, and
-  `<deployment identifier="iOS"/>`. None of these changes a xib's nib (`system-version-*`,
+  `<deployment identifier="iOS"/>`, with or without a `version` (major x 256 + minor x 16) from
+  2048 (8.0) to 6912 (27.0), IB's numbers between iOS 18 and 26 included: none changes a nib, and
+  below 5888 ibtool prints `<path>:global: warning: This file is set to build for a version older
+  than the deployment target. Functionality may be limited. [9]` under
+  `/* com.apple.ibtool.document.warnings */`, whatever `--minimum-deployment-target`
+  (`document-version-*`, `sb-document-version-*`, round 58; gomap's QuestBuilder at 5376). Before
+  8.0 ibtool writes nib bundles, as for a deployment target before 8.0 (B-263). None of these changes a xib's nib (`system-version-*`,
   `device-*`, `no-device`); a storyboard sizes its scenes by the device (below).
 - **Placeholders.** File's Owner (with or without a class and module) and First Responder (with
   or without `UIResponder`); the classes change nothing (`owner-*`, `no-first-responder-class`).
