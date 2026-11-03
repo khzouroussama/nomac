@@ -13,6 +13,8 @@ interface; rn-bare Debug's `__preview.dylib`.
 
 ## Just finished
 
+- llbuild from the owner's fork (`b0afd154`, B-137 done): `.github/upstream/swift-llbuild/0001`
+  applied, the root dependency replacing Swift Build's and SwiftPM's (ADR 0002).
 - Swift stack checks, step 1 (B-100): `swift_stack_experiments.py` records when Xcode's driver
   adds `-stack-check` (and `-disable-clang-spi`), the attribute it gives every function, and the
   probe calls; swift.org's LLVM rejects the attribute, the clang workstream's patched LLVM gives
@@ -28,8 +30,6 @@ interface; rn-bare Debug's `__preview.dylib`.
   commands run the swift.org toolchain's (`script_swiftpm_experiments.py`: Xcode's output).
 - `tapi stubify` writes Objective-C ivars (`objc_ivar`, mastodon's MastodonSDKDynamic) and
   exception types (`objc_eh_type`) as Xcode's `tapi` (`tapi_experiments.py`).
-- llbuild's unchecked directory status (the RN sweep's expo-with-maps, once): B-137, the patch
-  kept for a fork, the owner's decision.
 - B-009 off macOS: Xcode projects' build tool plugins link nomac's build of SwiftPM's
   `PackagePlugin` (its entry point to `XcodeProjectPlugin` made callable off Darwin, kept as
   `.github/upstream/swift-package-manager/0001-…`) and nomac's `XcodeProjectPlugin`, both built by

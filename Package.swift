@@ -35,6 +35,9 @@ let package = Package(
         // Swift Build's and SwiftPM's swift-driver, from the owner's fork with the patch of
         // docs/upstream/swift-driver.md; the same branch requirement makes it replace theirs.
         .package(url: "https://github.com/khzouroussama/swift-driver.git", branch: "release/6.4.x"),
+        // Swift Build's and SwiftPM's swift-llbuild, from the owner's fork with the patch of
+        // docs/upstream/swift-llbuild.md, replacing theirs the same way.
+        .package(url: "https://github.com/khzouroussama/swift-llbuild.git", branch: "release/6.4.x"),
     ],
     targets: [
         .executableTarget(

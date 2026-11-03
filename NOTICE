@@ -23,7 +23,7 @@ SwiftPM downloads them when nomac is built (Package.resolved); they are linked i
 - Swift Collections: https://github.com/apple/swift-collections.git at c11818f3cae0 (1.1.6). License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - Swift Crypto, which contains BoringSSL (ISC and OpenSSL licenses): https://github.com/apple/swift-crypto.git at d79c573e1b40 (3.12.5). License: Apache-2.0.
 - Swift Driver, through the fork carrying the patch in .github/upstream/swift-driver: https://github.com/khzouroussama/swift-driver.git at ffcb804a4c2d (release/6.4.x). License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
-- llbuild: https://github.com/swiftlang/swift-llbuild.git at ab6421207b9e (release/6.4.x). License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
+- llbuild: https://github.com/khzouroussama/swift-llbuild.git at b0afd1540fc4 (release/6.4.x). License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - SwiftNIO: https://github.com/apple/swift-nio.git at 6db9d9abd92a (2.104.0). License: Apache-2.0.
 - SwiftNIO SSL, which contains BoringSSL (ISC and OpenSSL licenses): https://github.com/apple/swift-nio-ssl.git at 322f3c2a4a21 (2.37.5). License: Apache-2.0.
 - Swift Package Manager: https://github.com/swiftlang/swift-package-manager.git at 8054c59f07a9. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
@@ -57,5 +57,5 @@ Each patch changes the upstream project named and is licensed under that project
 - `.github/cctools` (6 patches): Apple's cctools and ld64 as cctools-port ports them to Linux, https://github.com/tpoechtrager/cctools-port at 904de2a71d4da6a9b30d2efaf912a10ddc7d9ddb. License: APSL-2.0 (Apple Public Source License 2.0).
 - `.github/upstream/swift-build` (10 patches): Swift Build, https://github.com/swiftlang/swift-build. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - `.github/upstream/swift-driver` (1 patch): Swift Driver, https://github.com/swiftlang/swift-driver. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
-- `.github/upstream/swift-llbuild` (1 patch): llbuild (not applied, BACKLOG B-137), https://github.com/swiftlang/swift-llbuild. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
+- `.github/upstream/swift-llbuild` (1 patch): llbuild, https://github.com/swiftlang/swift-llbuild. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).
 - `.github/upstream/swift-package-manager` (1 patch): Swift Package Manager, https://github.com/swiftlang/swift-package-manager. License: Apache-2.0 WITH Swift-exception (Apache License 2.0 with Runtime Library Exception).

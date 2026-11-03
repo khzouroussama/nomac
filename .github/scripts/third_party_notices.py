@@ -64,7 +64,7 @@ PATCHES = [
     (".github/cctools", "Apple's cctools and ld64 as cctools-port ports them to Linux", "https://github.com/tpoechtrager/cctools-port", APSL, ("build-cctools.sh", "CCTOOLS_COMMIT")),
     (".github/upstream/swift-build", "Swift Build", "https://github.com/swiftlang/swift-build", SWIFT, None),
     (".github/upstream/swift-driver", "Swift Driver", "https://github.com/swiftlang/swift-driver", SWIFT, None),
-    (".github/upstream/swift-llbuild", "llbuild (not applied, BACKLOG B-137)", "https://github.com/swiftlang/swift-llbuild", SWIFT, None),
+    (".github/upstream/swift-llbuild", "llbuild", "https://github.com/swiftlang/swift-llbuild", SWIFT, None),
     (".github/upstream/swift-package-manager", "Swift Package Manager", "https://github.com/swiftlang/swift-package-manager", SWIFT, None),
 ]
 

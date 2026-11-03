@@ -1,8 +1,10 @@
 # Changes for swiftlang/swift-llbuild
 
-nomac gets llbuild through Swift Build (`release/6.4.x`, `ab642120` in `Package.resolved`). The
-change below is not applied: applying it needs a fork of swift-llbuild (BACKLOG B-137), and
-proposing it upstream is the owner's decision. It applies with `git apply` to that revision.
+Swift Build and SwiftPM require swift-llbuild on branch `release/6.4.x`, at `ab642120`. nomac
+depends on the owner's fork (`khzouroussama/swift-llbuild`) with the same requirement, which
+replaces theirs: its `release/6.4.x` and `release/6.4.1-linux-fixes` are `b0afd154`, that revision
+with exactly the change below, which applies with `git apply` to it (ADR 0002). Proposing it
+upstream is the owner's decision.
 
 ## 1. A directory entry whose status cannot be read
 

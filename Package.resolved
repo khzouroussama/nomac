@@ -1,5 +1,5 @@
 {
-  "originHash" : "819d558a5eac2f94e906357b5cdbc121d6eb5edaf22e78ba6ce4c508ea85a8ee",
+  "originHash" : "934cb6de1c0b3310adb5160603a8d12e7041b6b266a0975955cdc91e3eda49b2",
   "pins" : [
     {
       "identity" : "aexml",
@@ -102,10 +102,10 @@
     {
       "identity" : "swift-llbuild",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-llbuild.git",
+      "location" : "https://github.com/khzouroussama/swift-llbuild.git",
       "state" : {
         "branch" : "release/6.4.x",
-        "revision" : "ab6421207b9e4971c94e97c5832a3d8a4cae9092"
+        "revision" : "b0afd1540fc4328caccd70386cc4252247d2c242"
       }
     },
     {
