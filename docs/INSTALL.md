@@ -16,18 +16,20 @@ nomac doctor
 The release has an arm64 download. The x86_64 one comes later; until then `install.sh` on x86_64
 says so and points to the source build below.
 
-`install.sh` does three things, and can be read before it runs:
+`install.sh` does four things, and can be read before it runs:
 
 1. Installs the system packages nomac and Swift need with `apt-get` (with `sudo` unless you are
    root): Swift's own dependencies, curl, 7-Zip and XZ Utils (for the Developer Disk Image a
    device needs), libheif's `heif-dec` (for HEIC images in asset catalogs), and LLVM's C++
-   demangler `libc++abi1` (for crash reports).
+   demangler `libc++abi1` (for crash reports), and `liblzma-dev` for unxip.
 2. Downloads the release archive for your machine, `nomac-<version>-linux-<arch>.tar.xz`, and
    checks it against its `.sha256`. Given an archive you downloaded (`install.sh <archive>`), or
    run from an extracted archive, it uses that instead.
 3. Downloads Swift 6.4.0 for Ubuntu 24.04 from swift.org, the Swift release of Xcode 27.0, which
    nomac builds apps with, and checks it against swift.org's signature with swift.org's
    published keys.
+4. Builds [unxip](https://github.com/saagarjha/unxip) 3.3 with that Swift, at the commit the script
+   names, for expanding `Xcode.xip`. If that fails it warns and goes on: an `Xcode.app` still works.
 
 Everything goes under `~/.local/share/nomac` (`--prefix <dir>` for elsewhere), and nomac is
 linked into `~/.local/bin`:
@@ -35,13 +37,14 @@ linked into `~/.local/bin`:
 | Path | What |
 |---|---|
 | `bin/nomac` and `bin/*.bundle` | nomac, built with the Swift standard library linked in, and the resource bundles it reads beside it |
+| `bin/unxip` | unxip, also linked into `~/.local/bin` |
 | `tools/` | the patched lld, dsymutil, clang, libclang, swift-frontend and cctools, with their patches, patch stamps and license texts (docs/RELEASES.md) |
 | `swift/` | Swift 6.4.0 from swift.org |
 
 Then `nomac sdk install` copies the files nomac needs from your Xcode into `~/.nomac`,
 unmodified, and `nomac toolchain install` puts Swift and the tools into that copy's developer
-directory (with no arguments it takes them from `swift/` and `tools/`). A `.xip` needs `unxip`
-(`nomac doctor` prints the command that installs it); an `Xcode.app` copied from a Mac does not.
+directory (with no arguments it takes them from `swift/` and `tools/`). A source build has no
+unxip: `nomac doctor` prints the command that installs it.
 
 Tools that run `xcodebuild` or `xcrun` outside a build, such as CocoaPods' `pod install`, find
 nomac's launchers in the developer directory; `nomac doctor` prints the line to add:
