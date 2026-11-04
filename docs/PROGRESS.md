@@ -25,7 +25,7 @@ These say the most about an app nomac has not seen.
 | Project loading | Apps whose PIF, `-list` and every build setting are Xcode's | 19 of 19 measured; signal not measured yet (its Xcode reference waits on the Metal Toolchain). corpus/RESULTS.md's 17 of 20 predates the B-098 references. | 2026-11-03, main d71f3a75, docs/state/loader.md |
 | Build | Build products the same as Xcode's (compiled code counts when equivalent, ADR 0101), on Linux | 929 of 1,198, in 16 apps | 2026-11-02 |
 | Storyboards and xibs | Documents in the 20 apps | 457 of 588: 446 identical to ibtool's, 11 equivalent, 0 different, 131 refused | 2026-11-03, main 7a88242e, `nib_compare.py` |
-| | Documents in the 20 apps and the holdout that compile | 685 of 1,065. Measured on the unmerged branch res/nibs-2 (98078ba4); main's last recorded count is 637. | 2026-11-03 |
+| | Documents in the 20 apps and the holdout that compile | 685 of 1,065 | 2026-11-03, main 089f7bec |
 | | `nomac verify`'s nib checks | 271 of 485, in 15 apps | 2026-11-02 |
 | Asset catalogs | `nomac verify`'s catalog checks | 54 of 99, in 18 apps | 2026-11-02 |
 | | Image sets drawn from PDFs | 1,328 of 1,535 the same as Xcode's (5 identical, the rest with rendered pixels judged equivalent, ADR 0204), 201 different, 6 refused | 2026-11-03, assets/pdf-10, docs/state/assets-pdf.md |

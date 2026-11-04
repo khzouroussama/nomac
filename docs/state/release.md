@@ -36,15 +36,21 @@ as tested on a clean Ubuntu 24.04 container.
 
 ## Next actions
 
-1. When `release-tools` run 41661442245 (the tools, both architectures) finishes: dispatch
-   `release-tools` with `tools_run_id=41661442245` on main; its `release` jobs assemble both
-   archives and install each with install.sh on a fresh ubuntu:24.04 (installer packages only,
-   no Swift 6.4.1). Check the result before publishing.
-2. When docs/DEMO.md lands: the demo's numbers in the release notes, the snapshot and leak scan
-   again, then the owner's go: `gh repo create khzouroussama/nomac --public`, push the snapshot as
-   main, Linux CI there, `gh release create v27.0.1-preview` after CI is green, with both archives.
-3. Later snapshots: `public_snapshot.py <dir> --ref main --onto https://github.com/khzouroussama/nomac.git`,
-   then push main from `<dir>`.
+Paused on 2026-11-04 (the owner saves usage). v27.0.1-preview is published with the arm64
+download; `install.sh` on x86_64 says its download comes later and points to the source build.
+
+1. The x86_64 download (B-070). `release-tools` run 41694202819 (nomac-dev, release/prep-4, reusing
+   run 41661442245's LLVM and cctools) did not make it: its x86_64 `swift-frontend` job reached the
+   workflow's 355-minute limit and was cancelled, with no build error, so the `release` jobs were
+   skipped. Setup took until 19:00 UTC, the LLVM tree until 23:56 UTC (3,915 steps, about 5 hours),
+   and the Swift compile was at step 286 of 1,173 at 00:24 UTC. arm64's job finished in 4.5 hours.
+   Its x86_64 nomac artifact (`nomac-X64`) built; run 41661442245's artifacts expire 7 days after
+   2026-11-03. Do not rerun it as it is. Options: build only the LLVM targets the frontend needs
+   instead of the whole tree (`build-swift-frontend.sh` runs ninja on all of it), hand the LLVM
+   build over between two jobs, or run on a larger runner or an x86_64 machine (the owner's choice).
+2. When the bundle exists: check its `release` job's install test, verify the `.sha256`, then
+   `gh release upload v27.0.1-preview` both files to the public repository. `install.sh` needs no
+   change: it looks for the architecture's archive in the release.
 
 ## Continuous publishing
 
