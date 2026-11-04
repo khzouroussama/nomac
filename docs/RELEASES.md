@@ -81,17 +81,15 @@ patched llvm-project the LLVM job hands over, then the package, a workflow artif
 
 ## Publishing the source
 
-The public repository starts from one commit holding the tree of `main` (the owner's decision of
-2026-11-02); this repository keeps its history. `.github/scripts/public_snapshot.py <empty dir>`
-makes that commit: `git archive` of the ref, NOTICE written again, `.github/tags` without the tag
-lines (their commits are not in the snapshot), then checks (no binary but the logos, no Mach-O,
-ELF, archive, property list, asset catalog or signing file, no path in the home folder of the
-machine that runs it, no Claude session line or link) and the owner's leak scan
-(`--leak-scan`, which reads identifiers kept outside the repository). It never pushes. Later
-snapshots go on top of the public main with `--onto <public repository>`: a clone of its main
-gets the new tree as one more commit, whose body names the development commit it comes from, so
-pushing it is a fast-forward and nothing is ever force-pushed. A push
-to a repository whose Actions are on runs the `ci` and `tags` workflows.
+The public repository is the development repository. It began on 2026-11-03 as one commit holding
+the tree of the private nomac-dev (the owner's decision of 2026-11-02), which stays as the archive
+of the earlier history. Each merge to main passes the gate first: the owner's leak scan, both test
+suites, and `.github/scripts/public_snapshot.py <empty dir>`, which makes a throwaway repository
+from the tree (`git archive` of the ref, NOTICE written again, `.github/tags` without the tag lines)
+and fails on anything that must not be published (no binary but the logos, no Mach-O, ELF, archive,
+property list, asset catalog or signing file, no path in the home folder of the machine that runs
+it, no Claude session line or link). Main is pushed as a fast-forward, never forced. A push runs
+the `ci` and `tags` workflows.
 
 ## Release notes: v27.0.3
 

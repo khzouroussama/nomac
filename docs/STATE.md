@@ -230,6 +230,7 @@ Xcode's outputs are kept as Actions artifacts, never in the repository (CLAUDE.m
 ## Decisions made by the project owner
 
 - 2026-11-03: Apple's SDK runs only on Apple hardware. The `reference` workflow's Linux verification and its encrypted SDK cache are removed (ADR 0008 withdrawn); Linux builds that use the SDK run in Docker on a Mac; Linux CI jobs use no Apple software.
+- 2026-11-04: the public repository is the only origin; development happens there, and nomac-dev is the private archive of the earlier history (docs/state/release.md).
 - 2026-11-03: nomac goes public as khzouroussama/nomac, a snapshot of this repository's tree (now khzouroussama/nomac-dev, which keeps the full history), after the release polish; publish when the React Native/Expo demo works end to end on Linux, with Linux CI green; GitHub's Linux runners may run CI, macOS jobs stay manual; CLAUDE.md ships; the snapshot commit keeps the Co-Authored-By trailer.
 - 2026-11-02: ADR 0012's version scheme `27.0.N` is confirmed; the ADR is accepted.
 - 2026-10-30: B-182 needs no patched clang: `-fclang-abi-compat=4.0` gives Xcode's C++ ABI (ADR 0170). A patched clang is still planned for Xcode clang's Objective-C code (B-170); no binary is published without the owner.

@@ -1,7 +1,7 @@
 # Release preparation: state
 
-Workstream: nomac's first public release, an early preview. Nothing is published, pushed to a
-new repository, tagged or announced until the owner says go. Branch `release/prep`; BACKLOG
+Workstream: nomac's public releases, starting with an early preview. Announcing is the owner's.
+Branch `release/prep`; BACKLOG
 B-070, B-074, B-079 (the numbers of B-070–B-079 never used in the history), ADRs 0070–0079.
 
 ## Current step
@@ -46,33 +46,18 @@ v27.0.3 is built by `release-tools` on the public repository for both architectu
    under emulation on an arm64 Mac). Each of the first three of these runs on 2026-11-04 found a
    bug no earlier test had shown.
 
-## Continuous publishing
+## Where development happens
 
-The public repository is khzouroussama/nomac (published on 2026-11-03 from nomac-dev e39a9bd5 as
-public 18dfabb). nomac-dev keeps the full history and stays the development repository for now.
-
-Phase 1 (running): every commit that lands on nomac-dev main goes to public main as its own
-commit. `~/nomac-out/scripts/public_sync.sh`, run after each merge, keeps a map of nomac-dev
-commits to public commits, gives each new nomac-dev commit's tree to `public_snapshot.py
---follow` (the snapshot's transforms: NOTICE written again, `.github/tags` without tag lines;
-its checks; the commit's own message, author, committer and dates; nothing when the public
-tree would not change), runs the leak scan over the result and pushes main as a fast-forward.
-It never forces: when public main is not the last commit it published, it stops. A rerun
-drops only unpushed local commits.
-
-Phase 2 (planned): the public repository becomes the only origin.
-1. Freeze merges for one round; run public_sync.sh so public main matches nomac-dev main.
-2. Each agent rebases its branch once, from nomac-dev main onto public main: the trees are
-   the same, so `git rebase --onto public/main <nomac-dev main> <branch>` replays only its own
-   commits; history is never rewritten on public main.
-3. The merge gate pushes to public main directly (fast-forward), with the leak scan of each
-   push before it; public_sync.sh is retired.
-4. nomac-dev stays read-only as the archive of the history before 2026-11-03.
+Since 2026-11-04 the public repository, khzouroussama/nomac, is the only origin, as the owner asked
+when it was published. Merges pass the gate and push its main as a fast-forward (docs/RELEASES.md).
+nomac-dev is the private archive of the history before: public 18dfabb is nomac-dev e39a9bd5, and
+public fdf254d0 is nomac-dev b406fe78, the last commit copied across. A branch still on that
+history moves over by replaying its own commits (`git rebase --onto main <its base on nomac-dev>`).
 
 ## Reproduce
 
 ```sh
 python3 .github/scripts/third_party_notices.py --check
-NOMAC_LEAK_SCAN=<leak_scan.py> .github/scripts/public_snapshot.py /tmp/snapshot --ref main
+NOMAC_LEAK_SCAN=<leak_scan.py> python3 .github/scripts/public_snapshot.py /tmp/snapshot --ref main
 .github/scripts/package-toolchain.sh /ref/llvm-tools <llvm-project source> <swift source> /tmp/dist
 ```

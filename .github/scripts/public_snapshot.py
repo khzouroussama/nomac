@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
-"""Makes a commit of the public repository: the tree of a ref of this repository (the development
-repository, which keeps the history), with NOTICE written again, checked for anything that must
-not be published, and stops before any push (the owner decided on 2026-11-02 that the public
-repository starts from a one-commit snapshot of the tree, without this repository's history).
-The first snapshot is a repository of one commit; with --onto, a later one is a new commit on
-top of the public repository's main, so it is pushed as a fast-forward.
+"""The merge gate's check of what reaches the public main: the tree of a ref, with NOTICE written
+again, checked for anything that must not be published, as a one-commit repository that is never
+pushed (the public repository began as such a snapshot, on 2026-11-03).
 
-Usage: public_snapshot.py <output-dir> [--ref main] [--onto <public repository>] [--leak-scan <leak_scan.py>]
+Usage: public_snapshot.py <output-dir> [--ref main] [--leak-scan <leak_scan.py>]
                           [--message <title>] [--co-author <name and address>]
   <output-dir>  a new or empty directory; the snapshot repository is made there
   --ref         the commit whose tree is published (default main)
-  --onto        the public repository's URL or path, whose main the snapshot commit goes on top of
   --message     the commit's title (default "nomac early preview"); the body names the commit of
                 this repository the tree comes from
   --co-author   the Co-Authored-By trailer (default Claude Opus 5.5 <noreply@anthropic.com>)
-  --repo        the development repository to read (default: the one holding this script)
-  --follow      <output-dir> is an existing clone of the public repository: the tree of --ref
-                becomes its next commit, with --ref's message, author, committer and dates, or
-                nothing happens when the public tree would not change (continuous publishing,
-                docs/state/release.md); no leak scan runs, the caller runs it before pushing
   --leak-scan   the owner's scan for signing identifiers (default $NOMAC_LEAK_SCAN), which reads
                 identifiers kept outside the repository and prints where they occur, never them;
                 the snapshot is refused without it
@@ -96,39 +87,17 @@ def stage(repo, commit, out):
         sys.exit(f"error: {len(problems)} findings in the tree of {commit[:12]}; nothing was committed")
 
 
-def follow(repo, commit, out):
-    """The tree of `commit` as the next commit of the public clone `out`, with its metadata."""
-    if git(out, "status", "--porcelain", text=True).strip():
-        sys.exit(f"error: {out} has uncommitted changes")
-    stage(repo, commit, out)
-    git(out, "add", "-A")
-    if not git(out, "status", "--porcelain", text=True).strip():
-        print(f"{commit[:12]}: no change to the public tree")
-        return
-    fields = git(repo, "show", "-s", "--format=%an%x00%ae%x00%aI%x00%cn%x00%ce%x00%cI%x00%B", commit, text=True).split("\0", 6)
-    names = ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE"]
-    environment = {**os.environ, **dict(zip(names, fields[:6]))}
-    subprocess.run(["git", "-C", str(out), "commit", "-q", "--cleanup=verbatim", "-F", "-"], input=fields[6].encode(), check=True, env=environment)
-    print(f"{commit[:12]} -> {git(out, 'rev-parse', '--short=12', 'HEAD', text=True).strip()}")
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("output")
     parser.add_argument("--ref", default="main")
     parser.add_argument("--leak-scan", default=os.environ.get("NOMAC_LEAK_SCAN"))
-    parser.add_argument("--onto")
     parser.add_argument("--message", default="nomac early preview")
     parser.add_argument("--co-author", default="Claude Opus 5.5 <noreply@anthropic.com>")
-    parser.add_argument("--follow", action="store_true")
-    parser.add_argument("--repo", help="the development repository (default: the one holding this script)")
     args = parser.parse_args()
-    repo = pathlib.Path(args.repo).resolve() if args.repo else pathlib.Path(__file__).resolve().parents[2]
+    repo = pathlib.Path(__file__).resolve().parents[2]
     out = pathlib.Path(args.output).resolve()
     commit = git(repo, "rev-parse", "--verify", f"{args.ref}^{{commit}}", text=True).strip()
-    if args.follow:
-        follow(repo, commit, out)
-        return
     if not args.leak_scan or not pathlib.Path(args.leak_scan).is_file():
         sys.exit("error: no leak scan (--leak-scan or NOMAC_LEAK_SCAN); the snapshot is not made without it")
     if out.exists() and any(out.iterdir()):
@@ -137,14 +106,11 @@ def main():
     email = git(repo, "config", "user.email", text=True).strip()
 
     out.mkdir(parents=True, exist_ok=True)
-    if args.onto:
-        subprocess.run(["git", "clone", "-q", "--branch", "main", args.onto, str(out)], check=True)
     stage(repo, commit, out)
 
     environment = {**os.environ, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
                    "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
-    if not args.onto:
-        subprocess.run(["git", "init", "-q", "-b", "main", str(out)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(out)], check=True)
     git(out, "add", "-A")
     message = f"{args.message}\n\nThe tree of the development repository at {commit[:12]}.\n\nCo-Authored-By: {args.co_author}\n"
     subprocess.run(["git", "-C", str(out), "commit", "-q", "-m", message], check=True, env=environment)
@@ -155,7 +121,7 @@ def main():
     files = len(git(out, "ls-files", text=True).splitlines())
     commits = git(out, "rev-list", "--count", "HEAD", text=True).strip()
     print(f"snapshot of {commit[:12]} ({args.ref}): {files} files, commit {git(out, 'rev-parse', '--short=12', 'HEAD', text=True).strip()} ({commits} in main), in {out}")
-    print("Not pushed: push main from that directory (a fast-forward; never force). A push runs the ci and tags workflows.")
+    print("Not pushed.")
 
 
 main()
