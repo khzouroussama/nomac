@@ -331,6 +331,9 @@ struct LogPrinter {
         default:
             break
         }
+        // A diagnostic's notes follow it, indented (xcodebuild's words for a signature it refuses,
+        // `signature_record_experiments.py` `build-corrupt`, `build-expected-other`).
         return prefix + "\(info.kind.rawValue): \(info.message)" + suffix
+            + info.childDiagnostics.map { "\n    " + render($0, target: target) }.joined()
     }
 }

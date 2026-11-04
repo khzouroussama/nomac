@@ -57,6 +57,27 @@ import NomacTestSupport
                 + "/dd/Kit.framework: replacing existing signature\n\n")
     }
 
+    /// A diagnostic's notes follow it, indented, as in xcodebuild's log of an xcframework whose
+    /// signature it refuses (`signature_record_experiments.py` `build-corrupt`).
+    @Test func writesADiagnosticsNotesUnderIt() {
+        let collected = Collected()
+        var printer = LogPrinter { collected.text += $0 }
+        func note(_ message: String) -> SwiftBuildMessage.DiagnosticInfo {
+            .init(kind: .note, location: .unknown, locationContext: .global, locationContext2: .init(), component: .default, message: message,
+                  appendToOutputStream: false)
+        }
+        printer.handle(.diagnostic(.init(kind: .error, location: .path("/src/Vendor.xcframework", fileLocation: nil), locationContext: .global,
+                                         locationContext2: .init(), component: .default, message: "The signature of “Vendor.xcframework” cannot be verified.",
+                                         appendToOutputStream: false,
+                                         childDiagnostics: [note("Codesign verification failed"), note("/src/Vendor.xcframework: unsupported type or version of signature")])))
+        #expect(collected.text == """
+            /src/Vendor.xcframework: error: The signature of “Vendor.xcframework” cannot be verified.
+                note: Codesign verification failed
+                note: /src/Vendor.xcframework: unsupported type or version of signature
+
+            """)
+    }
+
     /// A task that completes under another signature than it started with (rn-bare's SDK
     /// explicit-module tasks on Linux) is the same task: its failure is not lost.
     @Test func matchesTasksByIdentifier() {
