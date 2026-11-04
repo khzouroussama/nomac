@@ -65,6 +65,28 @@ dSYMs: `Release-iphoneos`, `Release-watchos` for a watch app) and `BuildProducts
     (`archive-names`: `Shop.app` archived by the scheme `App`) and whatever the archive's file
     name.
 
+## Signatures
+
+`Signatures` holds the signature records of the xcframeworks the build used
+(docs/formats/code-signature.md "Signature records"), and exists only when there is one: an archive
+without an xcframework has no such folder. xcodebuild fills it from the whole of
+`BuildProductsPath`, whatever wrote there (`signature_record_experiments.py`, `collect`):
+
+- it starts as a copy of `BuildProductsPath/Signatures` if the build made that folder, other files
+  included (`collect-root`);
+- then every entry named `*.signature` at any depth, `SwiftSupport` included, goes into the one flat
+  folder: a file with its mode and time, a folder whole and searched too, a link as a link. Links
+  are not followed;
+- the entries stay in `BuildProductsPath`;
+- a name already taken stops the archive with exit status 70, leaving no `Info.plist`: `xcodebuild:
+  error: “same.signature” couldn’t be copied to “Signatures” because an item with the same name
+  already exists.: The operation couldn’t be completed. File exists` (`collect-same`, and
+  `collect-root` for a record in the build's own `Signatures`).
+
+No record reaches a `debugging` export: neither the IPA nor the export folder has one. An
+`app-store-connect` export is not observed, as it can call Apple's services once an account is in
+Xcode.
+
 ## Not covered yet
 
 Apps signed with certificates other than Apple Development ones: BACKLOG B-302.

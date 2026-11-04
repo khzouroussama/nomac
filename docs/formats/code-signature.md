@@ -312,6 +312,80 @@ critical extensions ignored) accept it; one second later, with the same RSA valu
 it. The RSA value nomac computes itself is only checked that way, by verification, and byte for
 byte with self-made keys.
 
+## Signature records
+
+An archive build (`ENABLE_SIGNATURE_AGGREGATION=YES`, which `xcodebuild archive` sets and `build`
+does not) runs Swift Build's `builtin-collectSignature` on each xcframework a target uses, directly
+or as a package's `binaryTarget`, and writes
+`<name>.xcframework-<platform>[-<environment>].signature` beside the target's products
+(`BuildProductsPath/Release-iphoneos/Vendor.xcframework-ios.signature`, the platform being the
+slice's `SupportedPlatform`). The archive takes them (docs/formats/xcarchive.md "Signatures"). A
+record is an XML property list from Foundation's `PropertyListEncoder`, its fields those of
+`CodeSignatureInfo`. Observed with Xcode 27.0 (`signature_record_experiments.py`), on self-written
+xcframeworks and SentryObjC-Static 9.32.0, signed by Apple Distribution: GetSentry LLC with a secure
+timestamp:
+
+| Key | Unsigned | `codesign -s -` | Self-signed certificate | Apple Distribution |
+|---|---|---|---|---|
+| `signed` | false | true | true | true |
+| `bundleIndentifier` (so spelled) | absent | code directory's identifier | the same | the same |
+| `source` | absent | `embedded` | `embedded` | `embedded` |
+| `cdhashes` | absent | one per code directory | the same | the same |
+| `certificates` | absent | absent | the certificate's DER | signer, intermediate, root |
+| `signatureType` | absent | absent | `SelfSigned` | `AppleDeveloperProgram` |
+| `signatureIdentifier` | absent | absent | SHA-256 of the certificate, uppercase hex | code directory's team |
+| `isSecureTimestamp` | false | false | false | false |
+| `metadata` | `library`, `platform` | the same | the same | the same |
+
+`timestamp`, `mainExecutable` and `runtimeVersion` are never written, the secure timestamp of the
+Apple Distribution signature included: Swift Build reads them as strings where
+`SecCodeCopySigningInformation` gives a date, a URL and a number.
+
+A bundle signature is read from `_CodeSignature` (Swift Build patch 11 off macOS, from these bytes;
+every record compared is byte for byte Xcode's):
+
+- Without `CodeDirectory` the bundle is unsigned, whatever else the folder holds (`direct-partial`).
+- An xcframework has neither `CFBundleIdentifier` nor `CFBundleName`, so its identifier is
+  `<name>-<SHA-1>` ad hoc, as above, and just `<name>` under a certificate (`direct-identity`,
+  `direct-vendor`), which is what B-303 had not observed.
+- `CodeDirectory` is a code directory blob as above, without a super blob. With
+  `--digest-algorithm=sha1,sha256` (in either order; codesign refuses SHA-1 alone), `CodeDirectory` is
+  the SHA-1 one and `CodeRequirements-1` the SHA-256 one; `cdhashes` lists them in that order
+  (`direct-digests`). Each entry is the first 20 bytes of the blob's digest by its `hashType`. Other
+  hash types are not observed and are refused off macOS.
+- `CodeSignature` is a bare CMS `ContentInfo`, not a `0xfade0b01` blob, in the form of
+  "Signing with a certificate" above; empty or absent, no certificates (`direct-nosignature`). The record
+  orders the certificates from the signer, by the first `SignerInfo`'s issuer and serial number, to
+  the self-signed root; the signature holds them sorted by size. On macOS that is `SecCode`'s chain, so
+  off macOS a signature whose certificates do not reach a self-signed root is refused rather than
+  given a chain that may be wrong.
+
+What Xcode refuses, with `The signature of “<name>” cannot be verified.` and codesign's words as a
+note, which fails `build` and `archive` alike:
+
+| Case | Note | Off macOS |
+|---|---|---|
+| A file added, changed or removed after signing (`direct-tampered`, `-modified`, `-removed`) | `a sealed resource is missing or invalid` | accepted, with a warning (B-198) |
+| `CodeRequirements` removed (`direct-norequirements`) | `invalid signature (code or signature have been modified)` | accepted, with a warning (B-198) |
+| `CodeDirectory` cut short (`direct-corrupt`) | `unsupported type or version of signature` | refused |
+| `CodeSignature` cut short (`direct-badcms`) | `Unknown format in import.` | refused |
+
+A signed xcframework whose identity the project does not record gets the note `The identity of
+“<name>” is not recorded in your project.`, unless it is ad hoc, which has no identity. With an
+`expectedSignature` in the file reference, `<signature type>:<identifier>:<name>` with the name ignored
+(`AppleDeveloperProgram:97JCY7859U:GetSentry LLC`), one that differs, or an unsigned xcframework, stops
+`build` and `archive` with `“<name>” is not signed with the expected identity and may have been
+compromised.` and the note `Expected team identifier: <team>` (`expected-*`, `build-expected-*`). Off
+macOS the comparison is the same, against what the signature says of itself.
+
+Off macOS `codesign -vvvv` does not run and nothing checks a signature's seals, its CMS signature or
+its certificates, so a signature that is forged or no longer matches its files gets the record Xcode
+would have refused to write, and an `expectedSignature` is compared against an unverified claim.
+ProcessXCFramework says so in a warning for each signed xcframework: `The signature of “<name>” was
+read but not verified: without `codesign`, its sealed resources and certificates are not checked.`
+This warning is not Xcode's. A certificate that was revoked (`CSSMERR_TP_CERT_REVOKED`), or a chain
+that `SecCode` would complete differently from the one in the signature, is not observed.
+
 ## Not covered yet
 
 Provisioning profiles and Apple chains other than iOS ones (B-302), macOS style bundles and file names outside ASCII:
