@@ -36,20 +36,15 @@ as tested on a clean Ubuntu 24.04 container.
 
 ## Next actions
 
-v27.0.2 is the release with the arm64 download (v27.0.1-preview stays, an older build);
-`install.sh` on x86_64 says its download comes later and points to the source build.
+v27.0.3 is built by `release-tools` on the public repository for both architectures, reusing run
+41841448959's tools (`tools_run_id`), and its release jobs attach the archives to the draft release
+(`release_tag`). v27.0.2 has the arm64 download only; v27.0.1-preview stays, an older build.
 
-1. The x86_64 download (B-070). `release-tools` run 41694202819 (nomac-dev, release/prep-4, reusing
-   run 41661442245's LLVM and cctools) did not make it: its x86_64 `swift-frontend` job reached the
-   workflow's 355-minute limit and was cancelled, with no build error, so the `release` jobs were
-   skipped. Setup took until 19:00 UTC, the LLVM tree until 23:56 UTC (3,915 steps, about 5 hours),
-   and the Swift compile was at step 286 of 1,173 at 00:24 UTC. arm64's job finished in 4.5 hours.
-   `build-swift-frontend.sh` now builds only the LLVM targets Swift's two targets take. The next
-   run goes on the public repository, whose hosted runners have 4 vCPUs where nomac-dev's have 2;
-   it cannot reuse nomac-dev's artifacts, so it builds LLVM and cctools too.
-2. When the bundle exists: check its `release` job's install test, verify the `.sha256`, then
-   `gh release upload v27.0.2` both files to the public repository. `install.sh` needs no
-   change: it looks for the architecture's archive in the release.
+1. Before publishing a release: install it with `curl | bash` on a fresh ubuntu:24.04 as a user
+   with sudo, `nomac sdk install` a real Xcode_27.xip, `nomac toolchain install`, then archive and
+   export a sample app and one with a Swift package from GitHub, on both architectures (x86_64
+   under emulation on an arm64 Mac). Each of the first three of these runs on 2026-11-04 found a
+   bug no earlier test had shown.
 
 ## Continuous publishing
 

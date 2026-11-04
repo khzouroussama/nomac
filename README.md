@@ -11,8 +11,7 @@ Early preview. Supports Xcode 27.0 (27A266a), iOS devices only.
 
 ## Installation
 
-On Ubuntu 24.04 arm64, with your own Xcode 27.0 download (x86_64's download comes later;
-[build from source](docs/INSTALL.md#building-from-source) there):
+On Ubuntu 24.04, arm64 or x86_64, with your own Xcode 27.0 download:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/khzouroussama/nomac/main/install.sh | bash

@@ -13,8 +13,7 @@ nomac toolchain install
 nomac doctor
 ```
 
-The release has an arm64 download. The x86_64 one comes later; until then `install.sh` on x86_64
-says so and points to the source build below.
+The release has a download for arm64 and one for x86_64.
 
 `install.sh` does four things, and can be read before it runs:
 
@@ -82,7 +81,7 @@ export PATH=~/swift-6.4.1/usr/bin:$PATH
 git clone https://github.com/khzouroussama/nomac && cd nomac
 swift build -c release
 export PATH=$PWD/.build/release:$PATH
-nomac --version                       # nomac 27.0.2 (Xcode 27.0, 27A266a)
+nomac --version                       # nomac 27.0.3 (Xcode 27.0, 27A266a)
 ```
 
 Keep the resource bundles (`*.bundle`) SwiftPM writes beside the executable when you copy it elsewhere.

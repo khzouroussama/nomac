@@ -75,8 +75,8 @@ patched llvm-project the LLVM job hands over, then the package, a workflow artif
 
 | Architecture | Built | Packaged |
 |---|---|---|
-| linux-aarch64 | the clang workstream's builds in Docker on the owner's Mac (`/ref/llvm-tools`), at main's stamps | `nomac-27.0.2-linux-aarch64.tar.xz` on the release |
-| linux-x86_64 | not yet: `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (B-070) | – |
+| linux-aarch64 | `release-tools` on the public repository's runners (27.0.2: the clang workstream's builds in Docker on the owner's Mac) | `nomac-27.0.3-linux-aarch64.tar.xz` on the release |
+| linux-x86_64 | `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (run 41841448959, 3 h 14 min for the frontend) | `nomac-27.0.3-linux-x86_64.tar.xz` on the release |
 
 
 ## Publishing the source
@@ -93,17 +93,29 @@ gets the new tree as one more commit, whose body names the development commit it
 pushing it is a fast-forward and nothing is ever force-pushed. A push
 to a repository whose Actions are on runs the `ci` and `tags` workflows.
 
-## Release notes: v27.0.2
+## Release notes: v27.0.3
 
-The release's title is "nomac 27.0.2 (Xcode 27.0, 27A266a)". Each release's version follows ADR
+The release's title is "nomac 27.0.3 (Xcode 27.0, 27A266a)". Each release's version follows ADR
 0012: `<Xcode major>.<Xcode minor>.<N>`. The text below is its notes, with each download's
 SHA-256 from its `.sha256`.
 
 > Early preview. nomac builds iOS apps from `.xcodeproj` and `.xcworkspace` on Linux with your own
 > Xcode 27.0 download, then signs, installs and launches them on an iPhone.
 >
-> Install on Ubuntu 24.04 arm64: see the [README](https://github.com/khzouroussama/nomac#installation).
-> The x86_64 download is being built and will be added to this release; until then, [build from source](https://github.com/khzouroussama/nomac/blob/main/docs/INSTALL.md#building-from-source).
+> Install on Ubuntu 24.04, arm64 or x86_64: see the [README](https://github.com/khzouroussama/nomac#installation).
+>
+> Since 27.0.2:
+> - An x86_64 download.
+> - `nomac archive` works for apps that link an xcframework directly or through a Swift package's
+>   binary target; the archive's signature records are Xcode's byte for byte. On Linux nomac reads
+>   an xcframework's signature but does not verify it: a framework changed after signing gets a
+>   warning where Xcode refuses it.
+> - Apps with Swift packages build from the release download, which 27.0.2 could not: it looked
+>   for `swiftc` on `PATH`.
+> - `install.sh` builds unxip, so `nomac sdk install Xcode_27.xip` works on a fresh machine, and
+>   its downloads resume after a dropped connection.
+> - `nomac archive` warns when an app built with the iOS 27 SDK has no scene manifest, which stops
+>   it at launch (TN3187).
 >
 > Measured on real open-source apps against Xcode 27's output ([docs/PROGRESS.md](https://github.com/khzouroussama/nomac/blob/main/docs/PROGRESS.md)):
 > - A fresh React Native 0.88 app and a fresh Expo SDK 58 app (with one line changed in Expo's

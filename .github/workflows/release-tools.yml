@@ -3,8 +3,8 @@
 # patched llvm-project, packaged as the tools' archive; nomac with the Swift standard library linked
 # in; then the release archive (nomac, its resources, the tools, install.sh), which a fresh
 # ubuntu:24.04 installs with install.sh. Each build step runs in swift:6.4.1-noble
-# (release-tools.sh). Started by hand; the archives are workflow artifacts, attached to a release by
-# hand.
+# (release-tools.sh). Started by hand; the archives are workflow artifacts, and with release_tag the
+# release jobs attach them to that release.
 name: release-tools
 
 on:
@@ -12,12 +12,15 @@ on:
     inputs:
       version:
         description: "Release version in the archive's name"
-        default: "27.0.2"
+        default: "27.0.3"
       tools_run_id:
         description: "A previous run whose nomac-tools-linux-* artifacts to reuse instead of building the tools (empty: build them)"
         default: ""
       prebuilt_run_id:
         description: "A previous run whose cctools, llvm and llvm-project artifacts to reuse, building only the swift-frontend (empty: build them)"
+        default: ""
+      release_tag:
+        description: "An existing release (a draft) to attach each architecture's archive and .sha256 to (empty: none)"
         default: ""
 
 permissions:
@@ -144,6 +147,9 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -175,3 +181,9 @@ jobs:
           path: ${{ runner.temp }}/r/release
           compression-level: 0
           retention-days: 30
+      - name: Attach to the release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: gh release upload "$RELEASE_TAG" "$RUNNER_TEMP"/r/release/nomac-*.tar.xz "$RUNNER_TEMP"/r/release/nomac-*.tar.xz.sha256 --clobber -R "$GITHUB_REPOSITORY"
