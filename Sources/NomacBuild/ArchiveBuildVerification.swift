@@ -7,8 +7,9 @@ import NomacVerify
 /// capture's xcodebuild did (`archive/archive.log.cmd`, at the same derived-data path, with nomac's
 /// codesign for the capture's recording wrapper), exports that archive with `nomac export` and
 /// the capture's export options, and compares both with Xcode's (docs/VERIFICATION.md "Archives
-/// that nomac built"): the `.xcarchive`'s `Info.plist` but its `CreationDate`, its products and
-/// dSYMs by ``BuildProducts``' rules, and the export's files, an IPA by its entries.
+/// that nomac built"): the `.xcarchive`'s `Info.plist` but its `CreationDate`, its products,
+/// dSYMs and signature records by ``BuildProducts``' rules, and the export's files, an IPA by its
+/// entries.
 public struct ArchiveBuildVerification {
     public typealias Check = VerificationReport.Check
 
@@ -53,7 +54,7 @@ public struct ArchiveBuildVerification {
                                 + BuildVerification.failureSummary(result.outputString))]
         guard FileSystem.isDirectory(ours) else { return checks }
         checks.append(infoCheck(capture + "/" + xcodeArchive + "/Info.plist", ours + "/Info.plist"))
-        for folder in ["Products", "dSYMs"] where FileSystem.isDirectory(capture + "/" + xcodeArchive + "/" + folder) || FileSystem.isDirectory(ours + "/" + folder) {
+        for folder in ["Products", "dSYMs", "Signatures"] where FileSystem.isDirectory(capture + "/" + xcodeArchive + "/" + folder) || FileSystem.isDirectory(ours + "/" + folder) {
             let results = try Self.compareSigned(reference: capture + "/" + xcodeArchive + "/" + folder, other: ours + "/" + folder)
             checks += BuildVerification.productChecks(results.map { BuildProducts.FileResult(path: folder + "/" + $0.path, outcome: $0.outcome) },
                                                       kind: "archive", depth: folder == "Products" ? 3 : 2, detailLimit: detailLimit)

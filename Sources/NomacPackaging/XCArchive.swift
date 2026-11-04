@@ -5,7 +5,8 @@ import NomacSigning
 /// The `.xcarchive` `xcodebuild archive` assembles once Swift Build's archive build is done
 /// (docs/formats/xcarchive.md, `signing_experiments.py` `compare-archive`): the installed
 /// products moved to `Products`, a copy of every dSYM the build made in `dSYMs`, the build's
-/// `SwiftSupport`, and `Info.plist`, with `ApplicationProperties` for an app's archive.
+/// `SwiftSupport`, its xcframeworks' signature records in `Signatures`, and `Info.plist`, with
+/// `ApplicationProperties` for an app's archive.
 public enum XCArchive {
     /// Assembles the archive at `archivePath` from `intermediates`, the scheme's folder in
     /// `ArchiveIntermediates` (`InstallationBuildProductsLocation` and `BuildProductsPath`).
@@ -32,6 +33,7 @@ public enum XCArchive {
         if FileSystem.isDirectory(built + "/SwiftSupport") {
             try TreeCopy.copy(from: built + "/SwiftSupport", to: archivePath + "/SwiftSupport")
         }
+        try collectSignatures(built: built, to: archivePath + "/Signatures")
 
         let date = ISO8601DateFormatter()
         date.formatOptions = [.withInternetDateTime]
@@ -68,6 +70,36 @@ public enum XCArchive {
                 try collectDSYMs(in: path, to: destination, names: &names)
             }
         }
+    }
+
+    /// `Signatures`, for the build's `BuildProductsPath`: a copy of its own `Signatures` folder if it
+    /// has one, then every entry named `*.signature` at any depth (`signature_record_experiments.py`
+    /// `collect`): one flat folder, files, folders and links copied as they are, links not followed,
+    /// a collected folder searched too; a name already taken stops the archive (exit status 70,
+    /// `collect-same`, and `collect-root`, for the build's own `Signatures`). No such entry, no folder.
+    static func collectSignatures(built: String, to destination: String) throws {
+        guard FileSystem.isDirectory(built) else { return }
+        if FileSystem.isDirectory(built + "/Signatures") {
+            try TreeCopy.copy(from: built + "/Signatures", to: destination)
+        }
+        func collect(in folder: String) throws {
+            for name in APFSOrder.sorted(try FileSystem.sortedContents(of: folder)) {
+                let path = folder + "/" + name
+                if name.hasSuffix(".signature") {
+                    try FileSystem.createDirectory(destination)
+                    var taken = stat()
+                    guard lstat(destination + "/" + name, &taken) != 0 else {
+                        throw NomacError("“\(name)” couldn’t be copied to “Signatures” because an item with the same name already exists.: The operation couldn’t be completed. File exists", exitStatus: 70)
+                    }
+                    try TreeCopy.copy(from: path, to: destination + "/" + name)
+                }
+                var info = stat()
+                if lstat(path, &info) == 0, UInt32(info.st_mode) & 0o170000 == 0o040000 {
+                    try collect(in: path)
+                }
+            }
+        }
+        try collect(in: built)
     }
 
     /// The app of an archive with `ApplicationProperties`: one app in `Applications`, alone or

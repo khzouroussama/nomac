@@ -28,6 +28,60 @@ import Testing
         return intermediates
     }
 
+    /// Every entry named `*.signature` under `BuildProductsPath`, at any depth, in one flat folder:
+    /// files, folders and links as they are, links not followed (`signature_record_experiments.py` `collect`).
+    @Test func collectsTheSignatureRecords() throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-archive")
+        let intermediates = try Self.intermediates(in: temporary.path)
+        let products = intermediates + "/BuildProductsPath"
+        let record = products + "/Release-iphoneos/Vendor.xcframework-ios.signature"
+        try FileSystem.write(Data("record".utf8), to: record)
+        let time = Date(timeIntervalSince1970: 1_792_654_000)
+        try FileManager.default.setAttributes([.modificationDate: time, .posixPermissions: 0o644], ofItemAtPath: record)
+        try FileSystem.write(Data("watch".utf8), to: products + "/Release-watchos/Vendor.xcframework-watchos.signature")
+        try FileSystem.write(Data("below".utf8), to: products + "/Release-iphoneos/sub/below.signature")
+        try FileSystem.write(Data("inside".utf8), to: products + "/Release-iphoneos/Folder.signature/inside.signature")
+        try FileSystem.write(Data("beside".utf8), to: products + "/beside.signature")
+        try FileSystem.write(Data("support".utf8), to: products + "/SwiftSupport/support.signature")
+        try FileSystem.write(Data("plain".utf8), to: products + "/Release-iphoneos/plain.txt")
+        try FileSystem.write(Data("linked".utf8), to: temporary.path + "/elsewhere/linked.signature")
+        try FileManager.default.createSymbolicLink(atPath: products + "/Release-iphoneos/linked", withDestinationPath: temporary.path + "/elsewhere")
+        try FileManager.default.createSymbolicLink(atPath: products + "/Release-iphoneos/link.signature", withDestinationPath: "below.signature")
+
+        let archive = temporary.path + "/App.xcarchive"
+        try XCArchive.assemble(intermediates: intermediates, archivePath: archive, schemeName: "App", creationDate: Date())
+        #expect(try FileSystem.sortedContents(of: archive) == ["Info.plist", "Products", "Signatures", "SwiftSupport", "dSYMs"])
+        #expect(try FileSystem.sortedContents(of: archive + "/Signatures") == [
+            "Folder.signature", "Vendor.xcframework-ios.signature", "Vendor.xcframework-watchos.signature", "below.signature", "beside.signature",
+            "inside.signature", "link.signature", "support.signature",
+        ])
+        #expect(FileSystem.isFile(archive + "/Signatures/Folder.signature/inside.signature"))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: archive + "/Signatures/link.signature") == "below.signature")
+        let attributes = try FileManager.default.attributesOfItem(atPath: archive + "/Signatures/Vendor.xcframework-ios.signature")
+        #expect(attributes[.modificationDate] as? Date == time)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o644)
+        #expect(FileSystem.isFile(record))
+    }
+
+    /// Two records of one name stop the archive, as a record in the build's own `Signatures` does,
+    /// a folder the archive starts from (`collect-same`, `collect-root`).
+    @Test func refusesTwoSignatureRecordsOfOneName() throws {
+        for second in ["Release-iphoneos/sub/same.signature", "Signatures/same.signature"] {
+            let temporary = try TemporaryDirectory(prefix: "nomac-archive")
+            let intermediates = try Self.intermediates(in: temporary.path)
+            let products = intermediates + "/BuildProductsPath"
+            try FileSystem.write(Data("first".utf8), to: products + "/Release-iphoneos/same.signature")
+            try FileSystem.write(Data("second".utf8), to: products + "/" + second)
+            try FileSystem.write(Data("plain".utf8), to: products + "/Signatures/plain.txt")
+            let archive = temporary.path + "/App.xcarchive"
+            #expect(throws: NomacError("“same.signature” couldn’t be copied to “Signatures” because an item with the same name already exists.: The operation couldn’t be completed. File exists", exitStatus: 70)) {
+                try XCArchive.assemble(intermediates: intermediates, archivePath: archive, schemeName: "App", creationDate: Date())
+            }
+            #expect(FileSystem.isFile(archive + "/Signatures/plain.txt"))
+            #expect(!FileSystem.isFile(archive + "/Info.plist"))
+        }
+    }
+
     @Test func assemblesTheArchive() throws {
         let temporary = try TemporaryDirectory(prefix: "nomac-archive")
         let intermediates = try Self.intermediates(in: temporary.path)
