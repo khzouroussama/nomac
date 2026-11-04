@@ -60,7 +60,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/khzouroussama/swift-build.git",
       "state" : {
-        "revision" : "79a7d991515d3b2cdea37db6a72b4cb9c19d8377"
+        "revision" : "2c105e3a95888becac2ba9f559eea91495c4691c"
       }
     },
     {

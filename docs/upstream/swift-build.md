@@ -2,9 +2,9 @@
 
 nomac runs Swift Build in process, pinned to `2d847030` (the head of `release/6.4.2`, ADR 0005),
 taken from the owner's fork (`khzouroussama/swift-build`, branch `release/6.4.2-linux-fixes`,
-`d1842806`), which carries exactly patches 1 to 9 below, one commit each, until upstream merges
+`2c105e3a`), which carries exactly patches 1 to 11 below, one commit each, until upstream merges
 them.
-Nine behaviors differ between macOS and Linux in ways that make a Linux build's outputs differ
+Eleven behaviors differ between macOS and Linux in ways that make a Linux build's outputs differ
 from a Mac's, or its strings copies, binary reads and entitlements fail; these are the changes the owner
 proposes upstream. Each
 patch is in `.github/upstream/swift-build/` and applies with `git apply` (or `patch -p1`) both to
@@ -311,6 +311,44 @@ in the order of user metadata entries, which Xcode's coremlc changes from run to
   macOS, so planning tasks whose tool version is read this way (Core ML models) fails on other
   hosts. Keep /usr/bin/what on macOS and resolve what through the executable search paths
   elsewhere, so that a toolchain can provide it.*
+
+## 11. Reading signature records on every platform
+
+Patch: `.github/upstream/swift-build/0011-signature-records-off-macos.patch` (the fork's
+`2c105e3a`). It applies on top of patches 1 to 10.
+
+**Problem.** `CodeSignatureInfo.load` throws `notSupported` off macOS, so with
+`ENABLE_SIGNATURE_AGGREGATION` (every `xcodebuild archive`) any target that uses an xcframework
+through ProcessXCFramework, signed or not, fails with `signature-collection failed: The operation
+could not be completed. (SWBUtil.CodeSignatureInfo.Error error 1.)`. Without it, `validateExpectedSignature`
+fails the same way for a project with an `expectedSignature`, however the xcframework is signed. And
+`invokeCodesignVerification` silently does nothing there.
+
+**Change.** Off macOS `load` reads a bundle's signature from `_CodeSignature`: identifier, team and
+digests from the code directories, and the certificates, from the signer to the root, from the CMS
+signature (a small BER reader, and SHA-1, which `SWBUtil` lacks off Darwin). It refuses a signature
+it cannot read, a hash type other than SHA-1 and SHA-256, and certificates that do not reach a
+self-signed root, because the chain `SecCode` builds could then differ. `invokeCodesignVerification` now
+checks that the signature can be read, and ProcessXCFramework warns for each signed xcframework that
+its seals and certificates are not checked, since `codesign` is not there to do it. The macOS paths
+are unchanged.
+
+**Evidence.** nomac's `signature_record_experiments.py` runs Xcode 27.0's `xcodebuild archive` on a
+Mac and `nomac archive` on Linux (Docker, swift 6.4.1) over the same bytes: unsigned, ad hoc and
+vendor-signed (SentryObjC-Static 9.32.0, Apple Distribution) xcframeworks, linked directly and through
+a local package, and self-signed ones (with SHA-256, and with SHA-1 and SHA-256), linked directly. All
+18 records are byte-identical. `SignatureBytesTests` (SWBUtilTests, off macOS) reads hand-made
+signatures, and nomac's `SignatureRecordTests` holds the same values through `SecCode` on macOS and
+through the bytes on Linux.
+
+**Not covered.** A real verification off macOS: nomac B-198.
+
+**Suggested PR.**
+- Title: *Read code signature records on non-Darwin platforms*
+- Description: *CodeSignatureInfo.load throws notSupported off macOS, so archive builds that use an
+  xcframework fail in builtin-collectSignature. Read the record from the bytes of `_CodeSignature`
+  instead, with the fields SecCode gives on macOS, refusing what cannot be determined. Verification
+  still needs codesign, so ProcessXCFramework warns that it was not done.*
 
 ## Not a change: `--strip-disallowed-xattrs` (nomac B-115)
 

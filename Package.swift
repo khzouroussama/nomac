@@ -6,11 +6,11 @@ import PackageDescription
 // branch, so SwiftPM only accepts it as a revision dependency. The revision is the
 // owner's fork's `release/6.4.2-linux-fixes`: the head of swiftlang's `release/6.4.2`
 // (2d847030), the Swift Build behaviour Xcode 27.0 (27A266a) exhibits, with exactly the
-// four upstream patches of docs/upstream/swift-build.md until upstream merges them
+// upstream patches of docs/upstream/swift-build.md until upstream merges them
 // (docs/adr/0005-swift-build-matches-xcode-27.md).
 // See docs/adr/0002-dependencies.md before changing any pin in this file.
 let swiftBuildRepository = "https://github.com/khzouroussama/swift-build.git"
-let swiftBuildRevision = "79a7d991515d3b2cdea37db6a72b4cb9c19d8377"
+let swiftBuildRevision = "2c105e3a95888becac2ba9f559eea91495c4691c"
 // SwiftPM's package graph, at the head of `release/6.4.2` like Swift Build. Its PIF builder
 // is vendored from the `swift-6.4.1-RELEASE` tag, the builder Xcode 27.0 exhibits
 // (docs/adr/0010-swift-packages.md, Sources/VendoredPackagePIFBuilder/UPSTREAM.md).
@@ -273,7 +273,7 @@ let package = Package(
         ),
         .testTarget(
             name: "NomacSigningTests",
-            dependencies: ["NomacSigning", "NomacCore", "NomacTestSupport"]
+            dependencies: ["NomacSigning", "NomacCore", "NomacTestSupport", .product(name: "SWBUtil", package: "swift-build")]
         ),
         .testTarget(
             name: "NomacDistributionTests",

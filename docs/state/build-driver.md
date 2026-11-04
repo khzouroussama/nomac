@@ -6,13 +6,28 @@ Branch `build/driver`. BACKLOG B-100–B-199, ADRs 0100–0199.
 ## Current step
 
 Milestone 3: corpus and Expo apps built fully on Linux. Swift Build comes from the owner's fork
-(`d1842806`, nine upstream patches). lld has seventeen patches, the clang workstream's 0009
+(`2c105e3a`, eleven upstream patches). lld has seventeen patches, the clang workstream's 0009
 among them, and `nomac toolchain install` refuses LLVM tools built with other patches. Next: the
 Linux-corpus reports' build-driver classes (icecubes next); ExpoModulesJSI's Swift
 interface; rn-bare Debug's `__preview.dylib`.
 
 ## Just finished
 
+- Archives of apps that use an xcframework through Swift Build's own handling, directly or as a
+  package's `binaryTarget`: every one failed on Linux (`signature-collection failed: … Error error
+  1`), and `nomac build` too for a project with an `expectedSignature`. Swift Build patch 11 reads
+  the signature records from `_CodeSignature`'s bytes, and the archive now has Xcode's `Signatures`
+  folder (`XCArchive.collectSignatures`). `signature_record_experiments.py`, Xcode 27.0 on the Mac
+  against `nomac archive` and `export` on Linux over the same bytes: all 18 records are byte-identical
+  (unsigned, ad hoc, self-signed, two digests, SentryObjC-Static's Apple Distribution signature), and
+  28 of the 32 cases match in full; the other 4 are the tampered ones below. nomac's log now prints a diagnostic's notes as
+  xcodebuild does (`The signature … cannot be verified` lost codesign's reason). Differs, documented:
+  nothing verifies a signature off macOS, so a tampered xcframework passes with a warning where Xcode
+  refuses (B-198; docs/formats/code-signature.md "Signature records"). Reproduce: `.github/scripts/signature_record_experiments.py`
+  `prepare`, then `run` on each side, then `compare`. Not observed: an `app-store-connect` export of
+  such an archive, as it can call Apple's services. CocoaPods' xcframeworks never reached this:
+  Xcode's own Release archives of rn-bare and expo-default have no `ProcessXCFramework` or
+  `SignatureCollection` task, their xcframeworks being copied by a script phase.
 - Swift runtime calls: icecubes and mastodon on Linux with the patched frontend have no
   stack-check differences left (31 and 33 items before); their top Swift class was Objective-C
   messages through selector stubs (25 and 20 items). `.github/swift` 0002 sends them as Xcode's

@@ -31,13 +31,13 @@ The last one reads `usr/share/swift/SwiftConstantValues/*.json` from the Xcode t
   on 2026-10-05.
 - Since 2026-10-24 (the owner's decision), take that revision from the owner's fork,
   `https://github.com/khzouroussama/swift-build.git`, branch `release/6.4.2-linux-fixes`, at
-  `79a7d991515d3b2cdea37db6a72b4cb9c19d8377`: the pin with exactly the ten upstream patches of
+  `2c105e3a95888becac2ba9f559eea91495c4691c`: the pin with exactly the eleven upstream patches of
   docs/upstream/swift-build.md (deterministic binary property lists, MD5, strings encodings,
-  Mach-O parsing, the `derq` and `what` lookups, directory listings without AppleDouble files, Mach-O
+  Mach-O parsing, the `derq` and `what` lookups, signature records, directory listings without AppleDouble files, Mach-O
   architecture names and static archives off Darwin, and binary targets' build files with
   platform filters), one commit each, until upstream merges them; the first three came at
   `8d0577c4` (2026-10-24), the fourth on 2026-10-30, the fifth and sixth on 2026-11-01, the
-  seventh on 2026-11-02, the eighth and ninth on 2026-11-03, the tenth (`what`) the same day. A further patch goes onto the fork the
+  seventh on 2026-11-02, the eighth and ninth on 2026-11-03, the tenth (`what`) the same day, the eleventh (signature records) on 2026-11-04. A further patch goes onto the fork the
   same way, written first as `.github/upstream/swift-build/<n>-*.patch`. The fork changes nothing
   on Darwin, so this decision's evidence, gathered on macOS, still holds.
 - Keep `Toolchains/*.xctoolchain/usr/share/swift/SwiftConstantValues` in the `nomac sdk`

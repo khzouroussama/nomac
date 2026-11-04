@@ -132,7 +132,7 @@ extension XcodeProfile {
         xcode: Release(version: "27.0", build: "27A266a", versionActual: "2700"),
         pins: Pins(
             swiftBuildRepository: "https://github.com/khzouroussama/swift-build.git",
-            swiftBuildRevision: "79a7d991515d3b2cdea37db6a72b4cb9c19d8377",
+            swiftBuildRevision: "2c105e3a95888becac2ba9f559eea91495c4691c",
             swiftPMRevision: "8054c59f07a9c8cc8e67b3ec57870710c7154854",
             packagePIFBuilderTag: "swift-6.4.1-RELEASE",
             swiftToolchainTag: "swift-6.4.0-RELEASE",

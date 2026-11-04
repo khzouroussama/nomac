@@ -149,6 +149,7 @@ Not supported yet:
 - App Store and TestFlight: distribution signing, and an upload has never run against Apple
 - On a device: UI tests, `.xcresult`, coverage and test plans
 - On-demand resources and other rare asset types
+- Verifying a signed xcframework: its signature is read and recorded as Xcode does, but its files and certificates are not checked; a warning says so
 
 ## How it works
 

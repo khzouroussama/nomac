@@ -1,0 +1,478 @@
+diff --git a/Sources/SWBTaskExecution/TaskActions/ProcessXCFrameworkTaskAction.swift b/Sources/SWBTaskExecution/TaskActions/ProcessXCFrameworkTaskAction.swift
+index f7e560b6..f5ea0b02 100644
+--- a/Sources/SWBTaskExecution/TaskActions/ProcessXCFrameworkTaskAction.swift
++++ b/Sources/SWBTaskExecution/TaskActions/ProcessXCFrameworkTaskAction.swift
+@@ -155,6 +155,12 @@ public final class ProcessXCFrameworkTaskAction: TaskAction {
+             // Codesign verification is always run, regardless of the expected signatures. If this fails, then builds should not be able to continue.
+             try await CodeSignatureInfo.invokeCodesignVerification(for: path.str, treatUnsignedAsError: false)
+ 
++            #if !os(macOS)
++            if let info = try? await CodeSignatureInfo.load(from: path.str, additionalInfo: nil), info.isSigned {
++                outputDelegate.emit(Diagnostic(behavior: .warning, location: location, data: DiagnosticData("The signature of “\(path.basename)” was read but not verified: without `codesign`, its sealed resources and certificates are not checked.")))
++            }
++            #endif
++
+             // No validation is performed if there are no expected signatures.
+             if expectedSignatures.isEmpty {
+                 // If the asset is signed, and there are no expectations in the project, we issue a note, which is used to record the signing identity.
+diff --git a/Sources/SWBUtil/Signatures.swift b/Sources/SWBUtil/Signatures.swift
+index eb3c1e27..8b7a906a 100644
+--- a/Sources/SWBUtil/Signatures.swift
++++ b/Sources/SWBUtil/Signatures.swift
+@@ -136,6 +136,80 @@ public struct CodeSignatureInfo: Codable, Sendable {
+             self.isSecureTimestamp = false
+         }
+     }
++    #else
++    /// The record of a bundle signed in `_CodeSignature`, as an xcframework is, from the signature's own bytes. A bundle without `CodeDirectory` is not signed. The fields `init(_:additionalInfo:)` reads as strings where `SecCodeCopySigningInformation` gives a URL, a number or a date are never recorded: `mainExecutable`, `runtimeVersion` and `timestamp`.
++    init(signedBundle path: String, additionalInfo: [String:String]?) throws {
++        var isDirectory: ObjCBool = false
++        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
++            throw Error.notSupported
++        }
++
++        self.additionalInfo = additionalInfo
++        self.mainExecutable = nil
++        self.runtimeVersion = nil
++        self.timestamp = nil
++        self.isSecureTimestamp = false
++
++        func contents(_ name: String) -> [UInt8]? {
++            FileManager.default.contents(atPath: "\(path)/_CodeSignature/\(name)").map { [UInt8]($0) }
++        }
++
++        guard let primary = contents("CodeDirectory") else {
++            self.isSigned = false
++            self.identifier = nil
++            self.source = nil
++            self.cdHashes = nil
++            self.certificates = nil
++            self.signatureType = nil
++            self.signatureIdentifier = nil
++            return
++        }
++
++        func unreadable(_ reason: String) -> Error {
++            .codesignVerificationFailed(description: "Codesign verification failed", output: "\(path): \(reason)")
++        }
++
++        // A signature with several digests has its other code directories in `CodeRequirements-<n>`, `cdhashes` lists them in that order.
++        let alternates = (1...5).compactMap { contents("CodeRequirements-\($0)") }
++        let directories = ([primary] + alternates).map(CodeDirectoryBlob.init)
++        guard let directory = directories[0] else {
++            throw unreadable("unsupported type or version of signature")
++        }
++        var cdHashes = [Data]()
++        for candidate in directories {
++            guard let cdHash = candidate?.cdHash else {
++                throw unreadable("unsupported type or version of signature")
++            }
++            cdHashes.append(cdHash)
++        }
++
++        self.isSigned = true
++        self.identifier = directory.identifier
++        self.source = "embedded"
++        self.cdHashes = cdHashes
++
++        let chain: [Data]?
++        do {
++            chain = try contents("CodeSignature").map(CMSSignedData.certificateChain).flatMap { $0.isEmpty ? nil : $0 }
++        }
++        catch let failure as CMSSignedData.Failure {
++            throw unreadable(failure.description)
++        }
++        self.certificates = chain
++
++        if let teamIdentifier = directory.teamIdentifier {
++            self.signatureType = SignatureType.appleDeveloperProgram
++            self.signatureIdentifier = teamIdentifier
++        }
++        else if let firstCert = chain?.first {
++            self.signatureType = SignatureType.selfSigned
++            self.signatureIdentifier = firstCert.sha256HexString
++        }
++        else {
++            self.signatureType = nil
++            self.signatureIdentifier = nil
++        }
++    }
+     #endif
+ 
+     static public func invokeCodesignVerification(for path: String, treatUnsignedAsError: Bool) async throws {
+@@ -170,6 +244,11 @@ public struct CodeSignatureInfo: Codable, Sendable {
+         #else
+         // FIXME:When implementing rdar://107627846, we need to think about out to have this codepath use the ClientExecutionDelegates
+         // in order to allow for different platform overrides on execution.
++        // Without `codesign` only that the signature can be read is checked, not its sealed resources or its certificates.
++        let info = try CodeSignatureInfo(signedBundle: path, additionalInfo: nil)
++        if treatUnsignedAsError && !info.isSigned {
++            throw CodeSignatureInfo.Error.codesignVerificationFailed(description: "Code object is not signed", output: "\(path): code object is not signed at all")
++        }
+         #endif
+     }
+ 
+@@ -200,11 +279,183 @@ public struct CodeSignatureInfo: Codable, Sendable {
+ 
+         return CodeSignatureInfo(info as NSDictionary?, additionalInfo: additionalInfo)
+         #else
+-        throw Error.notSupported
++        return try CodeSignatureInfo(signedBundle: path, additionalInfo: additionalInfo)
+         #endif
+     }
+ }
+ 
++#if !os(macOS)
++extension CodeSignatureInfo.Error: LocalizedError {
++    /// The reason, for `signature-collection failed:`, the only message when this stops a build before ProcessXCFramework runs.
++    public var errorDescription: String? {
++        switch self {
++        case .notSupported:
++            return "only the signature of a bundle can be read on this platform"
++        case let .codesignVerificationFailed(description, output):
++            return "\(description): \(output)"
++        }
++    }
++}
++
++/// A code directory blob (`CS_CodeDirectory` in xnu's public `cs_blobs.h`, fields big endian).
++private struct CodeDirectoryBlob {
++    let identifier: String
++    let teamIdentifier: String?
++    /// The first 20 bytes of the digest of the blob, by the digest its `hashType` names.
++    let cdHash: Data
++
++    init?(_ bytes: [UInt8]) {
++        func field(_ offset: Int) -> Int? {
++            guard offset + 4 <= bytes.count else { return nil }
++            return bytes[offset..<(offset + 4)].reduce(0) { $0 << 8 | Int($1) }
++        }
++        func string(at offset: Int, end: Int) -> String? {
++            guard offset < end, let terminator = bytes[offset..<end].firstIndex(of: 0) else { return nil }
++            return String(decoding: bytes[offset..<terminator], as: UTF8.self)
++        }
++        guard field(0) == 0xfade_0c02, let length = field(4), let version = field(8), let identifierOffset = field(20),
++              bytes.count >= 40, length >= 40, length <= bytes.count, let identifier = string(at: identifierOffset, end: length) else {
++            return nil
++        }
++        self.identifier = identifier
++
++        if version >= 0x20200, let teamOffset = field(48), teamOffset != 0 {
++            guard let teamIdentifier = string(at: teamOffset, end: length) else { return nil }
++            self.teamIdentifier = teamIdentifier
++        }
++        else {
++            self.teamIdentifier = nil
++        }
++
++        let blob = Array(bytes[0..<length])
++        switch bytes[37] {
++        case 1:
++            self.cdHash = Data(Self.sha1(blob).prefix(20))
++        case 2:
++            let digest = SHA256Context()
++            digest.add(bytes: blob)
++            let hex = Array(digest.signature.asString)
++            self.cdHash = Data(stride(from: 0, to: 40, by: 2).compactMap { UInt8(String(hex[$0...($0 + 1)]), radix: 16) })
++        default:
++            return nil
++        }
++    }
++
++    private static func sha1(_ message: [UInt8]) -> [UInt8] {
++        var state: [UInt32] = [0x6745_2301, 0xefcd_ab89, 0x98ba_dcfe, 0x1032_5476, 0xc3d2_e1f0]
++        let padding = (55 - message.count % 64 + 64) % 64
++        let bits = UInt64(message.count) * 8
++        let padded = message + [0x80] + [UInt8](repeating: 0, count: padding) + (0..<8).map { UInt8(truncatingIfNeeded: bits >> (56 - 8 * UInt64($0))) }
++        for block in stride(from: 0, to: padded.count, by: 64) {
++            var words = (0..<16).map { word in padded[(block + word * 4)..<(block + word * 4 + 4)].reduce(UInt32(0)) { $0 << 8 | UInt32($1) } }
++            for index in 16..<80 {
++                let mixed = words[index - 3] ^ words[index - 8] ^ words[index - 14] ^ words[index - 16]
++                words.append(mixed << 1 | mixed >> 31)
++            }
++            var (a, b, c, d, e) = (state[0], state[1], state[2], state[3], state[4])
++            for index in 0..<80 {
++                let (mix, constant): (UInt32, UInt32)
++                switch index {
++                case 0..<20: (mix, constant) = ((b & c) | (~b & d), 0x5a82_7999)
++                case 20..<40: (mix, constant) = (b ^ c ^ d, 0x6ed9_eba1)
++                case 40..<60: (mix, constant) = ((b & c) | (b & d) | (c & d), 0x8f1b_bcdc)
++                default: (mix, constant) = (b ^ c ^ d, 0xca62_c1d6)
++                }
++                let next = (a << 5 | a >> 27) &+ mix &+ e &+ constant &+ words[index]
++                (a, b, c, d, e) = (next, a, b << 30 | b >> 2, c, d)
++            }
++            state = [state[0] &+ a, state[1] &+ b, state[2] &+ c, state[3] &+ d, state[4] &+ e]
++        }
++        return state.flatMap { word in (0..<4).map { UInt8(truncatingIfNeeded: word >> (24 - 8 * UInt32($0))) } }
++    }
++}
++
++/// The certificates of a CMS signature (RFC 5652). `codesign` writes the outer elements with indefinite lengths and sorts the certificates by size.
++private enum CMSSignedData {
++    private struct Element {
++        let tag: UInt8
++        let content: Range<Int>
++        let whole: Range<Int>
++    }
++
++    private static func element(_ bytes: [UInt8], at index: Int) -> Element? {
++        guard index + 2 <= bytes.count else { return nil }
++        let first = Int(bytes[index + 1])
++        if first == 0x80 {
++            var next = index + 2
++            while next + 2 <= bytes.count, bytes[next] != 0 || bytes[next + 1] != 0 {
++                guard let child = element(bytes, at: next) else { return nil }
++                next = child.whole.upperBound
++            }
++            guard next + 2 <= bytes.count else { return nil }
++            return Element(tag: bytes[index], content: (index + 2)..<next, whole: index..<(next + 2))
++        }
++        var start = index + 2, length = first
++        if first & 0x80 != 0 {
++            let count = first & 0x7f
++            guard count <= 4, start + count <= bytes.count else { return nil }
++            length = bytes[start..<(start + count)].reduce(0) { $0 << 8 | Int($1) }
++            start += count
++        }
++        guard start + length <= bytes.count else { return nil }
++        return Element(tag: bytes[index], content: start..<(start + length), whole: index..<(start + length))
++    }
++
++    private static func children(_ bytes: [UInt8], _ range: Range<Int>) -> [Element] {
++        var result = [Element]()
++        var next = range.lowerBound
++        while next + 2 <= range.upperBound, bytes[next] != 0 || bytes[next + 1] != 0, let child = element(bytes, at: next) {
++            result.append(child)
++            next = child.whole.upperBound
++        }
++        return result
++    }
++
++    struct Failure: Swift.Error {
++        let description: String
++        static let undecodable = Failure(description: "Unknown format in import.")
++        static let noChain = Failure(description: "the signature's certificates do not chain from its signer to a self-signed root")
++    }
++
++    /// The certificates of the `CodeSignature` file, a bare CMS `ContentInfo`, from the signer's up to its self-signed root, the order `kSecCodeInfoCertificates` has; empty for the empty file of ad hoc code. Without the root the chain `SecCode` builds is not known, so that is refused.
++    static func certificateChain(of bytes: [UInt8]) throws -> [Data] {
++        if bytes.isEmpty { return [] }
++
++        guard let contentInfo = element(bytes, at: 0),
++              let explicit = children(bytes, contentInfo.content).first(where: { $0.tag == 0xa0 }),
++              let signedData = children(bytes, explicit.content).first else { throw Failure.undecodable }
++        let fields = children(bytes, signedData.content)
++        guard let set = fields.first(where: { $0.tag == 0xa0 }), let signerInfos = fields.last(where: { $0.tag == 0x31 }),
++              let signerInfo = children(bytes, signerInfos.content).first,
++              let issuerAndSerial = children(bytes, signerInfo.content).dropFirst().first, issuerAndSerial.tag == 0x30 else { throw Failure.undecodable }
++
++        struct Certificate {
++            let whole: Range<Int>
++            let serial: ArraySlice<UInt8>
++            let issuer: ArraySlice<UInt8>
++            let subject: ArraySlice<UInt8>
++        }
++        let certificates = children(bytes, set.content).compactMap { certificate -> Certificate? in
++            guard let tbs = children(bytes, certificate.content).first else { return nil }
++            let items = children(bytes, tbs.content).drop { $0.tag == 0xa0 }.map { bytes[$0.whole] }
++            guard items.count >= 5 else { return nil }
++            return Certificate(whole: certificate.whole, serial: items[0], issuer: items[2], subject: items[4])
++        }
++
++        let signerName = children(bytes, issuerAndSerial.content).map { bytes[$0.whole] }
++        guard signerName.count == 2,
++              var current = certificates.first(where: { $0.issuer.elementsEqual(signerName[0]) && $0.serial.elementsEqual(signerName[1]) }) else { throw Failure.noChain }
++        var chain = [current.whole]
++        while !current.issuer.elementsEqual(current.subject) {
++            guard let next = certificates.first(where: { $0.subject.elementsEqual(current.issuer) }), !chain.contains(next.whole) else { throw Failure.noChain }
++            chain.append(next.whole)
++            current = next
++        }
++        return chain.map { Data(bytes[$0]) }
++    }
++}
++#endif
++
+ 
+ public extension Data {
+     var sha256HexString: String {
+diff --git a/Tests/SWBUtilTests/SignaturesTests.swift b/Tests/SWBUtilTests/SignaturesTests.swift
+index ca93d8fd..c1ffb251 100644
+--- a/Tests/SWBUtilTests/SignaturesTests.swift
++++ b/Tests/SWBUtilTests/SignaturesTests.swift
+@@ -92,3 +92,174 @@ fileprivate struct SignaturesTests {
+         }
+     }
+ }
++
++#if !os(macOS)
++/// Signatures written by hand with the shapes `codesign` gives them; `signature_record_experiments.py` in nomac has compared what is read from real ones with the records of Xcode 27.0.
++@Suite
++fileprivate struct SignatureBytesTests {
++    let fs = localFS
++
++    func withBundle(_ files: [String: [UInt8]], _ body: (String) async throws -> Void) async throws {
++        try await withTemporaryDirectory { tmpDir in
++            let bundlePath = tmpDir.path.join("Vendor.xcframework")
++            try fs.createDirectory(bundlePath.join("_CodeSignature"), recursive: true)
++            for (name, bytes) in files {
++                try fs.write(bundlePath.join("_CodeSignature").join(name), contents: ByteString(bytes))
++            }
++            try await body(bundlePath.str)
++        }
++    }
++
++    func big32(_ value: Int) -> [UInt8] {
++        (0..<4).map { UInt8(truncatingIfNeeded: value >> (24 - 8 * $0)) }
++    }
++
++    func codeDirectory(hashType: UInt8, team: String? = nil) -> [UInt8] {
++        let identifier = Array("Vendor".utf8) + [0]
++        let headerSize = team == nil ? 48 : 52
++        let length = headerSize + identifier.count + (team.map { $0.utf8.count + 1 } ?? 0)
++        var blob = big32(0xfade_0c02) + big32(length) + big32(team == nil ? 0x20100 : 0x20200) + big32(0x2) + big32(0) + big32(headerSize)
++        blob += big32(0) + big32(0) + big32(0) + [hashType == 1 ? 20 : 32, hashType, 0, 0] + big32(0) + big32(0)
++        if let team {
++            blob += big32(headerSize + identifier.count)
++            return blob + identifier + Array(team.utf8) + [0]
++        }
++        return blob + identifier
++    }
++
++    func der(_ tag: UInt8, _ content: [UInt8]) -> [UInt8] {
++        let length: [UInt8] = content.count < 0x80 ? [UInt8(content.count)] : [0x82, UInt8(content.count >> 8), UInt8(content.count & 0xff)]
++        return [tag] + length + content
++    }
++
++    func name(_ value: String) -> [UInt8] {
++        der(0x30, der(0x0c, Array(value.utf8)))
++    }
++
++    func certificate(serial: UInt8, issuer: String, subject: String) -> [UInt8] {
++        let version = der(0xa0, der(0x02, [2]))
++        let algorithm = der(0x30, [])
++        return der(0x30, der(0x30, version + der(0x02, [serial]) + algorithm + name(issuer) + der(0x30, []) + name(subject)) + algorithm + der(0x03, [0]))
++    }
++
++    /// A CMS `ContentInfo`, its outer elements with indefinite lengths as `codesign` writes them.
++    func signature(certificates: [[UInt8]], signerIssuer: String, signerSerial: UInt8) -> [UInt8] {
++        let signerInfo = der(0x30, der(0x02, [1]) + der(0x30, name(signerIssuer) + der(0x02, [signerSerial])))
++        let signedData = der(0x02, [1]) + der(0x31, []) + [0x30, 0x80, 0x06, 0x01, 0x01, 0, 0] + der(0xa0, certificates.flatMap { $0 }) + der(0x31, signerInfo)
++        return [0x30, 0x80, 0x06, 0x01, 0x01, 0xa0, 0x80, 0x30, 0x80] + signedData + [0, 0, 0, 0, 0, 0]
++    }
++
++    var leaf: [UInt8] { certificate(serial: 3, issuer: "Intermediate", subject: "Signer") }
++    var intermediate: [UInt8] { certificate(serial: 2, issuer: "Root", subject: "Intermediate") }
++    var root: [UInt8] { certificate(serial: 1, issuer: "Root", subject: "Root") }
++
++    @Test
++    func unsigned() async throws {
++        try await withBundle(["CodeResources": []]) { path in
++            let info = try await CodeSignatureInfo.load(from: path, additionalInfo: ["platform": "ios"])
++            #expect(!info.isSigned)
++            #expect(info.identifier == nil)
++            #expect(info.source == nil)
++            #expect(info.cdHashes == nil)
++            #expect(info.certificates == nil)
++            #expect(info.signatureType == nil)
++            #expect(info.additionalInfo == ["platform": "ios"])
++        }
++    }
++
++    @Test
++    func adHoc() async throws {
++        for files in [["CodeDirectory": codeDirectory(hashType: 2), "CodeSignature": []], ["CodeDirectory": codeDirectory(hashType: 2)]] {
++            try await withBundle(files) { path in
++                let info = try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++                #expect(info.isSigned)
++                #expect(info.identifier == "Vendor")
++                #expect(info.source == "embedded")
++                #expect(info.cdHashes?.map { $0.map { String(format: "%02x", $0) }.joined() } == ["f5a4589ff6e5fe6ce2f25dc5d434bfbf606f25b6"])
++                #expect(info.certificates == nil)
++                #expect(info.signatureType == nil)
++                #expect(info.signatureIdentifier == nil)
++                #expect(info.timestamp == nil)
++                #expect(!info.isSecureTimestamp)
++            }
++        }
++    }
++
++    @Test
++    func alternateDigests() async throws {
++        try await withBundle(["CodeDirectory": codeDirectory(hashType: 1), "CodeRequirements-1": codeDirectory(hashType: 2)]) { path in
++            let info = try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++            #expect(info.cdHashes?.map { $0.map { String(format: "%02x", $0) }.joined() } == ["d2484ed7d07b90873351e605a91a5f1f6746185a", "f5a4589ff6e5fe6ce2f25dc5d434bfbf606f25b6"])
++        }
++    }
++
++    @Test
++    func certificatesFromTheSignerToTheRoot() async throws {
++        let bytes = signature(certificates: [root, intermediate, leaf], signerIssuer: "Intermediate", signerSerial: 3)
++        try await withBundle(["CodeDirectory": codeDirectory(hashType: 2), "CodeSignature": bytes]) { path in
++            let info = try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++            #expect(info.certificates == [Data(leaf), Data(intermediate), Data(root)])
++            #expect(info.signatureType == .selfSigned)
++            #expect(info.signatureIdentifier == Data(leaf).sha256HexString)
++        }
++    }
++
++    @Test
++    func teamIdentifier() async throws {
++        let bytes = signature(certificates: [leaf, root, intermediate], signerIssuer: "Intermediate", signerSerial: 3)
++        try await withBundle(["CodeDirectory": codeDirectory(hashType: 2, team: "ABCDE12345"), "CodeSignature": bytes]) { path in
++            let info = try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++            #expect(info.signatureType == .appleDeveloperProgram)
++            #expect(info.signatureIdentifier == "ABCDE12345")
++            #expect(info.certificates?.count == 3)
++        }
++    }
++
++    @Test
++    func refusesWhatItCannotRead() async throws {
++        let withoutRoot = signature(certificates: [leaf, intermediate], signerIssuer: "Intermediate", signerSerial: 3)
++        let otherSigner = signature(certificates: [leaf, intermediate, root], signerIssuer: "Intermediate", signerSerial: 9)
++        let cases: [[String: [UInt8]]] = [
++            ["CodeDirectory": Array(codeDirectory(hashType: 2).prefix(20))],
++            ["CodeDirectory": codeDirectory(hashType: 3)],
++            ["CodeDirectory": codeDirectory(hashType: 4)],
++            ["CodeDirectory": codeDirectory(hashType: 2), "CodeRequirements-1": [0]],
++            ["CodeDirectory": codeDirectory(hashType: 2), "CodeSignature": [1, 2, 3]],
++            ["CodeDirectory": codeDirectory(hashType: 2), "CodeSignature": withoutRoot],
++            ["CodeDirectory": codeDirectory(hashType: 2), "CodeSignature": otherSigner],
++        ]
++        for files in cases {
++            try await withBundle(files) { path in
++                await #expect(throws: CodeSignatureInfo.Error.self) {
++                    try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++                }
++                await #expect(throws: CodeSignatureInfo.Error.self) {
++                    try await CodeSignatureInfo.invokeCodesignVerification(for: path, treatUnsignedAsError: false)
++                }
++            }
++        }
++    }
++
++    @Test
++    func refusalsGiveTheirReason() async throws {
++        try await withBundle(["CodeDirectory": Array(codeDirectory(hashType: 2).prefix(20))]) { path in
++            do {
++                _ = try await CodeSignatureInfo.load(from: path, additionalInfo: nil)
++                Issue.record("Expected an error to be thrown, but it was not.")
++            } catch {
++                #expect(error.localizedDescription == "Codesign verification failed: \(path): unsupported type or version of signature")
++            }
++        }
++    }
++
++    @Test
++    func unsignedAsAnError() async throws {
++        try await withBundle([:]) { path in
++            await #expect(throws: CodeSignatureInfo.Error.self) {
++                try await CodeSignatureInfo.invokeCodesignVerification(for: path, treatUnsignedAsError: true)
++            }
++            try await CodeSignatureInfo.invokeCodesignVerification(for: path, treatUnsignedAsError: false)
++        }
++    }
++}
++#endif
