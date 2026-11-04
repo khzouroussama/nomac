@@ -108,4 +108,4 @@ nomac uninstall <bundle identifier> --device <UDID>
   profile lacks the device or the bundle identifier, an entitlement the profile does not grant,
   an expired profile).
 - The app starts and closes at once: an app built with the iOS 27 SDK needs the scene lifecycle
-  (`UIApplicationSceneManifest`, TN3187); `nomac device check` warns when it is missing.
+  (`UIApplicationSceneManifest`, TN3187); `nomac archive`, `nomac install` and `nomac device check` warn when it is missing.

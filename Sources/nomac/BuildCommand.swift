@@ -3,6 +3,7 @@ import Foundation
 import NomacBuild
 import NomacBuildService
 import NomacCore
+import NomacDevice
 import NomacDeviceTest
 import NomacInspect
 import NomacMacros
@@ -278,6 +279,12 @@ struct BuildOptions: ParsableArguments {
             try XCArchive.assemble(intermediates: BuildOperation.archiveIntermediates(buildIntermediatesPath: intermediates, scheme: scheme),
                                    archivePath: FileSystem.absolute(archivePath), schemeName: scheme, creationDate: Date())
             _ = try actions.runner.run(actions.archivePost, heading: nil, log: log)
+            let applications = FileSystem.absolute(archivePath) + "/Products/Applications"
+            for app in (try? FileManager.default.contentsOfDirectory(atPath: applications)) ?? [] where app.hasSuffix(".app") {
+                for warning in try InstallCheck.warnings(app: applications + "/" + app) {
+                    FileHandle.standardError.write(Data("\(applications)/\(app): warning: \(warning)\n".utf8))
+                }
+            }
         }
         if succeeded, let (description, folder) = testBuild {
             try FileSystem.write(XCTestRunWriter.data(description), to: folder + "/" + XCTestRunWriter.fileName(description))
