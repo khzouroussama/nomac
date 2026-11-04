@@ -76,7 +76,7 @@ patched llvm-project the LLVM job hands over, then the package, a workflow artif
 | Architecture | Built | Packaged |
 |---|---|---|
 | linux-aarch64 | the clang workstream's builds in Docker on the owner's Mac (`/ref/llvm-tools`), at main's stamps | `nomac-27.0.2-linux-aarch64.tar.xz` on the release |
-| linux-x86_64 | not yet: its `swift-frontend` job does not fit a hosted runner's limit (B-070) | – |
+| linux-x86_64 | not yet: `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (B-070) | – |
 
 
 ## Publishing the source
@@ -103,7 +103,7 @@ SHA-256 from its `.sha256`.
 > Xcode 27.0 download, then signs, installs and launches them on an iPhone.
 >
 > Install on Ubuntu 24.04 arm64: see the [README](https://github.com/khzouroussama/nomac#installation).
-> The x86_64 download comes later; until then, [build from source](https://github.com/khzouroussama/nomac/blob/main/docs/INSTALL.md#building-from-source).
+> The x86_64 download is being built and will be added to this release; until then, [build from source](https://github.com/khzouroussama/nomac/blob/main/docs/INSTALL.md#building-from-source).
 >
 > Measured on real open-source apps against Xcode 27's output ([docs/PROGRESS.md](https://github.com/khzouroussama/nomac/blob/main/docs/PROGRESS.md)):
 > - A fresh React Native 0.88 app and a fresh Expo SDK 58 app (with one line changed in Expo's

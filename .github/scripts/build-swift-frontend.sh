@@ -61,7 +61,11 @@ fi
 rsync -rlpgoD --checksum --delete "$llvm/" "$src/llvm-project/"
 # swift.org's frontend names the tag's llvm-project commit in its version strings, and the tag as its
 # compiler tag (`-print-target-info`'s swiftCompilerTag); the tarballs have no git metadata.
-revision=$(git ls-remote https://github.com/swiftlang/llvm-project.git "refs/tags/$tag" | cut -f1)
+revision=
+for attempt in 1 2 3 4 5; do
+  revision=$(git ls-remote https://github.com/swiftlang/llvm-project.git "refs/tags/$tag" | cut -f1) && [ -n "$revision" ] && break
+  sleep 10
+done
 [ -n "$revision" ] || { echo "error: no llvm-project $tag" >&2; exit 1; }
 build=$work/build
 # build-script configures as swift.org does (its standard library too, which the configuration
@@ -74,8 +78,15 @@ PATH=$toolchain/bin:$PATH TOOLCHAIN_VERSION=$tag SWIFT_BUILD_ROOT=$build python3
   --skip-early-swift-driver --swift-include-tests=0 --llvm-include-tests=0 --skip-build-benchmarks \
   --swift-enable-ast-verifier=0
 PATH=$toolchain/bin:$PATH ninja -C "$(ls -d "$build"/nomac/cmark-linux-*)" -j "$jobs"
-PATH=$toolchain/bin:$PATH ninja -C "$(ls -d "$build"/nomac/llvm-linux-*)" -j "$jobs"
 swift=$(ls -d "$build"/nomac/swift-linux-*)
+llvm_build=$(ls -d "$build"/nomac/llvm-linux-*)
+# Of the LLVM tree, only what Swift's two targets take from it: the whole tree (clangd, clang-tidy and
+# every other tool) is more than a hosted runner's six hours. Files the configure wrote have no rule
+# in the LLVM build. The tablegen targets are the generated headers Swift's sources include.
+mapfile -t needed < <(PATH=$toolchain/bin:$PATH ninja -C "$swift" -t inputs swift-frontend libSwiftScan | sed -n "s|^$llvm_build/||p" \
+  | grep -Fxf <(PATH=$toolchain/bin:$PATH ninja -C "$llvm_build" -t targets all | sed 's/: .*//'))
+[ "${#needed[@]}" -gt 0 ] || { echo "error: Swift's targets name nothing in $llvm_build" >&2; exit 1; }
+PATH=$toolchain/bin:$PATH ninja -C "$llvm_build" -j "$jobs" "${needed[@]}" intrinsics_gen clang-tablegen-targets
 PATH=$toolchain/bin:$PATH ninja -C "$swift" -j "$jobs" swift-frontend libSwiftScan
 # The run paths of the toolchain's own files, so that they load the toolchain's libraries, not the
 # build's or the build machine's.
