@@ -189,7 +189,7 @@ public struct SwiftPackages {
             return try UserToolchain(swiftSDK: .hostSwiftSDK(toolchainBinDirectory(), environment: .current), environment: .current, fileSystem: localFileSystem)
         } catch {
             throw NomacError("cannot find a Swift toolchain to evaluate package manifests: \(error)",
-                             notes: ["nomac evaluates Package.swift with the Swift toolchain on PATH, as SwiftPM does"])
+                             notes: ["nomac evaluates Package.swift with the Swift toolchain on PATH, as SwiftPM does, or the one install.sh put beside nomac"])
         }
     }
 
@@ -262,13 +262,19 @@ public struct SwiftPackages {
 
     /// The directory of the first `swiftc` on `PATH` that, once symbolic links are resolved, sits
     /// in a toolchain with `lib/swift/pm/ManifestAPI`, so that a toolchain linked into
-    /// `/usr/local/bin` finds its own manifest API. `nil` when `SWIFT_EXEC` names the compiler or
-    /// no such `swiftc` is on `PATH`, as on a Mac, whose `/usr/bin/swiftc` runs the selected
+    /// `/usr/local/bin` finds its own manifest API, else the toolchain install.sh keeps beside
+    /// nomac. `nil` when `SWIFT_EXEC` names the compiler or there is no such `swiftc`, as on a
+    /// Mac, whose `/usr/bin/swiftc` runs the selected
     /// Xcode's compiler; SwiftPM then searches itself (`xcrun` there, honouring `DEVELOPER_DIR`).
-    static func toolchainBinDirectory(environment: [String: String] = ProcessInfo.processInfo.environment) -> Basics.AbsolutePath? {
+    static func toolchainBinDirectory(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                      executable: String? = Bundle.main.executablePath) -> Basics.AbsolutePath? {
         guard environment["SWIFT_EXEC"] == nil else { return nil }
-        for directory in (environment["PATH"] ?? "").split(separator: ":") where directory.hasPrefix("/") {
-            let candidate = String(directory) + "/swiftc"
+        let installed = executable.map { path in
+            FileSystem.resolvingSymbolicLinks(path).split(separator: "/").dropLast(2).reduce("") { $0 + "/" + $1 } + "/swift/usr/bin"
+        }
+        let directories = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + (installed.map { [$0] } ?? [])
+        for directory in directories where directory.hasPrefix("/") {
+            let candidate = directory + "/swiftc"
             guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             let resolved = (FileSystem.resolvingSymbolicLinks(candidate) as NSString).deletingLastPathComponent
             guard FileSystem.isDirectory(resolved + "/../lib/swift/pm/ManifestAPI") else { continue }

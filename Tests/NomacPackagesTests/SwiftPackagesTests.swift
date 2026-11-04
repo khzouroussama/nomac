@@ -488,6 +488,23 @@ enum PackageFixtures {
         #expect(SwiftPackages.toolchainBinDirectory(environment: ["PATH": directory.path + "/empty"]) == nil)
     }
 
+    /// A release install has no `swiftc` on `PATH`: install.sh keeps swift.org's toolchain in
+    /// `<prefix>/swift`, beside `<prefix>/bin/nomac`, which `~/.local/bin/nomac` links to.
+    @Test func toolchainInstalledBesideNomacIsFound() throws {
+        let directory = try TemporaryDirectory()
+        let toolchain = directory.path + "/prefix/swift/usr/bin"
+        try FileManager.default.createDirectory(atPath: toolchain, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: directory.path + "/prefix/swift/usr/lib/swift/pm/ManifestAPI", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: directory.path + "/prefix/bin", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: directory.path + "/bin", withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: toolchain + "/swiftc", contents: Data(), attributes: [.posixPermissions: 0o755]))
+        #expect(FileManager.default.createFile(atPath: directory.path + "/prefix/bin/nomac", contents: Data(), attributes: [.posixPermissions: 0o755]))
+        try FileManager.default.createSymbolicLink(atPath: directory.path + "/bin/nomac", withDestinationPath: directory.path + "/prefix/bin/nomac")
+        let found = SwiftPackages.toolchainBinDirectory(environment: ["PATH": "/nonexistent"], executable: directory.path + "/bin/nomac")
+        #expect(found?.pathString == FileSystem.resolvingSymbolicLinks(toolchain))
+        #expect(SwiftPackages.toolchainBinDirectory(environment: ["PATH": "/nonexistent"], executable: directory.path + "/elsewhere/nomac") == nil)
+    }
+
     /// Xcode resolves through SwiftPM's shared cache, `~/Library/Caches/org.swift.swiftpm` on the
     /// reference Mac; off macOS SwiftPM's own cache directory, under `$XDG_CACHE_HOME` or `$HOME`,
     /// which GitHub's job containers set apart from the user's home (`/github/home`, not `/root`).
