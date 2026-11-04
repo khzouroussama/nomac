@@ -9,7 +9,11 @@
 #              it against its .sha256
 #   --prefix   where nomac goes (default ~/.local/share/nomac); nomac is linked into ~/.local/bin
 set -euo pipefail
-version=27.0.1-preview
+
+# In a function, so that a download cut short runs nothing, and piped into bash, nothing reads the
+# rest of the script as its input.
+main() {
+version=27.0.2
 swift_version=6.4.0
 swift="swift-$swift_version-RELEASE"
 repository=https://github.com/khzouroussama/nomac
@@ -40,10 +44,10 @@ if [ -z "$archive" ] && ! { [ -x "$here/bin/nomac" ] && [ -d "$here/tools" ]; } 
 fi
 
 echo "==> System packages"
-$sudo apt-get update -q
-DEBIAN_FRONTEND=noninteractive $sudo apt-get install -y -q binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+$sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q < /dev/null
+$sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
   libgcc-13-dev libpython3-dev libstdc++-13-dev libxml2-dev libncurses-dev libz3-dev pkg-config tzdata unzip zlib1g-dev \
-  curl ca-certificates libsqlite3-0 7zip xz-utils libheif-examples libc++abi1
+  curl ca-certificates libsqlite3-0 7zip xz-utils libheif-examples libc++abi1 < /dev/null
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -95,3 +99,6 @@ nomac is installed ($HOME/.local/bin/nomac; add $HOME/.local/bin to PATH if it i
   nomac toolchain install
   nomac doctor
 EOF
+}
+
+main "$@"

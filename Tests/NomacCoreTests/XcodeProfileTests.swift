@@ -43,6 +43,12 @@ import Testing
         #expect(NomacVersion.full == "nomac \(NomacVersion.current) (Xcode \(profile.xcode.version), \(profile.xcode.build))")
     }
 
+    /// The installer and the release workflow name the downloads after nomac's version (ADR 0012).
+    @Test func releaseFilesAreNamedAfterTheVersion() throws {
+        #expect(try Self.read("install.sh").contains("\nversion=\(NomacVersion.current)\n"))
+        #expect(try Self.read(".github/workflows/release-tools.yml").contains("default: \"\(NomacVersion.current)\""))
+    }
+
     @Test func majorMinorOfPatchAndMajorOnlyVersions() {
         var release = profile.xcode
         release.version = "27.0.1"

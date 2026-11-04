@@ -12,7 +12,7 @@ on:
     inputs:
       version:
         description: "Release version in the archive's name"
-        default: "27.0.1-preview"
+        default: "27.0.2"
       tools_run_id:
         description: "A previous run whose nomac-tools-linux-* artifacts to reuse instead of building the tools (empty: build them)"
         default: ""

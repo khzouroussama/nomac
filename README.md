@@ -11,7 +11,8 @@ Early preview. Supports Xcode 27.0 (27A266a), iOS devices only.
 
 ## Installation
 
-On Ubuntu 24.04 (x86_64 or arm64), with your own Xcode 27.0 download:
+On Ubuntu 24.04 arm64, with your own Xcode 27.0 download (x86_64's download comes later;
+[build from source](docs/INSTALL.md#building-from-source) there):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/khzouroussama/nomac/main/install.sh | bash
@@ -138,7 +139,16 @@ The 20 apps nomac was developed against:
 | PDF images | `█████████░` | 1,328 / 1,535 |
 | Strings | `██████████` | 3,022 / 3,022 |
 | Core Data models | `██████████` | 11 / 11 |
-| Signing and export | `██████████` | 12 / 12 |
+| Signing and export (ad hoc and development only) | `██████████` | 12 / 12 |
+
+Not supported yet:
+
+- Metal shaders: no open-source compiler; `nomac check` reports them
+- Core ML pipelines, tree ensembles and neural networks
+- Simulator, macOS, tvOS and visionOS builds; watchOS only as a watch app inside an iOS app
+- App Store and TestFlight: distribution signing, and an upload has never run against Apple
+- On a device: UI tests, `.xcresult`, coverage and test plans
+- On-demand resources and other rare asset types
 
 ## How it works
 
