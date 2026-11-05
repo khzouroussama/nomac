@@ -55,8 +55,8 @@ Observed:
 - **B. nomac maps a Mach-O plugin path to an ELF one it finds** (an npm platform package): a
   guess about where another build lives, which only npm's layout answers.
 - **C. The project names the build machine's plugin** where its files set the flag, as for a
-  script phase's tool (ADR 0182, `HERMES_CLI_PATH`), and `nomac check` says which file and which
-  build. The Expo workstream's draft chose this; the owner asked for A wherever the sources ship.
+  script phase's tool then (ADR 0182, `HERMES_CLI_PATH`; since ADR 0184 nomac does that too), and
+  `nomac check` says which file and which build. The Expo workstream's draft chose this; the owner asked for A wherever the sources ship.
 
 ## Decision
 

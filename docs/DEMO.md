@@ -1,7 +1,11 @@
 # Demo: React Native and Expo apps from Linux to an iPhone
 
-Two apps created fresh, unmodified, taken to exported IPAs by nomac on Linux, then signed, installed
-and launched on an iPhone by nomac on Linux. Run on 2026-11-03.
+Two apps created fresh and taken to exported IPAs by nomac on Linux, with no change to the app: no edit
+to `node_modules`, and no project-specific flag beyond signing. Run on 2026-11-05.
+
+They were also signed, installed and launched on an iPhone by nomac on Linux, on 2026-11-03. That run
+still used two manual changes that nomac now makes itself, and the iPhone part has not been repeated
+without them (section 3).
 
 ## The setup, as it is
 
@@ -19,10 +23,10 @@ and launched on an iPhone by nomac on Linux. Run on 2026-11-03.
 - The container's network reaches npm, CocoaPods' CDN, Maven and rubygems, but GitHub only now
   and then (some clones stall): `pod install` was run again until it completed (below).
 
-Versions: Ubuntu 24.04.5 (aarch64), Node 24.22.2, Ruby 3.2.3, CocoaPods 1.17.0 (1.15.2 through
-the React Native template's Gemfile), React Native 0.88.1 (`@react-native-community/cli` 20.2.0),
-Expo SDK 58 (`expo` ~58.0.22, `expo-router` ~58.0.29), nomac `55e25df0` (main `371a335f` with the two
-fixes below).
+Versions on 2026-11-05: Ubuntu 24.04.5 (aarch64), Node 24.22.2, Ruby 3.2.3, CocoaPods 1.17.0 (1.15.2
+through the React Native template's Gemfile), React Native 0.88.1 (`@react-native-community/cli` 20.2.0),
+Expo SDK 58 (`expo` 58.0.23, `expo-modules-autolinking` 58.0.17), nomac from the branch of ADR 0184.
+The 2026-11-03 run had `expo` ~58.0.22 and nomac `55e25df0`.
 
 ## Prerequisites beyond the README's
 
@@ -35,11 +39,12 @@ curl -fsSLO https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-arm64.tar.xz   
 sudo mkdir -p /opt/node && sudo tar xJf node-v24.22.2-linux-arm64.tar.xz -C /opt/node --strip-components=1
 export PATH=/opt/node/bin:$PATH
 export LANG=C.UTF-8                                          # CocoaPods needs a UTF-8 locale
-# nomac's xcodebuild, xcrun and command, which pod install runs: 'nomac doctor' prints this line.
-export PATH=~/.nomac/xcode/27A266a/Xcode.app/Contents/Developer/usr/bin:$PATH
 ```
 
-As root (a container), CocoaPods also needs `COCOAPODS_ALLOW_ROOT=1`.
+`pod install` runs nomac's `xcodebuild`, `xcrun` and `command`. With nomac linked on `PATH`, as `install.sh`
+links it, `nomac toolchain install` writes them beside the link. A source build has no link: add the line
+`nomac doctor` prints (docs/INSTALL.md), and put Swift on `PATH` as that page says, for the macro plugin
+Expo's pods need. As root (a container), CocoaPods also needs `COCOAPODS_ALLOW_ROOT=1`.
 
 ## 1. A fresh bare React Native app
 
@@ -49,23 +54,22 @@ cd RNDemo/ios
 bundle install
 bundle exec pod install
 nomac check RNDemo.xcworkspace
-HERMES=$(cd .. && pwd)/node_modules/hermes-compiler/hermesc/linux64-bin/hermesc
 nomac build -workspace RNDemo.xcworkspace -scheme RNDemo -configuration Release \
-    -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO HERMES_CLI_PATH=$HERMES
+    -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
 nomac archive -workspace RNDemo.xcworkspace -scheme RNDemo -configuration Release \
     -destination generic/platform=iOS -archivePath RNDemo.xcarchive \
     CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual AD_HOC_CODE_SIGNING_ALLOWED=YES \
-    PROVISIONING_PROFILE_REQUIRED=NO DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= HERMES_CLI_PATH=$HERMES
+    PROVISIONING_PROFILE_REQUIRED=NO DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
 nomac export -archivePath RNDemo.xcarchive -exportPath out -exportOptionsPlist ExportOptions.plist
 ```
 
 `ExportOptions.plist` is the README's (method `debugging`, team `NOMAC00000`).
-`HERMES_CLI_PATH` is the one override the app needs on Linux: React Native's bundle phase runs
-`node_modules/hermes-compiler/hermesc/osx-bin/hermesc`, a macOS executable ("Exec format error"
-on Linux). `nomac check` reports it (`build:setting=mach-o-executable`) and names the override;
-the same package ships `linux64-bin/hermesc`, which writes the same bytecode. That hermesc is an
-x86_64 executable: on arm64 Linux it needs user-mode emulation (Docker Desktop has it; elsewhere
-`qemu-user-static`).
+React Native's bundle phase runs `node_modules/hermes-compiler/hermesc/osx-bin/hermesc`, a macOS
+executable. The same package ships `linux64-bin/hermesc`, which writes the same bytecode, and nomac's
+build uses it: the project fix `mach-o-tool-linux-build` prints a `note:` and appears in the summary at
+the end of the build (docs/PROJECT-COMPATIBILITY.md). That hermesc is an x86_64 executable: on arm64 Linux
+it needs user-mode emulation (Docker Desktop has it; elsewhere `qemu-user-static`, and without it the build
+stops with an error that says so).
 
 ## 2. A fresh Expo app
 
@@ -79,24 +83,28 @@ nomac check expodemo.xcworkspace
 # build, archive and export as above, with -workspace expodemo.xcworkspace -scheme expodemo
 ```
 
-One change outside nomac: Expo SDK 58's autolinking skips its `@ExpoModule` scan when Node's
-`process.platform` is not `darwin` ("The scanner is a macOS binary"), and the build then stops in
-`[Expo] Configure project`: "Scanning for @ExpoModule classes didn't complete … the module classes
-of these packages are missing from the modules provider: expo-modules-core". Expo installs the
-scanner's Linux build (`@expo/modules-macros-linux-arm64`), so the check only has to accept Linux
-too; the demo makes that one-line change in
-`node_modules/expo-modules-autolinking/build/platforms/apple/apple.js` (ADR 0182), which belongs in
-Expo:
+The app builds, archives and exports with no change. Expo SDK 58's autolinking skips its `@ExpoModule`
+scan when Node's `process.platform` is not `darwin`, and the build would stop in `[Expo] Configure project`.
+Expo installs the scanner's Linux build (`@expo/modules-macros-linux-arm64`), so nomac's project fix
+`expo-autolinking-scan` accepts Linux there, in memory while the build runs. The file on disk stays as npm
+installed it. The check belongs in Expo, and the fix does nothing once Expo changes that statement.
 
-```diff
--    if (process.platform !== 'darwin') {
-+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
+The end of the Expo build says what nomac changed (docs/PROJECT-COMPATIBILITY.md); the bare app's lists only
+the `mach-o-tool-linux-build` line:
+
+```
+note: nomac applied 3 project fixes to how this project's tools run; your files on disk are not changed:
+note:   expo-autolinking-scan: expo-modules-autolinking/build/platforms/apple/apple.js changed in memory
+note:   mach-o-tool-linux-build: HERMES_CLI_PATH is <app>/node_modules/hermes-compiler/hermesc/linux64-bin/hermesc (x86_64, through this machine's user-mode emulation)
+note:   macro-plugin-from-package: ExpoModulesMacros built for this machine
+note: what they do, what you may have to change yourself, and --no-project-fixes to turn them off: https://github.com/khzouroussama/nomac/blob/main/docs/PROJECT-COMPATIBILITY.md
 ```
 
-With it, the app builds, archives and exports unmodified otherwise, with `HERMES_CLI_PATH` as for
-the bare app.
-
 ## 3. Sign, install and launch on the iPhone
+
+Run on 2026-11-03 and not repeated since. That run also passed `HERMES_CLI_PATH=<the Linux hermesc>` to the
+archive and had the one-line edit in Expo's `apple.js`, which nomac now handles itself. The commands below
+leave those out, but this development-signed route has not been run without them.
 
 ```sh
 export USBMUXD_SOCKET_ADDRESS=host.docker.internal:27015   # the Mac's usbmuxd, relayed
@@ -106,14 +114,52 @@ nomac archive -workspace RNDemo.xcworkspace -scheme RNDemo -configuration Releas
     -destination generic/platform=iOS -archivePath RNDemo-dev.xcarchive \
     --keychain identity.pem --provisioning-profiles profiles \
     CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Development" DEVELOPMENT_TEAM=<team> \
-    "PROVISIONING_PROFILE_SPECIFIER=<profile name>" PRODUCT_BUNDLE_IDENTIFIER=<bundle identifier> \
-    HERMES_CLI_PATH=$HERMES
+    "PROVISIONING_PROFILE_SPECIFIER=<profile name>" PRODUCT_BUNDLE_IDENTIFIER=<bundle identifier>
 nomac device check RNDemo-dev.xcarchive/Products/Applications/RNDemo.app --device <UDID>
 nomac install RNDemo-dev.xcarchive/Products/Applications/RNDemo.app --device <UDID>
 nomac launch <bundle identifier> --device <UDID> --console
 ```
 
 ## Results
+
+### With no change to the app (2026-11-05)
+
+| Step | Bare React Native | Expo |
+|---|---|---|
+| Create the app | `init` 523 s | `create-expo-app` 96 s, `prebuild -p ios` 2 s |
+| Ruby gems | `bundle install` 353 s | (CocoaPods from the setup) |
+| `pod install` on Linux | 111 s | 436 s, after the network came back |
+| `nomac check` | 5 of 253 features outside the envelope | 7 of 269 |
+| `nomac build` (Release), first | 30 s | 207 s |
+| `nomac archive` (ad hoc) | 23 s | 142 s |
+| `nomac export` | under 1 s: `RNDemo.ipa`, 6.1 MB | 1 s: `expodemo.ipa`, 12.4 MB |
+| `main.jsbundle` against the manual route, in the same tree | identical, 1,274,308 bytes | identical, 3,675,626 bytes |
+| `ExpoModulesProvider.swift` | | identical to the manual route's and to what the Mac writes: 2,587 bytes, 22 modules, SHA-256 `47cedc9a890df329…` |
+
+- The manual route is the 2026-11-03 one: the one-line edit in `apple.js` and `HERMES_CLI_PATH` on the command
+  line, built in the same tree and undone afterwards. The bare app's `main.jsbundle` in its IPA is also
+  byte-identical to the 2026-11-03 IPA's (1,274,367 bytes), from the same path. Expo's IPA differs from
+  that day's: `expo` moved to 58.0.23.
+- `apple.js` matches npm's tarball of 58.0.17 before and after the builds. The bare app's `node_modules` has
+  no file newer than `pod install`. Expo's has only what its own `[CP-User] Build ExpoModulesJSI xcframework`
+  phase writes in `expo-modules-jsi/apple`.
+- `nomac check`'s remaining features do not stop an ad hoc archive: signing settings and `ipconfig`, and
+  for Expo also an entitlements file and a file reference's encoding. It exits with 1 for them.
+- The preload was tried on Node 20.20.2, 22.23.4, 24.22.2 and 26.13.0 with Expo's real `apple.js`, loaded by
+  `require` and by an ES module's `import`. Expo and React Native ask for Node `^22.13.0 || ^24.3.0` and newer.
+- Expo's Mac provider came from the phase's own command, run on a Mac (Node 24.22.1, darwin-arm64) on a copy
+  of the same `node_modules`, with the macOS scanner.
+- The error without user-mode emulation was simulated with a Linux `hermesc` whose ELF machine no kernel
+  takes: `nomac check` listed it as `build:setting=mach-o-executable`, and the build stopped with the error
+  naming `qemu-user-static`, with no "Exec format error".
+
+With `--no-project-fixes`, on the same trees, the builds print no project-fix line and fail as before the
+fixes (exit status 65). The bare app stops at `hermesc` with "Exec format error". Expo's pods stop on the macro
+plugin ("external macro implementation type 'ExpoModulesMacros.ExpoModuleMacro' could not be found"), and with
+`-IDEBuildingContinueBuildingAfterErrors=YES` its `[Expo] Configure project` also gives Expo's own "Scanning for
+@ExpoModule classes didn't complete".
+
+### With the manual changes, to the iPhone (2026-11-03)
 
 | Step | Bare React Native | Expo |
 |---|---|---|
@@ -156,7 +202,8 @@ two Swift downloads 758 s and 761 s, `swift build -c release` of nomac 551 s, `n
 - `pod install` runs `xcodebuild -version` (React Native's Podfile) and, from Ruby without a
   shell, `command -v ccache`. nomac's `xcodebuild` and `xcrun` launchers are in the developer
   directory's `usr/bin`; `nomac toolchain install` now puts macOS's `command` there too, and
-  `nomac doctor` says whether that folder is on `PATH`.
+  `nomac doctor` says whether that folder is on `PATH`. Since ADR 0184 the install also writes all three
+  beside a nomac linked on `PATH`.
 - Expo's `create-stub-xcframework.sh` (run by `pod install`) makes a dylib with
   `xcrun --sdk macosx clang -x c - -dynamiclib`, which on Linux linked an ELF executable. `nomac
   xcrun` now gives clang the target Xcode's clang takes without one (docs/formats/build.md

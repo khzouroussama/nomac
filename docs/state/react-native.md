@@ -4,10 +4,11 @@ Test cases for the general build: a React Native app can contain any custom iOS 
 projects exercise CocoaPods' generated projects and scripts, Node and other tools that script
 phases run, nested `xcodebuild`, xcframeworks, Objective-C++ and C++ interoperability, static
 libraries and resource bundles. Expo is a test app, not a milestone: progress is measured by the
-general lines of the README and docs/STATE.md. No React Native or Expo code goes into nomac; every
-fix is a general rule of Xcode, Swift Build, CocoaPods' projects, clang, xcframeworks or script
-phases, found by experiment and applied to any project. Branch `build/expo`. BACKLOG B-180–B-199,
-ADRs 0180–0199.
+general lines of the README and docs/STATE.md. Fixes are general rules of Xcode, Swift Build,
+CocoaPods' projects, clang, xcframeworks or script phases, found by experiment and applied to any
+project. The one exception is `Sources/NomacBuild/ProjectFixes/`, where everything nomac changes about
+how a project's tools run is kept as data, told to the user and off with `--no-project-fixes` (ADR 0184,
+docs/PROJECT-COMPATIBILITY.md). Branch `build/expo`. BACKLOG B-180–B-199, ADRs 0180–0199.
 
 ## Current step
 
@@ -15,13 +16,17 @@ Demo (docs/DEMO.md, 2026-11-03): a fresh bare React Native 0.88.1 app and a fres
 app, pods installed on Linux, built, archived and exported by nomac in a clean Ubuntu 24.04
 container, then development-signed, installed and launched on the iPhone from it; both kept
 running. Fixed on the way: `xcrun`'s clang target off macOS and macOS's SDK in the default install,
-macOS's `command` beside the launchers, `nomac doctor`'s PATH check. Left to Expo: its autolinking's
-darwin-only module scan (one line, ADR 0182).
+macOS's `command` beside the launchers, `nomac doctor`'s PATH check.
+
+No changes (ADR 0184, docs/DEMO.md, 2026-11-05): after `npm install` and `pod install`, new fresh apps go
+through plain `nomac build`, `nomac archive` and `nomac export` on Linux with no edit to `node_modules` and
+no project-specific flag. The bundle and `ExpoModulesProvider.swift` are identical to the manual route's,
+and the provider to what the Mac writes. Not repeated on the iPhone.
 
 Milestone: rn-bare and expo-default, Debug and Release, built on Linux, archived and exported to
 an IPA, and compared with Xcode 27.0's references. Remeasured on main `27646070` in an offline
 container with a developer directory installed from the subset with the published LLVM tools,
-the patched clang among them (`verify --project-fixes`, ADR 0182): all four builds succeed, and
+the patched clang among them (with the projects' changes for Linux that ADR 0184 has since made nomac's own): all four builds succeed, and
 both apps archive and export in both configurations. Xcode clang's constant Objective-C literals
 (B-170) no longer differ: rn-bare Release has no different file left. expo-default's Release
 archive had four prebuilt frameworks' dSYMs with `<UUID>.plist` source maps that Xcode's lacks:
@@ -59,6 +64,13 @@ the sweep's nomac (b225fc0c).
 
 ## Just finished
 
+- ADR 0184, the owner's requirements: a fresh app builds with no change by its user, and anything nomac
+  changes about how a project's tools run is separate, documented and highlighted. `ProjectFixes/` holds
+  three fixes as data (Expo's platform check in memory, a setting's Mach-O tool to the Linux build beside it,
+  ADR 0151's macro plugins); each prints a `note:`, the build's end repeats them, `nomac check` lists them
+  apart from the envelope, `--no-project-fixes` turns them off. `nomac toolchain install` writes `xcodebuild`,
+  `xcrun` and `command` beside a linked nomac, so `pod install` needs no PATH line: both fresh apps' pods
+  installed that way or with the line, Expo's with the launchers alone.
 - `pod install` on Linux (container `nomac-demo`, ubuntu:24.04, CocoaPods 1.17.0, Node 24.22.2,
   nomac's launchers on `PATH` as `nomac doctor` says) for sweep apps, as `rn_sweep.py install`
   does on the Mac: expo-with-maps 437 s, expo-with-sentry 260 s (its Sentry xcframework downloaded
@@ -92,7 +104,8 @@ the sweep's nomac (b225fc0c).
    carries meaning, then an equivalence rule (the same conformances per type) or a recorded
    difference.
 4. The Expo upstream description (`~/nomac-out/demo/expo-upstream-pr.md`, its darwin-only module
-   scan) waits for the owner's OK; nothing is filed.
+   scan) waits for the owner's OK; nothing is filed. When Expo ships the fix, drop `expo-autolinking-scan`
+   from `ProjectFixes.all` (ADR 0184).
 5. For the device workstream: a launch right after `nomac install` replaced the same running app
    ends the new process within 3 to 19 s (docs/DEMO.md).
 
@@ -123,6 +136,16 @@ configuration by script phases (React Native core, its dependencies, Hermes, fiv
 both configurations' tarballs are cached in `Pods/`, so builds need no network), 440 C, ObjC and
 ObjC++ compiles and 41 Swift compiles (expo-default Release), static libraries, privacy bundles,
 the JS bundle and Hermes bytecode (Release; Expo's Debug skips bundling), an Icon Composer app icon.
+
+## Fresh apps with no change
+
+`~/nomac-out/demo/scripts` (outside the repository), in the `nomac-demo` container: `rebuild_nomac.sh [spm]`
+the release build from `/in/nomac-src.tar` (`COPYFILE_DISABLE=1`, or macOS's `tar` adds `._*` files), `reinstall.sh`
+the developer directory through a link on `PATH`, `fresh.sh rn|expo` the app (Expo's phase script records
+absolute paths, so it stays in `/work/home/fresh`), `nochanges.sh rn|expo` check, build, archive and export,
+`compare_route.sh` the manual route in the same tree, `standin.sh` the error without emulation, `switch.sh`
+`--no-project-fixes`, `node_versions.sh <app>` the preload on each Node. nomac's DerivedData is under `/root`,
+the account's home, whatever `HOME` says.
 
 ## Xcode's references
 
@@ -162,6 +185,9 @@ Products are the entries of `Build/Products/<configuration>-iphoneos` (`nomac ve
 | expo-default Release and Debug, Linux, `--project-fixes`, main `27646070`, patched clang | 1/1 | 1/1 | 746/746 | 5 / 26 / 4 / 0 of 35 and 4 / 26 / 4 / 0 of 34 |
 | rn-bare Release and Debug, Linux, `--project-fixes`, main `27646070`, patched clang | 1/1 | 1/1 | 548/548 | 5 / 7 / 0 / 0 and 5 / 6 / 1 / 0 of 12 |
 
+The `--project-fixes` rows ran with the script's former flag, which made the projects' changes for Linux
+in the checkout. ADR 0184 removed it, because nomac now does them.
+
 On the Mac the one different product is expo-default's app, for its `Assets.car` (and, in Debug,
 `ip.txt`), both outputs that Xcode itself does not reproduce (classes below). On Linux (Docker,
 `--network none`, the build workstream's installed developer directory) the loader is identical
@@ -181,8 +207,8 @@ milestone 2 the Linux runs use a developer directory of this branch in the `noma
 | `ditto` | Linux: 96 calls in expo-default (CocoaPods' "Copy generated compatibility header" phases), so `module X.Swift` is appended to module maps never copied ("parent module must be defined", "redefinition of module 'Swift'") | a macOS command scripts call from PATH | this workstream | fixed: `nomac ditto` (7 of 7 cases like macOS's ditto) |
 | `libtool` | Linux: every static library target (Swift Build's `libtool -V` probe fails: 26 in expo-default) | Xcode's `libtool` is `cctools_ld-27037.1`, not open source; the toolchain has none | this workstream | fixed: cctools-port's, patched (ADR 0181): 19 of 19 archives byte-identical to Xcode's |
 | `xcodebuild` from a script phase | Linux: expo-default's `[CP-User] Build ExpoModulesJSI xcframework` | Expo SDK 58 builds a Swift package with `xcodebuild` (with `env -i`, in the package's folder) during the app's build | this workstream | Mac: nomac's nested build matches Xcode's; Linux: runs, then B-185. A package folder is a container, `nomac build` takes the call's options, `nomac xcodebuild` behind a launcher; the toolchain's `usr/include/swift/bridging`, which Xcode's compilers search and swift.org's do not (B-181) |
-| `hermesc` for macOS | Linux: Release bundling (`HERMES_CLI_PATH` is `…/hermes-compiler/hermesc/osx-bin/hermesc`, set in CocoaPods' xcconfig) | a Mach-O tool shipped in `node_modules`; the same package's `linux64-bin/hermesc` (x86_64, release string `1.0.0`) writes the macOS one's bytecode byte for byte given the same input path (the 40-byte difference noted before was the input's path, which the bytecode records) | the project | `nomac check` reports it (`build:setting=mach-o-executable`, with the override to pass); React Native's phases source `ios/.xcode.env.local` after the build settings, so the project can name the Linux `hermesc` there (`--project-fixes`; x86_64, so an arm64 Linux needs user-mode emulation, as Docker Desktop's): expo-default's `main.jsbundle` identical on Linux |
-| `[Expo] Configure project`'s module scan | Linux: expo-default ("Scanning for @ExpoModule classes didn't complete", exit 1) | expo-modules-autolinking skips the scan when Node's `process.platform` is not `darwin`, although expo-modules-macros installs its scanner for Linux; the provider it writes is the same either way (22 classes from `expo-module.config.json`) | the project (ADR 0182) | `--project-fixes` lets the check accept `linux`: `ExpoModulesProvider.swift` identical to the Mac's |
+| `hermesc` for macOS | Linux: Release bundling (`HERMES_CLI_PATH` is `…/hermes-compiler/hermesc/osx-bin/hermesc`, set in CocoaPods' xcconfig) | a Mach-O tool shipped in `node_modules`; the same package's `linux64-bin/hermesc` (x86_64, release string `1.0.0`) writes the macOS one's bytecode byte for byte given the same input path (the 40-byte difference noted before was the input's path, which the bytecode records) | nomac (ADR 0184) | fixed: the project fix `mach-o-tool-linux-build` overrides the setting with the ELF executable of the same name in a sibling folder (x86_64, so an arm64 Linux needs user-mode emulation, as Docker Desktop's; without it, an error naming `qemu-user-static`): `main.jsbundle` identical to the manual route's on fresh apps, and expo-default's to Xcode's |
+| `[Expo] Configure project`'s module scan | Linux: expo-default ("Scanning for @ExpoModule classes didn't complete", exit 1) | expo-modules-autolinking skips the scan when Node's `process.platform` is not `darwin`, although expo-modules-macros installs its scanner for Linux; the provider it writes is the same either way (22 classes from `expo-module.config.json`) | nomac (ADR 0184) | fixed: the project fix `expo-autolinking-scan` lets the check accept `linux` in memory, with `apple.js` unchanged on disk: `ExpoModulesProvider.swift` identical to the Mac's (fresh app, 2,587 bytes, 22 modules) |
 | Expo's Swift macro plugin | Linux: every Expo pod's compile that expands `@ExpoModule`, `@JS`, … (`-load-plugin-executable <node_modules>/expo-modules-macros/apple/ExpoModulesMacros#ExpoModulesMacros`, a macOS executable; the RN holdout's expo-modules app) | the project names a prebuilt plugin, whose Swift package ships beside it (`apple/Package.swift`, a `.macro` target); its build from those sources expands as the macOS binary does, and so does the Linux build Expo publishes as npm platform packages (`expo_experiments.py macros`) | macros (ADR 0151) | `nomac build` off macOS builds the plugin from the package and loads that build first; `nomac check` lists it as `build:macro-plugin=swift-package` |
 | App Intents tool on static libraries | Linux: `libExpoLogBox.a: not a thin 64-bit … Mach-O file` | Swift Build runs `appintentsmetadataprocessor --binary-file <lib>.a` for static library targets; Xcode's writes the empty strings data for expo-default's 17 | this workstream | fixed: an archive's objects are read (their `LC_LINKER_OPTION`s) |
 | C++ template arguments that point into objects | Linux: `libreact-native-safe-area-context.a`, `libReactCodegen.a` (ranlib tables named other symbols) | Xcode's clang follows Clang 4's C++ ABI unasked; nomac's toolchain asks swift.org's clang and Swift's importer for it (docs/formats/build.md "Clang's C++ ABI"); the libraries' Objective-C literals and `respondsToSelector:` still differ | clang workstream | B-170 |
@@ -220,7 +246,6 @@ python3 $S generate                      # online: npm and CocoaPods
 python3 $S capture                       # Xcode's references, Release and Debug
 python3 $S capture --archive             # Xcode's ad-hoc archives and `debugging` exports, into each reference
 python3 $S verify --nomac .build/debug/nomac   # reports and nomac's derived data next to each reference
-python3 $S verify --nomac <nomac> --project-fixes   # on Linux: the projects' changes for Linux first (ADR 0182)
 python3 $S triage <build log>            # errors grouped by task and message
 ```
 

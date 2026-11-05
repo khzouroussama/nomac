@@ -105,7 +105,7 @@ Xcode's expo-modules builds succeed; in Release Expo's CLI (`node`) opened HTTPS
 a Cloudflare address while bundling, as in expo-default; Debug opened none.
 
 Linux, round two (2026-10-31: main's nomac at `7d733f4` with ADR 0170's toolchain, the apps'
-Linux packages from `platform-packages`, verify with `--project-fixes`):
+Linux packages from `platform-packages`, verify with the projects' changes for Linux that ADR 0184 has since made nomac's own):
 
 | Run | pif | nib | assets | products: identical / equivalent / different of |
 |---|---|---|---|---|
@@ -159,7 +159,7 @@ each codesign step and the export, on the Mac):
 | Property lists of frameworks and bundles | Linux: rn-native's `Pods_RNNative`, `ReactCodegen`, `ReactAppDependencyProvider`, `react_native_safe_area_context` frameworks' and the privacy bundles' `Info.plist` | Swift Build's binary property lists off Darwin | build driver, B-105 | known |
 | Debug dylibs | Linux: rn-native Debug (`Unable to process debug dylib: ... SWBUtil.BinaryReaderError`) | as rn-bare's | build driver, B-183 | known |
 | Storyboards below `nomac ibtool`'s deployment targets | Mac and Linux: rn-libs' and rn-native's `LaunchScreen.storyboard` (React Native's template, iOS 15.1); on Linux the app is then missing (`** BUILD FAILED **`) | "nomac does not compile nibs for --minimum-deployment-target 15.1 yet" | resources (nibs), B-263 | fixed on main: identical in round two |
-| `hermesc` for macOS | Linux: rn-libs' and rn-native's Release `Bundle React Native code and images` (Metro's bundle succeeds, then `osx-bin/hermesc` cannot run) | a Mach-O tool in `node_modules`, named by CocoaPods' xcconfig | the project | `--project-fixes` names the Linux `hermesc`: rn-native's `main.jsbundle` identical in round two |
+| `hermesc` for macOS | Linux: rn-libs' and rn-native's Release `Bundle React Native code and images` (Metro's bundle succeeds, then `osx-bin/hermesc` cannot run) | a Mach-O tool in `node_modules`, named by CocoaPods' xcconfig | nomac (ADR 0184) | fixed: nomac overrides the setting with the Linux `hermesc` beside it; rn-native's `main.jsbundle` was identical in round two with the same `hermesc`, then named by the project |
 | Compiled code | Mac: every compiled product of rn-libs | Xcode's driver's stack checks and what they move (ADR 0101) | build driver | equivalent (documented) |
 
 Nothing in rn-libs needed a rule rn-bare and expo-default had not already exercised on the Mac:

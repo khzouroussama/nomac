@@ -1,6 +1,7 @@
 # ADR 0182: A project's tools that test the build machine's system are the project's to change
 
-- Status: accepted (the Expo workstream, 2026-10-30)
+- Status: decision superseded by ADR 0184 (the owner's requirement, 2026-11-04); the observations
+  below still hold. Accepted by the Expo workstream, 2026-10-30.
 - Date: 2026-10-30
 
 ## Context

@@ -113,9 +113,14 @@ flowchart LR
 Measured on real open-source apps against Xcode 27's output; details in [docs/PROGRESS.md](docs/PROGRESS.md).
 
 Works with React Native and Expo apps: a fresh React Native 0.88 app and a fresh Expo SDK 58 app
-(with one line changed in Expo's autolinking) build, install and run on an iPhone from Linux
-([docs/DEMO.md](docs/DEMO.md)). Of the first 61 of 106 public React Native and Expo apps, 49 reach
-an IPA (a partial run).
+build and archive to an IPA on Linux with no change to the app. Both have also run on an iPhone from
+Linux, in an earlier run that still made two of those changes by hand ([docs/DEMO.md](docs/DEMO.md)).
+Of the first 61 of 106 public React Native and Expo apps, 49 reach an IPA (a partial run).
+
+Where a project's tools assume macOS, nomac changes how a few of them run for the build, without
+touching your files. It tells you when it does (a note, and a summary at the end of the build), and
+`--no-project-fixes` turns that off. Other projects need a change of their own.
+[docs/PROJECT-COMPATIBILITY.md](docs/PROJECT-COMPATIBILITY.md) lists both.
 
 `nomac test` runs an app's unit tests on an iPhone from Linux; UI tests not yet.
 
@@ -184,6 +189,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md); AI coding agents start from [AGENTS.md](
 - [docs/INSTALL-ON-IPHONE.md](docs/INSTALL-ON-IPHONE.md): signing, installing and launching on an iPhone
 - [docs/EXAMPLES.md](docs/EXAMPLES.md): an open-source app from clone to IPA
 - [docs/DEMO.md](docs/DEMO.md): a React Native and an Expo app on Linux
+- [docs/PROJECT-COMPATIBILITY.md](docs/PROJECT-COMPATIBILITY.md): what nomac changes for you, and what you may have to change yourself
 - [docs/PROGRESS.md](docs/PROGRESS.md): what is measured, on which apps
 - [docs/COMPARISON.md](docs/COMPARISON.md): other tools
 - [docs/LEGAL.md](docs/LEGAL.md): Apple's terms and how nomac is written

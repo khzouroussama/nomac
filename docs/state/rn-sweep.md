@@ -60,8 +60,9 @@ the macOS-only commands and BSD flags of the app's script phases. In a container
 (`nomac-sweep-run`, the `nomac-sweep` volume; the app at its Mac path, the Linux Node at the Mac
 Node's path): `nomac check --json`, the project's changes for Linux (each setting that names a
 Mach-O tool overridden on the command line with the Linux build of the same tool, the one `nomac
-check` lists or else the nearest ELF executable of that name in the checkout; ADR 0182's platform
-check of expo-modules-autolinking), the build: `nomac archive` Release (ad hoc) continuing after
+check` lists or else the nearest ELF executable of that name in the checkout, and until ADR 0184,
+which makes nomac do the sibling case and the platform check of expo-modules-autolinking itself, an
+edit of that check), the build: `nomac archive` Release (ad hoc) continuing after
 errors (until 2026-11-03, `nomac build` and then `nomac archive` from a new build folder: twice the
 Linux time, and every archive passed whose build had, 11 of 11; `--separate-build`), then `nomac
 export` (`debugging`). Each failed step's failed tasks are classified
