@@ -52,6 +52,12 @@ struct ToolchainCommand: ParsableCommand {
             for directory in plugins.pluginDirectories {
                 print("Installed the macro plugins \(plugins.modules.joined(separator: ", ")) in \(directory)")
             }
+            #if !os(macOS)
+            if let folder = LinuxToolchain.linkFolder(nomacExecutable: nomac) {
+                let forwarders = try LinuxToolchain.writeForwarders(developerDirectory: developer, into: folder)
+                print("Installed \(forwarders.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")) in \(folder), for tools that run them outside a build (pod install)")
+            }
+            #endif
         }
     }
 }

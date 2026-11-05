@@ -330,6 +330,39 @@ public enum LinuxToolchain {
         return "#!/bin/sh\n# Written by 'nomac toolchain install' (docs/formats/build.md \"SwiftPM in script phases\").\nexec \(quoted) \"$@\"\n"
     }
 
+    /// The commands of the developer directory's `usr/bin` that tools outside a build run: CocoaPods'
+    /// `pod install` runs `xcodebuild` and `command`, Expo's install scripts `xcrun`.
+    static let commandsOutsideBuilds = ["command", "xcodebuild", "xcrun"]
+
+    /// What `nomac toolchain install` puts on `PATH` for one of those. A launcher finds the developer
+    /// directory from the path it runs by, so a symbolic link to it would not do.
+    public static func forwarder(_ command: String, developerDirectory: String) -> String {
+        let quoted = "'" + (developerDirectory + "/usr/bin/" + command).replacingOccurrences(of: "'", with: "'\\''") + "'"
+        return "#!/bin/sh\n# Written by 'nomac toolchain install' (docs/INSTALL.md).\nexec \(quoted) \"$@\"\n"
+    }
+
+    /// The folder that a symbolic link found on `PATH` runs nomac from, as `install.sh` links it into
+    /// `~/.local/bin`; nil for an executable on `PATH` itself, as in a source build's folder.
+    public static func linkFolder(nomacExecutable: String) -> String? {
+        guard let located = Subprocess.locate("nomac"), (try? FileManager.default.destinationOfSymbolicLink(atPath: located)) != nil,
+              FileSystem.resolvingSymbolicLinks(located) == nomacExecutable else { return nil }
+        return (located as NSString).deletingLastPathComponent
+    }
+
+    /// Writes the forwarders into `folder`, except where another program has the name: returns those
+    /// it wrote. Its own from an earlier install are replaced.
+    public static func writeForwarders(developerDirectory: String, into folder: String) throws -> [String] {
+        var written: [String] = []
+        for command in commandsOutsideBuilds {
+            let path = folder + "/" + command
+            if let existing = FileSystem.contents(atPath: path), !String(decoding: existing, as: UTF8.self).contains("# Written by 'nomac toolchain install' (docs/INSTALL.md).") { continue }
+            try FileSystem.write(Data(forwarder(command, developerDirectory: developerDirectory).utf8), to: path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            written.append(path)
+        }
+        return written
+    }
+
     /// The identification strings of Xcode's tools whose version Swift Build reads with
     /// `what -q`, which their launchers carry (docs/upstream/swift-build.md section 10).
     public static let whatIdentities = ["coremlc": XcodeProfile.current.coremlc.what]

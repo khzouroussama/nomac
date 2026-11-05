@@ -45,8 +45,11 @@ unmodified, and `nomac toolchain install` puts Swift and the tools into that cop
 directory (with no arguments it takes them from `swift/` and `tools/`). A source build has no
 unxip: `nomac doctor` prints the command that installs it.
 
-Tools that run `xcodebuild` or `xcrun` outside a build, such as CocoaPods' `pod install`, find
-nomac's launchers in the developer directory; `nomac doctor` prints the line to add:
+Tools that run `xcodebuild` or `xcrun` outside a build, such as CocoaPods' `pod install`, need
+nomac's launchers on `PATH`. When nomac runs through a symbolic link on `PATH`, as the installer
+links it into `~/.local/bin`, `nomac toolchain install` writes `xcodebuild`, `xcrun` and `command`
+beside that link, leaving alone any other program of those names. They run the developer directory's
+launchers. A source build has no link, so `nomac doctor` prints the line to add instead:
 
 ```sh
 export PATH=~/.nomac/xcode/27A266a/Xcode.app/Contents/Developer/usr/bin:$PATH
@@ -107,6 +110,10 @@ for experiments and `nomac verify` against Xcode (CONTRIBUTING.md).
 - On 2026-11-03 a fresh `ubuntu:24.04` (arm64) went from `nomac sdk install` with an `Xcode.app`
   through `nomac toolchain install` to a Retro Rampage IPA with no network. Installing from a
   `.xip` has not been tried yet.
+
+- On 2026-11-05 `nomac toolchain install`, run through a symbolic link on `PATH`, wrote the launchers
+  beside the link, and a fresh Expo app's `pod install` ran with those alone on `PATH` (docs/DEMO.md).
+  That link pointed at a source build; `install.sh`'s own layout has not been tried with them.
 
 Each nomac release reproduces one Xcode build, which `nomac --version` names. With another Xcode
 nomac warns that its outputs may differ, and `--strict-xcode` makes it refuse

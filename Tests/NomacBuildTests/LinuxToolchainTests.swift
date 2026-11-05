@@ -372,6 +372,27 @@ import NomacTestSupport
         #expect(try FileManager.default.attributesOfItem(atPath: tmp.path + "/Kit.framework/Kit")[.posixPermissions] as? Int == 0o644)
     }
 
+    @Test func forwardersRunTheDeveloperDirectorysLaunchers() throws {
+        let tmp = try TemporaryDirectory()
+        let developer = tmp.path + "/Developer"
+        let launcher = "#!/bin/sh\necho \"$0 $*\"\n"
+        for command in LinuxToolchain.commandsOutsideBuilds {
+            let path = developer + "/usr/bin/" + command
+            try FileSystem.write(Data(launcher.utf8), to: path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        }
+        let folder = tmp.path + "/bin"
+        try FileSystem.write(Data("#!/bin/sh\necho someone else's\n".utf8), to: folder + "/xcrun")
+
+        #expect(try LinuxToolchain.writeForwarders(developerDirectory: developer, into: folder) == [folder + "/command", folder + "/xcodebuild"])
+        #expect(try Subprocess.run(folder + "/xcodebuild", ["-version"]).outputString == developer + "/usr/bin/xcodebuild -version\n")
+        #expect(String(decoding: try #require(FileSystem.contents(atPath: folder + "/xcrun")), as: UTF8.self) == "#!/bin/sh\necho someone else's\n")
+
+        let moved = tmp.path + "/Moved"
+        #expect(try LinuxToolchain.writeForwarders(developerDirectory: moved, into: folder) == [folder + "/command", folder + "/xcodebuild"])
+        #expect(FileSystem.contents(atPath: folder + "/xcodebuild") == Data(LinuxToolchain.forwarder("xcodebuild", developerDirectory: moved).utf8))
+    }
+
     #if os(Linux)
     /// The reference Mac's user and group, which this machine lacks, leave the files as they are;
     /// the machine's own are applied.

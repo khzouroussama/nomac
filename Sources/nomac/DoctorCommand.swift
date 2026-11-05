@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import NomacBuild
 import NomacCore
 import NomacSDK
 
@@ -26,7 +27,7 @@ struct DoctorCommand: ParsableCommand {
             }
             #if !os(macOS)
             if let entry = entries.first(where: { $0.version.build == selected }) {
-                printLaunchersOnPath(entry.developerDirectory + "/usr/bin")
+                printLaunchersOnPath(developerDirectory: entry.developerDirectory)
             }
             #endif
         }
@@ -45,12 +46,18 @@ struct DoctorCommand: ParsableCommand {
 
     /// Off macOS, `xcodebuild` and `xcrun` are the launchers `nomac toolchain install` writes into
     /// the developer directory's `usr/bin`; tools that run them outside a build, as CocoaPods'
-    /// `pod install` does for React Native's Podfile (`xcodebuild -version`), find them on PATH.
-    func printLaunchersOnPath(_ bin: String) {
+    /// `pod install` does for React Native's Podfile (`xcodebuild -version`), find them on PATH,
+    /// in that folder or as the forwarders the install writes beside a linked nomac.
+    func printLaunchersOnPath(developerDirectory: String) {
+        let bin = developerDirectory + "/usr/bin"
         let launcher = bin + "/xcodebuild"
         guard FileSystem.exists(launcher) else { return }
-        if Subprocess.locate("xcodebuild").map(FileSystem.resolvingSymbolicLinks) == FileSystem.resolvingSymbolicLinks(launcher) {
+        let found = Subprocess.locate("xcodebuild")
+        let forwarder = Data(LinuxToolchain.forwarder("xcodebuild", developerDirectory: developerDirectory).utf8)
+        if found.map(FileSystem.resolvingSymbolicLinks) == FileSystem.resolvingSymbolicLinks(launcher) {
             print("[ok] xcodebuild and xcrun on PATH: \(bin)")
+        } else if let found, FileSystem.contents(atPath: found) == forwarder {
+            print("[ok] xcodebuild and xcrun on PATH: \((found as NSString).deletingLastPathComponent)")
         } else {
             print("[missing] xcodebuild and xcrun on PATH: tools outside a build run them (CocoaPods' pod install)")
             print("          add: export PATH=\(bin):$PATH")
