@@ -56,7 +56,8 @@ struct CheckCommand: ParsableCommand {
             return
         }
         let options = CheckOptions(descriptionOnly: descriptionOnly, sourcePackages: sourcePackages.map(FileSystem.absolute))
-        let report = CheckReport.make(container: FileSystem.absolute(container!), domains: Self.domains, options: options)
+        var report = CheckReport.make(container: FileSystem.absolute(container!), domains: Self.domains, options: options)
+        report.fixes = ProjectFixes.listing(in: report)
         print(json ? try report.json() : report.text(all: all), terminator: "")
         if !report.outside.isEmpty { throw ExitCode(1) }
     }

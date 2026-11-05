@@ -102,6 +102,9 @@ struct BuildOptions: ParsableArguments {
     @Option(name: .customLong("provisioning-profiles"), help: "A folder of .mobileprovision files for PROVISIONING_PROFILE_SPECIFIER (default: Xcode's folders under the home folder).")
     var provisioningProfiles: String?
 
+    @Flag(name: .customLong("no-project-fixes"), help: "Off macOS, build without the fixes nomac applies to how a project's tools run (docs/PROJECT-COMPATIBILITY.md).")
+    var noProjectFixes = false
+
     @Argument(help: "Build setting overrides, KEY=VALUE, and optionally the action ('build', 'build-for-testing' or 'archive').")
     var arguments: [String] = []
 
@@ -222,16 +225,23 @@ struct BuildOptions: ParsableArguments {
             settings.synthesizedOverrides.merge(InstallAttributes.overrides(developerDirectory: developer)) { current, _ in current }
             settings.synthesizedOverrides.merge(TaskSandbox.overrides) { current, _ in current }
             LinuxCompiler.apply(to: &settings.overrides, synthesized: &settings.synthesizedOverrides)
+            var fixes = noProjectFixes ? nil : try ProjectFixRun(workspace: loaded, commandLine: overrides, scratch: SDKStore.default().root + "/scratch",
+                                                                 overrides: &settings.overrides, synthesized: &settings.synthesizedOverrides)
+            for note in fixes?.notes ?? [] { log(note + "\n") }
+            for warning in fixes?.warnings ?? [] { FileHandle.standardError.write(Data("warning: \(warning)\n".utf8)) }
             let stale = try MacroPlugins.missing(developerDirectory: developer)
             if !stale.isEmpty {
                 FileHandle.standardError.write(Data("warning: the developer directory has no macro plugins \(stale.joined(separator: ", ")), which this nomac provides: it was installed by an older nomac; run 'nomac toolchain install' again into a fresh 'nomac sdk install'\n".utf8))
             }
-            let pluginFlags = try await macroPluginFlags(inspector: inspector, request: resolution.request)
-            if !pluginFlags.isEmpty {
-                if let commandLine = settings.overrides["OTHER_SWIFT_FLAGS"] {
-                    settings.overrides["OTHER_SWIFT_FLAGS"] = pluginFlags + " " + commandLine
-                } else {
-                    settings.synthesizedOverrides["OTHER_SWIFT_FLAGS"] = pluginFlags + " " + (settings.synthesizedOverrides["OTHER_SWIFT_FLAGS"] ?? "$(inherited)")
+            if fixes != nil {
+                let plugins = try await macroPluginFlags(inspector: inspector, request: resolution.request)
+                fixes?.builtMacroPlugins(plugins.targets)
+                if !plugins.flags.isEmpty {
+                    if let commandLine = settings.overrides["OTHER_SWIFT_FLAGS"] {
+                        settings.overrides["OTHER_SWIFT_FLAGS"] = plugins.flags + " " + commandLine
+                    } else {
+                        settings.synthesizedOverrides["OTHER_SWIFT_FLAGS"] = plugins.flags + " " + (settings.synthesizedOverrides["OTHER_SWIFT_FLAGS"] ?? "$(inherited)")
+                    }
                 }
             }
             #endif
@@ -263,6 +273,10 @@ struct BuildOptions: ParsableArguments {
                 session: inspector.session,
                 quiet: quiet,
                 log: write)
+            #if !os(macOS)
+            // Also under -quiet: the summary is what a user must not miss.
+            for line in fixes?.summary() ?? [] { write(line + "\n") }
+            #endif
             if outcome.succeeded || actions.runsPostActionsOnFailure {
                 actionFailures += try actions.runner.run(actions.buildPost, heading: "Run post-actions", log: log)
             }
@@ -308,7 +322,7 @@ struct BuildOptions: ParsableArguments {
     #if !os(macOS)
     /// The flags that load, for every Mach-O macro plugin a target's `OTHER_SWIFT_FLAGS` names, its
     /// build for this machine (``MacroPluginPackages``).
-    private func macroPluginFlags(inspector: BuildSettingsInspector, request: SettingsRequest) async throws -> String {
+    private func macroPluginFlags(inspector: BuildSettingsInspector, request: SettingsRequest) async throws -> (flags: String, targets: [String]) {
         var plugins: [MacroPluginPackages.Plugin] = []
         for target in inspector.workspaceTargets {
             let flags = try await inspector.session.evaluateList("$(OTHER_SWIFT_FLAGS)", targetGUID: target.guid, request: request)
@@ -316,12 +330,12 @@ struct BuildOptions: ParsableArguments {
             let directory = try await inspector.session.evaluate("$(PROJECT_DIR)", targetGUID: target.guid, request: request)
             plugins += MacroPluginPackages.machOPlugins(flags: flags, directory: directory)
         }
-        guard !plugins.isEmpty else { return "" }
+        guard !plugins.isEmpty else { return ("", []) }
         let built = try await MacroPluginPackages.build(plugins, scratch: SDKStore.default().root + "/scratch/macro-plugins") { if !quiet { write($0) } }
         for warning in built.warnings {
             FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
         }
-        return built.flags
+        return (built.flags, built.targets)
     }
     #endif
 

@@ -16,10 +16,35 @@ public struct CheckReport: Sendable {
         public var uses: [FeatureUse]
     }
 
+    /// A project fix a Linux build applies to the project (ADR 0184): no problem, so outside the count
+    /// of features and the exit status.
+    public struct Fix: Sendable {
+        public var id: String
+        public var tool: String
+        public var change: String
+        public var why: String
+        public var dropWhen: String
+        public var upstream: String?
+        public var uses: [FeatureUse]
+
+        public init(id: String, tool: String, change: String, why: String, dropWhen: String, upstream: String?, uses: [FeatureUse]) {
+            self.id = id
+            self.tool = tool
+            self.change = change
+            self.why = why
+            self.dropWhen = dropWhen
+            self.upstream = upstream
+            self.uses = uses
+        }
+    }
+
+    public static let projectCompatibilityDocument = "https://github.com/khzouroussama/nomac/blob/main/docs/PROJECT-COMPATIBILITY.md"
+
     public var container: String
     public var descriptionOnly: Bool
     public var features: [Feature]
     public var unchecked: [String: [UncheckedPart]]
+    public var fixes: [Fix] = []
 
     /// The features outside the envelope: unverified and unknown ones.
     public var outside: [Feature] { features.filter { $0.status != .verified } }
@@ -91,6 +116,21 @@ public struct CheckReport: Sendable {
                 lines.append("  \(domain): \(part.what): \(relative(part.file))")
             }
         }
+        if !fixes.isEmpty {
+            lines.append("")
+            lines.append("Project fixes a Linux build applies to this project (not problems; they do not change the exit status):")
+            for fix in fixes {
+                lines.append("  \(fix.id): \(fix.tool)")
+                lines.append("      \(fix.change)")
+                for use in Self.sample(fix.uses, count: usesPerFeature) {
+                    lines.append("      \(relative(use.file)): \(use.object)")
+                }
+                if fix.uses.count > usesPerFeature {
+                    lines.append("      and \(fix.uses.count - usesPerFeature) more")
+                }
+            }
+            lines.append("  Why, your files stay as they are, and 'nomac build --no-project-fixes': \(Self.projectCompatibilityDocument)")
+        }
         lines.append("")
         lines.append(outside.isEmpty ? "Every feature is inside the envelope." : "\(outside.count) of \(features.count) features are outside the envelope.")
         return lines.joined(separator: "\n") + "\n"
@@ -129,12 +169,23 @@ public struct CheckReport: Sendable {
             var file: String
         }
 
+        struct Fix: Encodable {
+            var id: String
+            var tool: String
+            var change: String
+            var why: String
+            var dropWhen: String
+            var upstream: String?
+            var uses: [Use]
+        }
+
         var container: String
         var descriptionOnly: Bool
         var inside: Bool
         var outside: Int
         var features: [Feature]
         var unchecked: [Part]
+        var projectFixes: [Fix]
     }
 
     /// Uses are listed for features outside the envelope; verified ones give their count only.
@@ -150,7 +201,11 @@ public struct CheckReport: Sendable {
                                    uses: feature.status == .verified ? nil : feature.uses.map { JSONReport.Use(file: relative($0.file), object: $0.object) })
             },
             unchecked: unchecked.flatMap { domain, parts in parts.map { JSONReport.Part(domain: domain, what: $0.what, file: relative($0.file)) } }
-                .sorted { ($0.domain, $0.what, $0.file) < ($1.domain, $1.what, $1.file) })
+                .sorted { ($0.domain, $0.what, $0.file) < ($1.domain, $1.what, $1.file) },
+            projectFixes: fixes.map { fix in
+                JSONReport.Fix(id: fix.id, tool: fix.tool, change: fix.change, why: fix.why, dropWhen: fix.dropWhen, upstream: fix.upstream,
+                               uses: fix.uses.map { JSONReport.Use(file: relative($0.file), object: $0.object) })
+            })
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return String(decoding: try encoder.encode(report), as: UTF8.self) + "\n"

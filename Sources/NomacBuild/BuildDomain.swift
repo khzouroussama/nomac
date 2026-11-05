@@ -10,9 +10,10 @@ import XcodeProj
 /// A build setting whose value names a Mach-O executable is a tool a script phase runs, and Linux
 /// cannot run it: CocoaPods' xcconfig of a React Native app sets
 /// `HERMES_CLI_PATH = $(PODS_ROOT)/../../node_modules/hermes-compiler/hermesc/osx-bin/hermesc`, and
-/// the Release build's bundling phase fails with "Exec format error" (docs/state/react-native.md). The
-/// project must name a build of the tool for the build machine instead. A Mach-O macro plugin with
-/// a Swift package beside it is nomac's to build for the build machine (``MacroPluginPackages``).
+/// the Release build's bundling phase fails with "Exec format error" (docs/state/react-native.md).
+/// `nomac build` overrides it with the Linux build beside the tool (``MachOToolBuilds``); without one,
+/// the project must name a build of the tool for the build machine. A Mach-O macro plugin with a
+/// Swift package beside it is nomac's to build for the build machine (``MacroPluginPackages``).
 /// A script phase can also run a Mach-O executable by its path: wikipedia's "Update Localizations"
 /// runs `"$SRCROOT/scripts/localization"`, a universal macOS build committed in its repository (B-134).
 public struct BuildDomain: FeatureDomain {
@@ -20,6 +21,7 @@ public struct BuildDomain: FeatureDomain {
     public var envelope: Envelope { Self.envelope }
 
     static let machOExecutable = "build:setting=mach-o-executable"
+    static let machOExecutableLinuxBuild = "build:setting=mach-o-executable-linux-build"
     static let scriptMachOExecutable = "build:script=mach-o-executable"
     static let machONodeModule = "build:node-module=mach-o-only"
     static let macroPluginPackage = "build:macro-plugin=swift-package"
@@ -33,6 +35,8 @@ public struct BuildDomain: FeatureDomain {
 
     static let envelope = Envelope(domain: "build", entries: [
         .unverified(machOExecutable, "the setting names a Mach-O executable, which the build runs (a script phase's tool, or the compiler's macro plugin) and a Linux build cannot: build with the setting overridden on the command line, `nomac build ... NAME=<the tool built for the build machine>`, as xcodebuild takes it; for a macro plugin, name the plugin built for the build machine in the flag where the project's files set it (the Linux build or package listed, which npm installs only on Linux; ADR 0151)"),
+        .verified(machOExecutableLinuxBuild, "expo_experiments.py:verify", "adr:0184"),
+        .verified(ProjectFixes.expoAutolinkingScan.feature, "expo_experiments.py:verify", "adr:0184"),
         .unverified(deploymentTargetBelowMinimum, "a target's deployment target is older than its SDK supports, and Xcode 27.0 fails the build: `error: The iOS deployment target 'IPHONEOS_DEPLOYMENT_TARGET' is set to 12.0, but the range of supported deployment target versions is 15.0 to 27.0.x.` (observed on a self-written static library, below 15.0 only; nomac fails alike). Raise it to the minimum listed; for CocoaPods' targets, in the Podfile's `post_install`: `installer.pods_project.targets.each { |t| t.build_configurations.each { |c| c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0' if c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.0 } }`, then `pod install`"),
         .unverified(scriptMachOExecutable, "a script phase runs a Mach-O executable by its path, which a Linux build cannot: put a build of the tool for the build machine at that path before building, or build on a Mac (B-134)"),
         .verified(macroPluginPackage, "macro_plugin_experiments.py:macro-prebuilt", "adr:0151"),
@@ -45,6 +49,7 @@ public struct BuildDomain: FeatureDomain {
         let workspace = try XcodeWorkspace.load(path: FileSystem.absolute(container))
         let base = (FileSystem.absolute(container) as NSString).deletingLastPathComponent
         var uses = Set<FeatureUse>()
+        let toolBuilds = MachOToolBuilds.choices(for: Self.machOToolSettings(of: workspace))
         for project in workspace.allProjects {
             let directory = (project.path as NSString).deletingLastPathComponent
             let projectConfigurations = project.pbxproj.rootObject?.buildConfigurationList?.buildConfigurations ?? []
@@ -69,11 +74,29 @@ public struct BuildDomain: FeatureDomain {
                             continue
                         }
                         let builds = Self.linuxBuilds(of: executable)
-                        let linux = !builds.installed.isEmpty ? "; Linux build: " + builds.installed.map { Self.relative($0, to: base) }.joined(separator: ", ")
+                        var linux = !builds.installed.isEmpty ? "; Linux build: " + builds.installed.map { Self.relative($0, to: base) }.joined(separator: ", ")
                             : builds.packages.isEmpty ? "" : "; Linux packages: " + builds.packages.joined(separator: ", ")
+                        switch toolBuilds[setting]?.choice {
+                        case .runs(let build)?:
+                            uses.insert(FeatureUse(feature: Self.machOExecutableLinuxBuild, file: file,
+                                                   object: "\(setting) = \(Self.relative(written, to: base)); Linux build: \(Self.relative(build.path, to: base))"))
+                            continue
+                        case .several(let builds)?:
+                            linux = "; Linux builds, name one: " + builds.map { Self.relative($0.path, to: base) }.joined(separator: ", ")
+                        case .otherMachines(let builds)?:
+                            let listed = builds.map { "\(Self.relative($0.path, to: base)) (\($0.machineName))" }.joined(separator: ", ")
+                            linux = "; Linux build: \(listed), which this machine cannot run without user-mode emulation: install qemu-user-static"
+                        default:
+                            break
+                        }
                         uses.insert(FeatureUse(feature: Self.machOExecutable, file: file, object: "\(setting) = \(Self.relative(written, to: base))" + linux))
                     }
                 }
+            }
+        }
+        for fix in ProjectFixes.all {
+            for file in Self.filesToEditInMemory(fix, near: base) {
+                uses.insert(FeatureUse(feature: fix.feature, file: file, object: fix.tool))
             }
         }
         let index = ScriptRequirements.scriptIndex([base, (base as NSString).deletingLastPathComponent + "/node_modules"])
@@ -102,13 +125,8 @@ public struct BuildDomain: FeatureDomain {
         return text
     }
 
-    /// The native Node modules (`.node` files) that are Mach-O, under the `node_modules` folders
-    /// Node would search from `base` (it and each folder above), and whose package has no Linux
-    /// build: no ELF `.node` beside it, and for npm's platform packages (`"os": ["darwin"]`), no
-    /// installed package for Linux among the optional dependencies that name it (expo-default's
-    /// `lightningcss-darwin-arm64`, whose JS bundling then fails on Linux). For those, the
-    /// alternatives that the lockfile beside the `node_modules` folder lists for Linux with glibc.
-    static func macOSOnlyNodeModules(near base: String) throws -> [(file: String, package: String, linuxPackages: [String])] {
+    /// The `node_modules` folders Node would search from `base`: in it and each folder above.
+    static func nodeModulesFolders(near base: String) -> [String] {
         var folders: [String] = []
         var folder = base
         while true {
@@ -117,8 +135,26 @@ public struct BuildDomain: FeatureDomain {
             if parent == folder || parent.isEmpty { break }
             folder = parent
         }
+        return folders
+    }
+
+    /// The files in those folders that hold the text a fix edits in memory.
+    static func filesToEditInMemory(_ fix: ProjectFix, near base: String) -> [String] {
+        guard case .inMemoryEdit(let file, let old, _) = fix.change else { return [] }
+        return nodeModulesFolders(near: base).map { $0 + "/" + file }.filter { path in
+            FileSystem.contents(atPath: path).map { String(decoding: $0, as: UTF8.self).contains(old) } ?? false
+        }
+    }
+
+    /// The native Node modules (`.node` files) that are Mach-O, under the `node_modules` folders
+    /// Node would search from `base` (it and each folder above), and whose package has no Linux
+    /// build: no ELF `.node` beside it, and for npm's platform packages (`"os": ["darwin"]`), no
+    /// installed package for Linux among the optional dependencies that name it (expo-default's
+    /// `lightningcss-darwin-arm64`, whose JS bundling then fails on Linux). For those, the
+    /// alternatives that the lockfile beside the `node_modules` folder lists for Linux with glibc.
+    static func macOSOnlyNodeModules(near base: String) throws -> [(file: String, package: String, linuxPackages: [String])] {
         var found: [(file: String, package: String, linuxPackages: [String])] = []
-        for root in folders {
+        for root in nodeModulesFolders(near: base) {
             let locked = Self.lockedPackages(beside: root)
             var manifests: [String: [String: Any]] = [:]
             var modules: [String] = []
@@ -292,6 +328,26 @@ public struct BuildDomain: FeatureDomain {
             }
         }
         return found
+    }
+
+    /// The settings of `workspace`'s targets that name a Mach-O tool, macro plugins aside, with the
+    /// tools they name in any configuration.
+    static func machOToolSettings(of workspace: XcodeWorkspace) -> [String: Set<String>] {
+        var settings: [String: Set<String>] = [:]
+        for project in workspace.allProjects {
+            let directory = (project.path as NSString).deletingLastPathComponent
+            let projectConfigurations = project.pbxproj.rootObject?.buildConfigurationList?.buildConfigurations ?? []
+            for target in project.pbxproj.nativeTargets {
+                for configuration in target.buildConfigurationList?.buildConfigurations ?? [] {
+                    let levels = [configuration, projectConfigurations.first { $0.name == configuration.name }].compactMap { $0 }
+                        .flatMap { Self.levels(of: $0, project: project, directory: directory) }
+                    for (setting, written, _, executable) in Self.machOExecutables(levels: levels, directory: directory) where !written.hasPrefix("-load-plugin-executable ") {
+                        settings[setting, default: []].insert(executable)
+                    }
+                }
+            }
+        }
+        return settings
     }
 
     /// The unconditional value of a setting in `levels`, with the project's folder as `SRCROOT`.

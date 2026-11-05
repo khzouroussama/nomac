@@ -4,7 +4,7 @@ import NomacPackages
 
 /// Swift macro plugins a project names with `-load-plugin-executable` as Mach-O executables, which
 /// a build off macOS cannot run, built for the build machine from the Swift package that ships
-/// beside them (ADR 0151).
+/// beside them (ADR 0151). The rule behind ``ProjectFixes/macroPluginFromPackage``.
 ///
 /// Xcode 27.0's compiler uses the first `-load-plugin-executable` of a module
 /// (`.github/scripts/macro_plugin_experiments.py order`), so the build's own goes before the
@@ -54,10 +54,11 @@ public enum MacroPluginPackages {
     }
 
     /// Builds each plugin's package for the build machine in `scratch`, and returns the flags that
-    /// load the builds, to go before the project's. A plugin without a package that declares its
-    /// macro target is left to the compiler, and reported in `warnings`.
-    public static func build(_ plugins: [Plugin], scratch: String, log: (String) -> Void) async throws -> (flags: String, warnings: [String]) {
+    /// load the builds, to go before the project's, with the targets built. A plugin without a
+    /// package that declares its macro target is left to the compiler, and reported in `warnings`.
+    public static func build(_ plugins: [Plugin], scratch: String, log: (String) -> Void) async throws -> (flags: String, targets: [String], warnings: [String]) {
         var flags: [String] = []
+        var targets: [String] = []
         var warnings: [String] = []
         for plugin in Set(plugins).sorted() {
             let name = (plugin.executable as NSString).lastPathComponent
@@ -66,11 +67,12 @@ public enum MacroPluginPackages {
                 warnings.append("the macro plugin \(plugin.executable) is a Mach-O executable, and no Swift package beside it declares the macro target \(name) to build it for this machine: see `nomac check`")
                 continue
             }
-            log("Building the macro plugin \(target) for this machine from \(package)\n")
+            log("note: project fix \(ProjectFixes.macroPluginFromPackage.id): building the macro plugin \(target) for this machine from \(package)\n")
+            targets.append(target)
             let built = try buildProduct(target, package: package, scratch: scratch + "/" + target + "-" + MD5.hex(package))
             flags += loadFlags(built + "#" + plugin.modules)
         }
-        return (flags.joined(separator: " "), warnings)
+        return (flags.joined(separator: " "), targets, warnings)
     }
 
     /// The macro target an executable is built from: the one of its name, or of its name without
