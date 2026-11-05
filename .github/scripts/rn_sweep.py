@@ -13,8 +13,8 @@ for. Each app goes through these steps in order, stopping at the first failure:
            feature outside the envelope, the project requirements among them
   fixes    the project's changes for Linux: each setting that names a Mach-O tool overridden on the
            command line with the Linux build of the same tool (`build:setting=mach-o-executable`'s
-           note), and ADR 0182's platform check of expo-modules-autolinking. Requirements left
-           without a fix are recorded and the build is tried anyway: it decides
+           note; nomac overrides those with a build beside the tool itself, ADR 0184). Requirements
+           left without a fix are recorded and the build is tried anyway: it decides
   build    `nomac archive` Release for generic/platform=iOS, ad-hoc signed (capture_reference.py's ADHOC),
            continuing after errors so that one run shows every independent failure (with
            --separate-build: `nomac build` without signing, then the archive from a new build folder)
@@ -614,7 +614,7 @@ def linux(root, entry, slot, separate_build=False):
          requirements={f["id"]: [u["object"] for u in f.get("uses", [])][:20] for f in outside if f["id"].startswith("build:")})
 
     started = time.time()
-    overrides, applied, unfixed = project_fixes(app, top, container, report)
+    overrides, applied, unfixed = project_fixes(top, container, report)
     step(result, "fixes", True, started, applied=applied, overrides=overrides, unfixed=unfixed)
     save_result(root, result)
 
@@ -719,19 +719,10 @@ def missing_commands(log_path):
     return found
 
 
-def project_fixes(app, top, container, report):
+def project_fixes(top, container, report):
     """The project's changes for Linux: returns the settings to override, the changes made and the
     requirements left without a fix."""
     applied, unfixed, overrides = [], [], {}
-    path, test, linux_test = expo.AUTOLINKING_SCAN
-    for folder in node_module_owners(app, top):
-        file = folder / path
-        if file.exists():
-            text = file.read_text()
-            if test in text:
-                file.write_text(text.replace(test, linux_test))
-                applied.append(str(file.relative_to(top)))
-            break
     base = container.parent
     for feature in report["features"]:
         if feature["status"] == "verified":

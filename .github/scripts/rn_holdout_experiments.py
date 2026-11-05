@@ -50,13 +50,12 @@ Usage (DEVELOPER_DIR selects the Xcode; root defaults to ~/nomac-out/wt-scratch/
   rn_holdout_experiments.py capture [--root R] [--configuration C ...] [app ...]
   rn_holdout_experiments.py archive [--root R] [app ...]
   rn_holdout_experiments.py platform-packages [--root R] [app ...]
-  rn_holdout_experiments.py verify --nomac <nomac> [--project-fixes] [--keep-derived-data] [--root R] [--configuration C ...] [app ...]
+  rn_holdout_experiments.py verify --nomac <nomac> [--keep-derived-data] [--root R] [--configuration C ...] [app ...]
   rn_holdout_experiments.py mangling [--root R] [--configuration C ...] [app ...]
   rn_holdout_experiments.py triage <build.log> ...
 
-`platform-packages` and `--project-fixes` are expo_experiments.py's: the lockfile's Linux optional
-packages as a commit on top of the one the references were captured at, and the project's changes
-for a Linux build (docs/state/react-native.md).
+`platform-packages` is expo_experiments.py's: the lockfile's Linux optional packages as a commit on
+top of the one the references were captured at (docs/state/react-native.md).
 
 `mangling` reads a reference's products with the Xcode's `nm`: the symbols whose template
 arguments point into objects (Itanium `Xad...`, the forms B-182 changes) that the app's
@@ -605,7 +604,6 @@ def main():
     parser.add_argument("--root", default=str(Path.home() / "nomac-out" / "wt-scratch" / "rn-holdout"))
     parser.add_argument("--configuration", action="append", dest="configurations")
     parser.add_argument("--nomac")
-    parser.add_argument("--project-fixes", action="store_true", help="verify: the project's changes for Linux first")
     parser.add_argument("--keep-derived-data", action="store_true", help="verify: keep nomac's build tree")
     args = parser.parse_intermixed_args()
     if args.command == "triage":
@@ -635,7 +633,7 @@ def main():
             expo.add_platform_packages(root, app_id)
         else:
             nomac = str(Path(args.nomac or sys.exit("error: --nomac is required")).resolve())
-            expo.verify_app(root, app_id, configurations, nomac, fixes=args.project_fixes)
+            expo.verify_app(root, app_id, configurations, nomac)
             if not args.keep_derived_data:
                 for configuration in configurations:
                     shutil.rmtree(root / "refs" / configuration / f"{app_id}.nomac-DerivedData", ignore_errors=True)

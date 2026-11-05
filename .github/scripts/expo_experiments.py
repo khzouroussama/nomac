@@ -40,7 +40,7 @@ sandbox-exec either), their sockets in <reference>/archive/archive.network.log.
 Usage (DEVELOPER_DIR selects the Xcode; root defaults to ~/nomac-out/wt-scratch/expo):
   expo_experiments.py generate [--root R] [app ...]
   expo_experiments.py capture [--root R] [--configuration C ...] [--archive] [app ...]
-  expo_experiments.py verify --nomac <nomac> [--root R] [--configuration C ...] [--project-fixes] [app ...]
+  expo_experiments.py verify --nomac <nomac> [--root R] [--configuration C ...] [app ...]
   expo_experiments.py node [--root R]          the pinned Node for this machine, in <root>/node
   expo_experiments.py triage <build.log> ...   a build log's errors by task and message
   expo_experiments.py nested [--xcodebuild X] [--keep] [app ...]   replay the phase that runs xcodebuild (B-181)
@@ -53,8 +53,7 @@ Mac's paths, with <root>/node the Linux Node: the apps' .xcode.env.local names <
 `capture` writes capture_reference.py's layout to <root>/refs/<configuration>/<id> (the PIF,
 `-list` and settings once per app, the build per configuration); `verify` writes
 <root>/refs/<configuration>/<id>.nomac.json and keeps nomac's derived data next to it
-(<id>.nomac-DerivedData). Before each, the checkout is reset to its commit. With --project-fixes,
-`verify` first makes the changes a project makes for a Linux build (`project_fixes`, ADR 0182).
+(<id>.nomac-DerivedData). Before each, the checkout is reset to its commit.
 """
 
 import argparse
@@ -348,7 +347,7 @@ def capture_archives(root, app_id, configurations):
         reset(src, record["commit"])
 
 
-def verify_app(root, app_id, configurations, nomac, fixes=False):
+def verify_app(root, app_id, configurations, nomac):
     record = json.loads((root / "apps" / f"{app_id}.json").read_text())
     src = Path(record["path"])
     developer_dir = os.environ.get("DEVELOPER_DIR") or sys.exit("error: set DEVELOPER_DIR to the reference Xcode")
@@ -356,8 +355,6 @@ def verify_app(root, app_id, configurations, nomac, fixes=False):
     for configuration in configurations:
         out = root / "refs" / configuration / app_id
         reset(src, record["commit"])
-        if fixes:
-            project_fixes(src)
         on_mac = sys.platform == "darwin"
         sandbox = OFFLINE if on_mac and app_id not in NESTED_SWIFTPM else []
         with capture.NetworkLog(f"{out}.nomac.network.log") if on_mac and not sandbox else contextlib.nullcontext():
@@ -372,31 +369,6 @@ def verify_app(root, app_id, configurations, nomac, fixes=False):
         if derived.exists():
             derived.rename(kept)
         reset(src, record["commit"])
-
-
-LINUX_HERMESC = "node_modules/hermes-compiler/hermesc/linux64-bin/hermesc"
-AUTOLINKING_SCAN = ("node_modules/expo-modules-autolinking/build/platforms/apple/apple.js",
-                    "if (process.platform !== 'darwin') {",
-                    "if (process.platform !== 'darwin' && process.platform !== 'linux') {")
-
-
-def project_fixes(src):
-    """--project-fixes: what `nomac check` and ADR 0182 ask of a project built on Linux, made in
-    the checkout that `verify` resets afterwards. React Native's phases source ios/.xcode.env.local
-    after the build settings, so it names the Linux hermesc that the same hermes-compiler package
-    ships (x86_64; given the same input path, its bytecode is the macOS one's byte for byte); and
-    expo-modules-autolinking scans for @ExpoModule classes on Linux too, with the Linux scanner that
-    expo-modules-macros installs there."""
-    applied = []
-    if (src / LINUX_HERMESC).exists():
-        with open(src / "ios" / ".xcode.env.local", "a") as env_file:
-            env_file.write(f"export HERMES_CLI_PATH={src / LINUX_HERMESC}\n")
-        applied.append("HERMES_CLI_PATH in ios/.xcode.env.local")
-    path, check, linux_check = AUTOLINKING_SCAN
-    if (src / path).exists() and check in (src / path).read_text():
-        (src / path).write_text((src / path).read_text().replace(check, linux_check))
-        applied.append(path)
-    log(f"project fixes: {', '.join(applied) or 'none'}")
 
 
 MACRO_STUBS = "".join(f"public protocol {name} {{}}\n" for name in ["AnyModule", "Record", "JavaScriptDecodable", "JavaScriptEncodable"]) \
@@ -532,7 +504,6 @@ def main():
     parser.add_argument("--configuration", action="append", dest="configurations")
     parser.add_argument("--nomac")
     parser.add_argument("--archive", action="store_true", help="capture: the ad-hoc archive and its export")
-    parser.add_argument("--project-fixes", action="store_true", help="verify: the project's changes for Linux first")
     args = parser.parse_intermixed_args()
     root = Path(args.root).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -561,8 +532,7 @@ def main():
         elif args.command == "capture":
             capture_app(root, app_id, configurations)
         else:
-            verify_app(root, app_id, configurations, str(Path(args.nomac or sys.exit("error: --nomac is required")).resolve()),
-                       args.project_fixes)
+            verify_app(root, app_id, configurations, str(Path(args.nomac or sys.exit("error: --nomac is required")).resolve()))
 
 
 if __name__ == "__main__":
