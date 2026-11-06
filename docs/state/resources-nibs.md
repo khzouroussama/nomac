@@ -299,21 +299,39 @@ in `~/nomac-out/wt-scratch/nibs2` (`btn.py <experiment>...`: a nib's buttons, ne
 inline; `nstruct.py`, `objlist.py`: an experiment's objects and its all-objects list;
 `expdiff.sh`, `corpusdiff.sh`: Xcode's nib against nomac's).
 
-Current step: paused (2026-11-03) after round 115 (web views, labels' shadows and minimums, named
-fonts), all committed and marked READY; nothing running.
+Current step: working through part B's refusals from the survey's ranking (2026-11-07): the
+survey's `nib:refused=B-260` split by real cause, weighting the projects Xcode 27 accepts, then
+B-261's storyboard features outside part A's list.
 
-Next actions, by documents blocked (`python3 ~/nomac-out/scripts/nib_refusals.py <nomac>
-/tmp/nomac-corpus /tmp/nomac-holdout --examples`; 637 of 1065 compile at round 112):
-1. `<archive>` (31) is skipped, as agreed: its 11 iOS documents are package demos no target builds.
-2. Top-level `<tableView>` and `<customObject>` in xibs (4 each), scenes without one view
-   controller (4: `avPlayerViewController`), B-290 runtime-attribute order (5), then the rest of the
-   ranking. nibs-3 owns colors, `<simulatedMetricsContainer>` and constraints (B-265).
-3. Observations: `~/nomac-out/wt-scratch/nibs2/nib` (rounds 32-112 merged in), corpus set
-   `~/nomac-out/wt-scratch/nibs2/corpus-merged`; experiments go into a copy of
-   `nib_experiments.py` recorded to a new directory, then merged into `nib` (names differing only in
-   case collide on macOS: `*-mode-*-capital`).
+Next actions:
+1. Rank: `~/nomac-out/wt-scratch/nibs-2/rank.py <nomac> <out.json> <roots>` on the corpus, the holdout
+   and `~/nomac-out/wt-scratch/nibs-2/survey-docs` (each refused survey project's documents at its
+   surveyed commit, `tools/fetch_docs.py`; `projects.json` marks those Xcode 27 accepts as `live`).
+2. Measure with `~/nomac-out/wt-scratch/nibs-2/measure.sh [full]`: corpus, holdout (Xcode's outputs in
+   `holdout-obs`, recorded with `record_docs.py`) and all experiments (`nib`, the union of the old
+   sets). `ddiff.py <document>` and `ediff.py <experiment>` show structural differences.
+3. B-291: several recognizers in a scene. The placeholders' numbers are not the sorted connections'
+   first reach: `sb-gesture-three`, `-nested`, `-predict` and wikipedia's
+   DescriptionEditViewController disagree with every walk tried (`gsum.py`).
+4. Nibs the holdout's references show wrong on main, not refused (part A's marked A): constraints'
+   order and constants (A: wordpress QRLoginVerifyAuthorization, PostStatsTitleCell, vlc
+   VLCNetworkListCell), a color (A: keepassium PasswordAuditVC, simplenote OptionsViewController),
+   `UISeparatorInset`'s place (keepassium SyncConflictAlert), estimated section header heights
+   (AutoFillSetupMessageVC), habitica Support's second nib, an array's order (vlc QueueView), a
+   slider's value (simplenote SPNoteHistoryViewController), and the warning `Automatically Adjusts
+   Font requires using a Dynamic Type text style` (habitica's UserTopHeader, HabiticaAlertController,
+   ShopAdFooter).
 
 Just finished:
+- Connections of one name, or of one event and selector, go by original class, then a walk of the
+  views: xibs depth first, storyboards each view's subviews and then on from the last (rounds 118
+  and 119; replaces all objects' order, which made wikipedia's ScrollableEducationPanelView and the
+  holdout's FancyAlerts wrong). Two recognizers' actions of one selector compile.
+- B-290 closed (round 117): runtime attributes' objects sort by the decimal strings of their places
+  plus one, byte by byte; 153 nibs of the corpus and experiments and 48 of the holdout, none seen by
+  the rule's finding, and 28 experiments recorded to test it. Ties beside them compile too. Corpus 454
+  identical, 14 equivalent, 0 different, 120 refused (from 446, 11, 0, 131); holdout 178 identical, 3
+  equivalent, 13 different, 122 refused (from 175, 3, 14, 124).
 - Named fonts: every name compiles, by the table of the 309 names ibtool resolves; others as
   unresolved (round 115, `docs/formats/nib.md` "Named fonts").
 - Labels' shadow colors and offsets, minimum font sizes and scale factors with and without fitting,

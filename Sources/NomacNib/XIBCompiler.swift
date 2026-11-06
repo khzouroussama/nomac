@@ -135,10 +135,10 @@ struct DocumentCompiler {
     var colorMatched = true
     /// Whether the document is in an `.lproj` folder, whose texts are localizable (`label-lproj`).
     var localizable: Bool { (path as NSString).deletingLastPathComponent.hasSuffix(".lproj") }
-    /// A storyboard's: its sRGB and gray colors' components keep 10 significant digits, but for named
-    /// colors (nib-experiments `sb-precise-*` against `precise-*`, `sb-cw-*`; the corpus's catalog
-    /// colors).
-    var roundsInlineColors = false
+    /// Whether the document is a storyboard, whose sRGB and gray colors' components keep 10
+    /// significant digits, but for named colors (nib-experiments `sb-precise-*` against `precise-*`,
+    /// `sb-cw-*`; the corpus's catalog colors), and which walks its connections otherwise.
+    var isStoryboard = false
     /// Image placeholders by image name, one object each (`image-view-two`).
     var images: [String: NibImage] = [:]
     /// The empty array of the nib being compiled, which its root and its toolbars' items share
@@ -1044,7 +1044,8 @@ struct DocumentCompiler {
 
     /// Records an object's `<connections>` for `outletConnections`.
     mutating func connections(of element: XIBElement, source: NibArchivable) throws {
-        for container in element.children(named: "connections") {
+        // Of two `<connections>`, ibtool reads the first (`gesture-two`, `gesture-two-swapped`).
+        for container in element.children(named: "connections").prefix(1) {
             let cellSegues = element.name == "tableViewCell" && cellSeguePlaceholders[element.attributes["id"] ?? ""] != nil
             let actions = Self.actionHolders.contains(element.name) || (element.name == "view" && element.attributes["customClass"] != nil)
             let controlSegues = ["button", "containerView"].contains(element.name) && !controlSeguePlaceholders.isEmpty
@@ -1124,7 +1125,7 @@ struct DocumentCompiler {
         } else {
             components = try documentComponents(element)
             let space = attributes["customColorSpace"] ?? attributes["colorSpace"] ?? ""
-            if roundsInlineColors, space != "calibratedWhite" {
+            if isStoryboard, space != "calibratedWhite" {
                 components = ConvertedColor.spaces.contains(space) ? components.significantAlpha(10) : components.significant(10)
             }
             if case .gray(let white, let alpha) = components, let gray = NibColor.grayName(white: white, alpha: alpha) {

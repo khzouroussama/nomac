@@ -53,7 +53,7 @@ public enum StoryboardCompiler {
 extension DocumentCompiler {
     mutating func compileStoryboard(_ document: XIBElement) throws -> [String: Data] {
         try header(document, attributes: StoryboardCompiler.documentAttributes)
-        roundsInlineColors = true
+        isStoryboard = true
         var scenes: [XIBElement] = []
         for child in document.children {
             switch child.name {

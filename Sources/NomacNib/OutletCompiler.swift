@@ -11,15 +11,16 @@ extension DocumentCompiler {
     /// The connections of the pending outlets, in the order ibtool writes them (docs/formats/nib.md
     /// "Connections"): the outlet collections first, then the outlets by name, byte by byte, those
     /// of one name placeholders first, then by their sources' original classes, byte by byte, then
-    /// by their sources' order in all objects (nib-experiments `outlet-*`, `oc-class-*`); then the
-    /// controls' actions by event, those without one first, selector and source (`ev-*`, `act-*`).
+    /// by the walk of `connectionWalk` (nib-experiments `outlet-*`, `oc-class-*`, `outlet-same-tree-*`);
+    /// then the controls' actions by event, those without one first, selector and source likewise
+    /// (`ev-*`, `act-*`, `act-same-*`).
     /// Outlet collections of several names of one source keep the order of their names' first
     /// connections in the document (`oc-names*`); of several sources, ibtool's order varies from
     /// run to run (`oc-mix-*`, ADR 0260). Two actions of one control without an event are refused
     /// (ibtool keeps one: `act-field-mixed-no-event`). ibtool drops a connection without an
     /// id (`cid-outlet-no-id*`, `conn-no-id-*`).
     mutating func outletConnections(allObjects: [NibArchivable], extra: [NibOutletConnection] = []) throws -> [NibArchivable] {
-        let order = Dictionary(allObjects.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
+        let order = connectionWalk(allObjects)
         var outlets = extra
         var collections: [NibOutletCollectionConnection] = []
         var events: [NibEventConnection] = []
@@ -81,13 +82,49 @@ extension DocumentCompiler {
         let sortedEvents = events.sorted {
             let (left, right) = (Array($0.selector.value.utf8), Array($1.selector.value.utf8))
             if $0.eventMask != $1.eventMask { return ($0.eventMask ?? 0) < ($1.eventMask ?? 0) }
-            return left == right ? index($0.source) < index($1.source) : left.lexicographicallyPrecedes(right)
-        }
-        for (left, right) in zip(sortedEvents, sortedEvents.dropFirst())
-        where left.source is NibGestureRecognizer && right.source is NibGestureRecognizer && left.selector.value == right.selector.value {
-            throw unsupported("two gesture recognizers' actions of one selector")
+            return left == right ? precedes($0.source, $1.source) : left.lexicographicallyPrecedes(right)
         }
         return sortedCollections + sorted + sortedEvents
+    }
+
+    /// The order of a nib's objects among connections of one name and class: its views first, from
+    /// its top-level views in order, then the others in all objects. A xib walks them depth first
+    /// (`act-same-tree-*`, `outlet-same-tree-*`, `act-same-top-nested`). A storyboard takes a view's
+    /// subviews in order and then goes on from the last taken, as a stack (`sb-act-same-*`,
+    /// `sb-outlet-same-tree-*`; the corpus's uncloudnotes DogDoodies, wikipedia
+    /// WMFTwoFactorPasswordViewController and DescriptionEditViewController).
+    private func connectionWalk(_ allObjects: [NibArchivable]) -> [ObjectIdentifier: Int] {
+        func children(_ view: NibView) -> [NibView] {
+            switch view.kind {
+            case .effect(let effect): [effect.contentView] + view.subviews
+            case .collectionCell(let cell): [cell.contentView] + view.subviews
+            default: view.subviews
+            }
+        }
+        let views = allObjects.compactMap { $0 as? NibView }
+        let nested = Set(views.flatMap(children).map(ObjectIdentifier.init))
+        let top = views.filter { !nested.contains(ObjectIdentifier($0)) }
+        var walk: [NibView] = []
+        if isStoryboard {
+            walk = top
+            var stack = top
+            while let view = stack.popLast() {
+                let subviews = children(view)
+                walk += subviews
+                stack += subviews
+            }
+        } else {
+            func visit(_ view: NibView) {
+                walk.append(view)
+                children(view).forEach(visit)
+            }
+            top.forEach(visit)
+        }
+        var order: [ObjectIdentifier: Int] = [:]
+        for object in walk as [NibArchivable] + allObjects where order[ObjectIdentifier(object)] == nil {
+            order[ObjectIdentifier(object)] = order.count
+        }
+        return order
     }
 
     /// A connection's source's class: a custom class's original (`oc-class-custom`).

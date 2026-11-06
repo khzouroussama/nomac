@@ -6835,6 +6835,155 @@ for count, every in ((97, 1), (98, 1), (99, 1), (100, 1), (120, 1), (200, 7), (1
     EXPERIMENTS[f"udra-order-many-{count}" + (f"-every-{every}" if every > 1 else "")] = many_pairs(count, every=every)
 
 
+# Round 118: actions of one selector and event from several controls: what orders them, of the
+# document's order, the controls' ids and frames and the actions' ids.
+def same_selector(*buttons, selector="tapped:", event="touchUpInside"):
+    """Buttons of (id, x, action id), in document order."""
+    views = ""
+    for identifier, x, action in buttons:
+        views += subview(identifier, (x, 20, 50, 30), tag="button", attributes=' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" '
+                         'buttonType="system" lineBreakMode="middleTruncation"').replace("                </button>", (
+                             f'                    <connections>\n                        <action selector="{selector}" destination="-1" eventType="{event}" id="{action}"/>\n'
+                             "                    </connections>\n                </button>"))
+    return constrained(views, "")
+
+
+SAME_SELECTOR = {
+    "act-same-plain": same_selector(("aaa-aa-aa1", 0, "ac1-aa-aa1"), ("bbb-bb-bb1", 60, "ac2-aa-aa1")),
+    "act-same-action-ids-swapped": same_selector(("aaa-aa-aa1", 0, "ac2-aa-aa1"), ("bbb-bb-bb1", 60, "ac1-aa-aa1")),
+    "act-same-button-ids-swapped": same_selector(("bbb-bb-bb1", 0, "ac1-aa-aa1"), ("aaa-aa-aa1", 60, "ac2-aa-aa1")),
+    "act-same-frames-swapped": same_selector(("aaa-aa-aa1", 60, "ac1-aa-aa1"), ("bbb-bb-bb1", 0, "ac2-aa-aa1")),
+    "act-same-three": same_selector(("aaa-aa-aa1", 0, "ac1-aa-aa1"), ("bbb-bb-bb1", 60, "ac2-aa-aa1"), ("ccc-cc-cc1", 120, "ac3-aa-aa1")),
+    "act-same-three-a": same_selector(("aaa-aa-aa1", 0, "ac3-aa-aa1"), ("bbb-bb-bb1", 60, "ac1-aa-aa1"), ("ccc-cc-cc1", 120, "ac2-aa-aa1")),
+    "act-same-three-b": same_selector(("aaa-aa-aa1", 0, "ac2-aa-aa1"), ("bbb-bb-bb1", 60, "ac3-aa-aa1"), ("ccc-cc-cc1", 120, "ac1-aa-aa1")),
+    "act-same-three-ids": same_selector(("ccc-cc-cc1", 0, "ac1-aa-aa1"), ("aaa-aa-aa1", 60, "ac2-aa-aa1"), ("bbb-bb-bb1", 120, "ac3-aa-aa1")),
+    "act-same-three-upper": same_selector(("aaa-aa-aa1", 0, "zzz-aa-aa1"), ("bbb-bb-bb1", 60, "ZZZ-aa-aa1"), ("ccc-cc-cc1", 120, "000-aa-aa1")),
+    "act-same-seven": same_selector(*[(f"b{k}k-aa-aa1", 50 * k, f"{'qwertyu'[k]}c{k}-aa-aa1") for k in range(7)]),
+    "act-same-twelve": same_selector(*[(f"b{k:02d}-aa-aa1", 20 * k, f"{'qwertyuiopas'[k]}c{k % 10}-aa-aa1") for k in range(12)]),
+}
+EXPERIMENTS.update(SAME_SELECTOR)
+
+
+def same_nested(*containers, constraints=""):
+    """Containers of (id, y, [buttons]) of (id, x) buttons, each with one action of one selector, in document order."""
+    views = ""
+    for identifier, y, buttons in containers:
+        inner = ""
+        for button_id, x in buttons:
+            inner += ("    " + subview(button_id, (x, 5, 50, 30), tag="button", attributes=' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" '
+                                       'buttonType="system" lineBreakMode="middleTruncation"').replace("                </button>", (
+                                           '                    <connections>\n                        <action selector="tapped:" destination="-1" eventType="touchUpInside" '
+                                           f'id="a{button_id[:2]}-aa-aa1"/>\n                    </connections>\n                </button>')))
+        views += subview(identifier, (0, y, 300, 50)).replace("                </view>", f"                    <subviews>\n{inner}                    </subviews>\n                </view>")
+    return constrained(views, constraints)
+
+
+SAME_NESTED = {
+    "act-same-nested-three": same_nested(("c1c-aa-aa1", 0, [("b1b-aa-aa1", 0)]), ("c2c-aa-aa1", 60, [("b2b-aa-aa1", 0)]), ("c3c-aa-aa1", 120, [("b3b-aa-aa1", 0)])),
+    "act-same-nested-two": same_nested(("c1c-aa-aa1", 0, [("b1b-aa-aa1", 0)]), ("c2c-aa-aa1", 60, [("b2b-aa-aa1", 0)])),
+    "act-same-nested-three-two-each": same_nested(("c1c-aa-aa1", 0, [("b1b-aa-aa1", 0), ("b4b-aa-aa1", 60)]), ("c2c-aa-aa1", 60, [("b2b-aa-aa1", 0), ("b5b-aa-aa1", 60)]),
+                                                  ("c3c-aa-aa1", 120, [("b3b-aa-aa1", 0), ("b6b-aa-aa1", 60)])),
+    "act-same-nested-three-y-reversed": same_nested(("c1c-aa-aa1", 120, [("b1b-aa-aa1", 0)]), ("c2c-aa-aa1", 60, [("b2b-aa-aa1", 0)]), ("c3c-aa-aa1", 0, [("b3b-aa-aa1", 0)])),
+}
+SAME_NESTED["act-same-nested-three-pinned"] = same_nested(("c1c-aa-aa1", 0, [("b1b-aa-aa1", 0)]), ("c2c-aa-aa1", 60, [("b2b-aa-aa1", 0)]), ("c3c-aa-aa1", 120, [("b3b-aa-aa1", 0)]),
+                                                          constraints="".join(constraint(k, f"c{k}c-aa-aa1", "top", "iN0-l3-epB", "top", f' constant="{(k - 1) * 60}"') for k in (1, 2, 3)))
+EXPERIMENTS.update(SAME_NESTED)
+
+
+CONTROL_TAGS = {"button": ' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation"',
+                "slider": ' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" value="0.5" minValue="0.0" maxValue="1"',
+                "switch": ' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" on="YES"',
+                "view": ""}
+
+
+def mixed_control(tag, number, x, custom=None, selector="tapped:", event="valueChanged"):
+    classes = f' customClass="{custom}" customModule="T" customModuleProvider="target"' if custom else ""
+    return subview(f"c{number}c-aa-aa1", (x, 20, 50, 30), tag=tag, attributes=CONTROL_TAGS[tag] + classes).replace(f"                </{tag}>", (
+        f'                    <connections>\n                        <action selector="{selector}" destination="-1" eventType="{event}" id="a{number}a-aa-aa1"/>\n'
+        f"                    </connections>\n                </{tag}>"))
+
+
+# Of one selector and event, by class first? Controls of several classes, in both document orders,
+# and custom classes whose mangled names sort apart from their original classes'.
+SAME_CLASSES = {
+    "act-same-classes-button-slider": constrained(mixed_control("button", 1, 0) + mixed_control("slider", 2, 60), ""),
+    "act-same-classes-slider-button": constrained(mixed_control("slider", 1, 0) + mixed_control("button", 2, 60), ""),
+    "act-same-classes-switch-slider-button": constrained(mixed_control("switch", 1, 0) + mixed_control("slider", 2, 60) + mixed_control("button", 3, 120), ""),
+    "act-same-classes-custom-plain": constrained(mixed_control("button", 1, 0, "Zed") + mixed_control("button", 2, 60), ""),
+    "act-same-classes-plain-custom": constrained(mixed_control("button", 1, 0) + mixed_control("button", 2, 60, "Zed"), ""),
+    "act-same-classes-custom-slider": constrained(mixed_control("slider", 1, 0) + mixed_control("button", 2, 60, "Zed"), ""),
+    "act-same-classes-view-button": constrained(mixed_control("view", 1, 0, "Pad") + mixed_control("button", 2, 60), ""),
+    "act-same-classes-button-view": constrained(mixed_control("button", 1, 0) + mixed_control("view", 2, 60, "Pad"), ""),
+}
+EXPERIMENTS.update(SAME_CLASSES)
+
+
+def same_scene(subviews):
+    """A storyboard scene of the given subviews, whose actions go to its controller."""
+    return storyboard(scene(view_extra="                        <subviews>\n" + subviews.replace('destination="-1"', 'destination="BYZ-38-t0r"')
+                            + "                        </subviews>\n"))
+
+
+def same_tree(children, prefix="n", event="touchUpInside", selector="tapped:"):
+    """A tree of containers and buttons: a child is a button's number, or a list of children of a container."""
+    text = ""
+    for index, child in enumerate(children):
+        if isinstance(child, int):
+            text += mixed_control("button", child, 10 * index, event=event, selector=selector).replace(f"c{child}c-aa-aa1", f"b{child:02d}-aa-aa1").replace(
+                f"a{child}a-aa-aa1", f"a{child:02d}-aa-aa1")
+        else:
+            identifier = f"{prefix}{index}" + "x" * (3 - len(prefix) - 1) if len(prefix) < 3 else f"{prefix[:2]}{index}"
+            text += subview(f"{identifier}-aa-aa1", (0, 60 * index, 300, 50)).replace(
+                "                </view>", "                    <subviews>\n" + same_tree(child, prefix + str(index), event, selector) + "                    </subviews>\n                </view>")
+    return text
+
+
+TREES = {"flat": [1, 2, 3], "nested": [[1], [2], [3]], "button-then-nested": [1, [2], 3], "nested-then-button": [[1], 2], "deep": [[[1], [2]], [[3], [4]]],
+         "mixed": [[1, [2, 3], 4], 5, [[6], 7], 8], "shallow-after": [[[1]], 2, [3]], "wide": [[1, 2, 3], [4, 5, 6], [7, 8, 9]]}
+for name, tree in TREES.items():
+    STORYBOARDS[f"sb-act-same-{name}"] = same_scene(same_tree(tree))
+    EXPERIMENTS[f"act-same-tree-{name}"] = constrained(same_tree(tree), "")
+for name, controls in {"button-slider": mixed_control("button", 1, 0) + mixed_control("slider", 2, 60),
+                       "slider-button": mixed_control("slider", 1, 0) + mixed_control("button", 2, 60),
+                       "custom-plain": mixed_control("button", 1, 0, "Zed") + mixed_control("button", 2, 60),
+                       "plain-custom": mixed_control("button", 1, 0) + mixed_control("button", 2, 60, "Zed")}.items():
+    STORYBOARDS[f"sb-act-same-classes-{name}"] = same_scene(controls)
+
+
+# Round 119: the same walk for outlets of one name, top-level objects, and recognizers of one class.
+for name, tree in TREES.items():
+    outlets = re.sub(r'<action selector="tapped:" destination="-1" eventType="touchUpInside" id="(a\d\d-aa-aa1)"/>', r'<outlet property="delegate" destination="-1" id="\1"/>', same_tree(tree))
+    EXPERIMENTS[f"outlet-same-tree-{name}"] = constrained(outlets, "")
+    STORYBOARDS[f"sb-outlet-same-tree-{name}"] = same_scene(outlets)
+
+
+def top_views(*trees):
+    roots = ""
+    for number, tree in enumerate(trees):
+        roots += (f'        <view contentMode="scaleToFill" id="rt{number}-aa-aa1">\n            <rect key="frame" x="0" y="0" width="393" height="852"/>\n'
+                  f'            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>\n            <subviews>\n{tree}            </subviews>\n'
+                  '            <point key="canvasLocation" x="0" y="0"/>\n        </view>\n')
+    return xib(roots)
+
+
+EXPERIMENTS["act-same-top-two"] = top_views(mixed_control("button", 1, 0, event="touchUpInside"), mixed_control("button", 2, 0, event="touchUpInside"))
+EXPERIMENTS["act-same-top-three"] = top_views(mixed_control("button", 1, 0, event="touchUpInside"), mixed_control("button", 2, 0, event="touchUpInside"),
+                                              mixed_control("button", 3, 0, event="touchUpInside"))
+EXPERIMENTS["act-same-top-nested"] = top_views(same_tree([[1], 2]), same_tree([3, [4]]))
+GESTURE_TWO_TAPS = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1").replace("act-tbp-aa1", "act-tbp-aa2"), attach=())
+EXPERIMENTS["gesture-two-taps"] = GESTURE_TWO_TAPS
+EXPERIMENTS["gesture-three-taps"] = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1") + recognizer(identifier="tcp-aa-aa1"), attach=())
+EXPERIMENTS["gesture-two-one-connections"] = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1"), attach=(("sss-ss-ss1", "tap-aa-aa1"),)).replace(
+    '<outletCollection property="gestureRecognizers" destination="tap-aa-aa1" appends="YES" id="grtap-aa-aa1"/>',
+    '<outletCollection property="gestureRecognizers" destination="tap-aa-aa1" appends="YES" id="grtap-aa-aa1"/>\n'
+    '                        <outletCollection property="gestureRecognizers" destination="tbp-aa-aa1" appends="YES" id="grtbp-aa-aa1"/>')
+EXPERIMENTS["gesture-two-one-connections-reversed"] = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1"), attach=(("sss-ss-ss1", "tbp-aa-aa1"),)).replace(
+    '<outletCollection property="gestureRecognizers" destination="tbp-aa-aa1" appends="YES" id="grtbp-aa-aa1"/>',
+    '<outletCollection property="gestureRecognizers" destination="tbp-aa-aa1" appends="YES" id="grtbp-aa-aa1"/>\n'
+    '                        <outletCollection property="gestureRecognizers" destination="tap-aa-aa1" appends="YES" id="grtap-aa-aa1"/>')
+EXPERIMENTS["gesture-two-taps-attached"] = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1"), attach=(("sss-ss-ss1", "tap-aa-aa1"), ("sss-ss-ss1", "tbp-aa-aa1")))
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

@@ -807,7 +807,8 @@ primaryActionTriggered 8192, editingDidBegin 65536, editingChanged 131072, editi
 editingDidEndOnExit 524288; round 105, `act-control-*`), left out for an action without
 `eventType` or of `menuActionTriggered`. Date pickers hold actions as other controls
 (`act-date-picker`). The nib lists the actions after the outlets, by event mask (none first), then
-selector, then source in all objects (`act-with-outlets`, `act-field-mixed-no-event`); of two
+selector, then source as "Connections" orders them (`act-with-outlets`, `act-field-mixed-no-event`,
+`act-same-*`); of two
 actions of one control without an event ibtool keeps one, which nomac refuses. Text fields,
 switches, buttons, segmented controls, sliders and page controls take actions (`act-button-*`,
 `act-segmented-value`, `act-slider-value`, `act-page-value`). A custom control, a `<view>` with a custom class and
@@ -1103,8 +1104,8 @@ recognizers write nothing more; a screen edge pan recognizer has `allowedTouchTy
 `sb-gesture-long-press`, `sb-gesture-pinch`). A view attaches them with an outlet collection
 `gestureRecognizers` with `appends="YES"`: `addsContentToExistingCollection` true and, without a
 `collectionClass`, `runtimeCollectionClassName` `NSArray`. Their actions are
-`UIRuntimeEventConnection`s without an event; two recognizers' actions of one selector, whose order
-is not known yet, are refused. IB's empty `<gestureRecognizers/>` element of a view or a collection
+`UIRuntimeEventConnection`s without an event, those of one selector by class, then in the top-level
+objects' order (`gesture-two-*`, `gesture-three-*`). IB's empty `<gestureRecognizers/>` element of a view or a collection
 view cell changes nothing (`gesture-empty-element*`, `cvcell-gesture-element`, `sb-gesture-no-empty-element`).
 
 In a storyboard (round 52, `sb-gesture-*`) a recognizer is an object of its scene after First
@@ -1136,8 +1137,8 @@ false), then a `UIRuntimeOutletConnection` per outlet (`UILabel` the property, `
 those of one name placeholders first (File's Owner whatever its class: `oc-class-zowner-image`),
 then by their sources' original classes, byte by byte (`UIImageView`, `UIScrollView`, `UIView`; a
 custom class counts as its original: `oc-class-*`, the corpus's pocket-casts
-SharePublishViewController), then by their sources' order in all objects (`outlet-from-both`,
-`outlet-same-name-*`), whatever the document's order or ids. Names are one
+SharePublishViewController), then by a walk of the nib's views (below), whatever the document's
+order or ids (`outlet-from-both`, `outlet-same-name-*`, `outlet-same-tree-*`). Names are one
 string object each. Sources are File's Owner and views; destinations views, placeholders,
 constraints, gesture recognizers and a navigation bar's item and bar button items
 (`outlet-nav-bar-*`). A prototype cell's outlet to an object of its controller's nib is not
@@ -1153,7 +1154,17 @@ Owner's and a view's, ibtool's order changes from run to run: `oc-mix-a`, `oc-mi
 collections out of document order at times. nomac writes them by name, byte by byte, those of one
 name as the outlets' rule orders them, one of ibtool's orders (`oc-mix-a`, `oc-mix-h` are byte for
 byte one of their runs); a nib differing from Xcode's only there is equivalent (ADR 0260). Actions
-follow the outlets ("Text fields, switches and actions"). An `<outlet>`, `<outletCollection>` or `<action>` without an `id` is
+follow the outlets ("Text fields, switches and actions").
+
+Connections of one name, and of one event and selector, from sources of one original class go by a
+walk of the nib's views from its top-level objects, in order, whatever the frames or ids (rounds
+118 and 119). A xib walks depth first (`act-same-tree-*`, `outlet-same-tree-*`,
+`act-same-top-nested`). A storyboard takes all of a view's subviews in order, then goes on from the
+last one taken, as a stack: for the tree `[[1, [2, 3], 4], 5, [[6], 7], 8]` the order 5, 8, 7, 6, 1,
+4, 2, 3 (`sb-act-same-*`, `sb-outlet-same-tree-*`; the corpus's uncloudnotes DogDoodies, wikipedia
+WMFTwoFactorPasswordViewController, the holdout's FancyAlerts). Recognizers and other objects
+outside the views follow them, in all objects (`gesture-two-taps`). Of two `<connections>` of one
+element ibtool reads the first (`gesture-two`). An `<outlet>`, `<outletCollection>` or `<action>` without an `id` is
 dropped, in xibs and storyboards alike (`cid-outlet-no-id*`, `conn-no-id-*`, `sb-conn-no-id`).
 
 ## UIColor
