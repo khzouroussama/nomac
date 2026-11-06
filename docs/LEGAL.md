@@ -3,6 +3,10 @@
 This page states facts about nomac and quotes Apple's published terms. It is not legal advice.
 If your use of nomac matters to you or your company, ask a lawyer about your situation.
 
+nomac is provided as is, with no warranty, and you use it at your own risk (LICENSE, sections 7 and 8).
+The authors are not responsible for what happens to your apps, your Apple account or your use of
+Apple's software.
+
 ## What nomac ships
 
 - nomac's source code, under the Apache License 2.0 (LICENSE).

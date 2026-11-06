@@ -179,6 +179,10 @@ responsible for complying with it. nomac was developed and tested on Macs. nomac
 with Apple; Xcode, iOS and TestFlight are trademarks of Apple Inc. Read
 [docs/LEGAL.md](docs/LEGAL.md).
 
+nomac is provided as is, with no warranty, and you use it at your own risk (LICENSE, sections 7 and 8).
+The authors are not responsible for what happens to your apps, your Apple account or your use of
+Apple's software. This is not legal advice.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md); AI coding agents start from [AGENTS.md](AGENTS.md).
