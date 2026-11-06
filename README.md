@@ -87,7 +87,8 @@ nomac archive -workspace App.xcworkspace -scheme App -destination generic/platfo
 nomac export -archivePath App.xcarchive -exportPath out \
     -exportOptionsPlist ExportOptions.plist
 
-# Install and launch on an iPhone connected by USB
+# Install and launch on an iPhone connected by USB (the first time: docs/INSTALL-ON-IPHONE.md)
+nomac device pair --device <UDID>
 nomac install out/App.ipa --device <UDID>
 nomac launch com.example.App --device <UDID>
 

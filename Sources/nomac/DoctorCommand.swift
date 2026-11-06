@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import NomacBuild
 import NomacCore
+import NomacDevice
 import NomacSDK
 
 /// `nomac doctor`: report what nomac needs and whether it is present.
@@ -42,6 +43,20 @@ struct DoctorCommand: ParsableCommand {
                 print("          install: \(tool.installation)")
             }
         }
+        #if !os(macOS)
+        printUSBMux()
+        #endif
+    }
+
+    /// Installing on a device goes through usbmuxd, which a Linux machine may not have.
+    func printUSBMux() {
+        let host = USBMuxHost.current
+        guard let daemon = host.daemon() else {
+            print("[missing] usbmuxd: nomac install, run and test reach a device through it")
+            print("          install: sudo apt-get install -y usbmuxd (or dnf, pacman, zypper)")
+            return
+        }
+        print("[ok] usbmuxd at \(daemon)" + (host.exists("/var/run/usbmuxd") ? ": running" : ": starts when a device is plugged in"))
     }
 
     /// Off macOS, `xcodebuild` and `xcrun` are the launchers `nomac toolchain install` writes into

@@ -46,7 +46,10 @@ import Testing
             ["Request": .string("StartSession"), "SessionID": .string("S"), "EnableSessionSSL": .boolean(true)],
         ])
         let lockdown = LockdownClient(stream: stream)
-        let secured = ReplayStream(replies: [["Request": .string("StartService"), "Service": .string("com.apple.afc"), "Port": .integer(49_152)]])
+        let secured = ReplayStream(replies: [
+            ["Request": .string("GetValue"), "Key": .string("ProductVersion"), "Value": .string("27.0.1")],
+            ["Request": .string("StartService"), "Service": .string("com.apple.afc"), "Port": .integer(49_152)],
+        ])
         try lockdown.startSession(hostID: "H", systemBUID: "B") { _ in secured }
         #expect(try lockdown.startService("com.apple.afc") == Lockdown.Service(port: 49_152, usesTLS: false))
     }

@@ -1,81 +1,123 @@
 # Install on your iPhone from Linux
 
-nomac builds, signs, installs and launches an iOS app on an iPhone with no Mac in the loop, with
-your own Apple developer account. This page is the whole route; the protocols behind it are in
-docs/formats/ (usbmux.md, lockdown.md, afc.md, remotexpc.md) and ADR 0400.
+The whole route from a Linux machine, an iPhone, a cable and an Apple account, with no Mac and
+no Xcode running anywhere. The protocols behind it are in docs/formats/ (usbmux.md, lockdown.md,
+afc.md, remotexpc.md) and ADRs 0400 and 0404.
 
-What has been checked: an iPhone on iOS 27.0.1 connected by USB, with nomac in a Linux container
-reaching the device through a forward of a Mac's usbmuxd (step 2). A Linux machine's own usbmuxd
-speaks the same protocol, but nomac has not been run against one yet (B-407).
+**What has been checked and what has not.** An iPhone on iOS 27.0.1 by USB installed and launched
+nomac's builds with nomac in a Linux container, through a forward of a Mac's usbmuxd and that
+Mac's pairing (B-407). **No iPhone has been tested on a real Linux machine's USB yet.** The parts
+only a first run from Linux uses, `nomac device pair`, `nomac device developer-mode` and mounting
+the Developer Disk Image on a phone Xcode never prepared, have run against libimobiledevice's
+usbmuxd and a scripted device (`.github/scripts/first_run_experiments.py`), never against an
+iPhone. The certificate request and the identity file are checked against OpenSSL and against the
+identity that installed on that iPhone.
 
-## 1. Signing material (once)
+## Which Apple account
 
-You need an Apple Development certificate with its private key, and a development provisioning
-profile that lists the iPhone. Both come from developer.apple.com; nothing needs Xcode or a
-keychain.
+| | Free Apple ID | Apple Developer Program (paid) |
+|---|---|---|
+| developer.apple.com's Certificates, Identifiers & Profiles | No: Apple gives it with enrollment | Yes |
+| On your own iPhone | Only by signing in inside Xcode or a tool that signs in for you: 3 devices, 10 App IDs and profiles that expire after 7 days, 3 apps per device | Yes, with a profile valid for a year |
+| **With nomac today** | **No.** The certificate and the profile come from Apple's services after a sign-in, and nomac does not sign in to Apple for you | **Yes, this page** |
+| TestFlight and the App Store | No | Yes (`nomac upload`) |
+
+The limits are Apple's own (developer.apple.com/support/compare-memberships). So this page needs
+a paid membership. nomac never asks for your Apple ID's password: you do the steps at
+developer.apple.com in your browser, on any machine.
+
+## 1. Reach the iPhone
+
+nomac talks to usbmuxd, which owns the USB connection. Install it:
 
 ```sh
-# A key and a certificate signing request (the common name is free text).
-openssl genrsa -out development.key 2048
-openssl req -new -key development.key -subj "/CN=nomac development/C=US" -out development.csr
-chmod 600 development.key
+sudo apt-get install -y usbmuxd    # Debian, Ubuntu
+sudo dnf install -y usbmuxd        # Fedora
+sudo pacman -S usbmuxd             # Arch
+sudo zypper install usbmuxd        # openSUSE
 ```
 
-1. Certificates > + > Apple Development: upload `development.csr`, download `development.cer`.
-2. Devices > +: register the iPhone's UDID (`nomac device list` prints it, step 3).
-3. Identifiers > +: an App ID. A wildcard one (`<prefix>.*`) covers every app without
-   capabilities; capabilities (App Groups, push, iCloud) need an explicit App ID.
-4. Profiles > + > iOS App Development: the App ID, the certificate and the device; download the
-   `.mobileprovision` into a folder of its own.
-
-Put the key, the certificate and its chain into one PEM file, which `--keychain` reads:
+Plug the iPhone in and unlock it; udev starts usbmuxd when it sees the iPhone (without systemd,
+`sudo usbmuxd`). Then:
 
 ```sh
-openssl x509 -inform der -in development.cer -out development.pem
-# AppleWWDRCAG3.cer and AppleRootCA.cer from https://www.apple.com/certificateauthority/
-openssl x509 -inform der -in AppleWWDRCAG3.cer -out wwdr.pem
-openssl x509 -inform der -in AppleRootCA.cer -out root.pem
-cat development.key development.pem wwdr.pem root.pem > identity.pem
-chmod 600 identity.pem
+nomac device list                  # prints the UDID, which every step below uses
+nomac device pair --device <UDID>  # tap Trust on the iPhone and enter its passcode
 ```
 
-Keep `identity.pem` out of any repository. The app's bundle identifier must match the profile's
-App ID: change `PRODUCT_BUNDLE_IDENTIFIER` in the project if it does not.
+`nomac device pair` waits two minutes for you; usbmuxd keeps the pairing in `/var/lib/lockdown`.
+Nothing else from libimobiledevice is needed.
 
-## 2. Reach the device
-
-nomac talks to usbmuxd, which owns the USB connection, at `/var/run/usbmuxd`, or wherever
-`USBMUXD_SOCKET_ADDRESS` says (`UNIX:<path>`, or `<host>:<port>`).
-
-- On Linux, libimobiledevice's `usbmuxd` daemon. Pair once with libimobiledevice's
-  `idevicepair pair` and tap Trust on the unlocked iPhone; nomac does not pair by itself and uses
-  the pair record usbmuxd keeps.
-- From a container on a Mac (Docker Desktop has no USB), relay a TCP port on the Mac's loopback
-  interface to `/var/run/usbmuxd`, for example
-  `socat TCP-LISTEN:27015,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/var/run/usbmuxd`, and set
-  `USBMUXD_SOCKET_ADDRESS=host.docker.internal:27015` in the container. The Mac's pairing is
-  used as it is.
-
-## 3. Check the device
+Turn on Developer Mode:
 
 ```sh
-nomac device list
+nomac device developer-mode --device <UDID>
+```
+
+It says whether Developer Mode is on, and when it is off it makes the switch appear, since
+Settings may not list it on an iPhone that has never met a developer tool. On the iPhone:
+Settings > Privacy & Security > Developer Mode, turn it on. The iPhone restarts; unlock it and
+confirm Turn On.
+
+## 2. Register the iPhone
+
+At [Devices](https://developer.apple.com/account/resources/devices/add), add the UDID from
+`nomac device list`, with any name.
+
+## 3. Your signing identity
+
+```sh
+nomac signing request              # writes development.key and development.csr
+```
+
+At [Certificates](https://developer.apple.com/account/resources/certificates/add): Apple
+Development, upload `development.csr`, download `development.cer`. Then:
+
+```sh
+nomac signing identity development.cer --key development.key    # writes identity.pem
+```
+
+This checks that the key is the certificate's, adds Apple's intermediate and root from apple.com
+(checked against their published digests; offline, pass them with `--chain`) and prints your team.
+`development.key` and `identity.pem` are readable only by you: keep them out of any repository.
+The certificate lasts a year; a new one from the same `development.csr` works with the same key.
+
+## 4. Your provisioning profile
+
+1. At [Identifiers](https://developer.apple.com/account/resources/identifiers/add/bundleId), an
+   App ID. A wildcard one (`<prefix>.*`) covers every app without capabilities; capabilities (App
+   Groups, push, iCloud) need an explicit App ID.
+2. At [Profiles](https://developer.apple.com/account/resources/profiles/add): iOS App Development,
+   the App ID, your certificate and your iPhone. Download the `.mobileprovision` into a folder of
+   its own, `profiles` below.
+3. Check the three together, which also prints the settings step 6 takes:
+
+```sh
+nomac signing check --keychain identity.pem --provisioning-profiles profiles \
+    --device <UDID> --bundle-id <your app's bundle identifier>
+```
+
+A device registered after the profile was made is not in it: edit the profile, select the device
+and download it again.
+
+## 5. Check the way to the iPhone
+
+```sh
 nomac device status --device <UDID>
 ```
 
 `status` walks usbmuxd, the pairing, a lockdown session, the iOS version, Developer Mode, the
 Developer Disk Image and the CoreDevice tunnel, and stops at the first problem with what to do.
-Turn on Developer Mode in Settings > Privacy & Security > Developer Mode (the iPhone restarts).
 
-Launching needs the device's Developer Disk Image mounted; it stays mounted until the iPhone
-restarts. `nomac device mount` mounts it, and `nomac launch` and `nomac run` do when they need
-it: nomac personalizes your Xcode's image for the device with Apple's server (`gs.apple.com`,
+Launching needs the iPhone's Developer Disk Image mounted; it stays mounted until the iPhone
+restarts. `nomac launch` and `nomac run` mount it when they need it (`nomac device mount` by
+itself): nomac personalizes your Xcode's image for the iPhone with Apple's server (`gs.apple.com`,
 ADR 0403), uploads it and mounts it. `nomac sdk install` extracts the image from your Xcode when
-7-Zip and xz are installed (`sudo apt-get install -y 7zip xz-utils`); on a Mac nomac also finds
-the one Xcode installed, and `--ddi` names any `iOS_DDI` folder (B-403). The mount itself has not been run on a
-restarted iPhone yet; until it has, `--no-launch` installs without launching.
+7-Zip and xz are installed (`sudo apt-get install -y 7zip xz-utils`); `--ddi` names any `iOS_DDI`
+folder (B-403). The mount has not run on an iPhone yet; if it fails, `--no-launch` installs without
+launching.
 
-## 4. Build, install and launch
+## 6. Build, install and launch
 
 ```sh
 nomac run -project App.xcodeproj -scheme App -destination generic/platform=iOS \
@@ -83,6 +125,9 @@ nomac run -project App.xcodeproj -scheme App -destination generic/platform=iOS \
     CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Development" \
     DEVELOPMENT_TEAM=<team> "PROVISIONING_PROFILE_SPECIFIER=<profile name>"
 ```
+
+The app's bundle identifier must fall under the profile's App ID: add
+`PRODUCT_BUNDLE_IDENTIFIER=<identifier>` to the command if it does not.
 
 `nomac run` checks the device first, archives the scheme as `nomac archive` does, signs it with
 the identity and the profile, checks the app as `nomac device check` does (signature, profile,
@@ -101,11 +146,47 @@ nomac uninstall <bundle identifier> --device <UDID>
 
 ## When it fails
 
-- `usbmuxd sees no device`: the cable, or the iPhone is locked; on a container route, the
-  forward is not running.
-- A pairing or Trust error: unlock the iPhone and pair again (step 2).
+Every message below says the next step too.
+
+- `usbmuxd is not installed` or `installed but not running`: step 1. usbmuxd stops when the last
+  device is unplugged, so `nomac device list` needs the iPhone plugged in first.
+- `the kernel sees no iPhone on USB`: unlock it; some cables only charge. `the kernel sees iPhone
+  on USB but usbmuxd lists nothing`: `sudo systemctl restart usbmuxd`; `journalctl -u usbmuxd` says
+  why.
+- `usbmuxd holds no pair record`, `InvalidHostID`: `nomac device pair`, which also pairs again a
+  device that forgot this host.
+- `UserDeniedPairing`: you tapped Don't Trust. Unplug it and plug it in again for the dialog to
+  come back. To forget an earlier decision: Settings > General > Transfer or Reset iPhone > Reset >
+  Reset Location & Privacy.
+- `Developer Mode is off`: step 1.
 - `the device would refuse the app`: `nomac device check` lists why (not signed for a device, the
   profile lacks the device or the bundle identifier, an entitlement the profile does not grant,
   an expired profile).
+- The iPhone says Untrusted Developer when you open the app: on the iPhone, Settings > General >
+  VPN & Device Management, select your certificate and trust it.
 - The app starts and closes at once: an app built with the iOS 27 SDK needs the scene lifecycle
   (`UIApplicationSceneManifest`, TN3187); `nomac archive`, `nomac install` and `nomac device check` warn when it is missing.
+
+## By hand, with OpenSSL
+
+`nomac signing` writes what these do, byte for byte for the request:
+
+```sh
+openssl genrsa -out development.key 2048
+openssl req -new -key development.key -subj "/CN=nomac development/C=US" -out development.csr
+chmod 600 development.key
+# after downloading development.cer, and from https://www.apple.com/certificateauthority/
+# the Worldwide Developer Relations G3 certificate and https://www.apple.com/appleca/AppleIncRootCertificate.cer
+openssl x509 -inform der -in development.cer -out development.pem
+openssl x509 -inform der -in AppleWWDRCAG3.cer -out wwdr.pem
+openssl x509 -inform der -in AppleIncRootCertificate.cer -out root.pem
+cat development.key development.pem wwdr.pem root.pem > identity.pem
+chmod 600 identity.pem
+```
+
+## From a container on a Mac
+
+Docker Desktop has no USB. Relay a TCP port on the Mac's loopback interface to `/var/run/usbmuxd`,
+for example `socat TCP-LISTEN:27015,bind=127.0.0.1,reuseaddr,fork UNIX-CONNECT:/var/run/usbmuxd`,
+and set `USBMUXD_SOCKET_ADDRESS=host.docker.internal:27015` in the container (`UNIX:<path>` names
+another socket). The Mac's pairing is used as it is.

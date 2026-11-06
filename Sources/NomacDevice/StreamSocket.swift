@@ -47,7 +47,8 @@ public final class StreamSocket {
                 if received < 0, errno == EAGAIN || errno == EWOULDBLOCK {
                     throw NomacError("no reply from \(Self.describe(address)) in \(Self.readTimeout) seconds")
                 }
-                throw failure(received == 0 ? "connection closed by" : "cannot read from")
+                if received == 0 { throw NomacError("connection closed by \(Self.describe(address))") }
+                throw failure("cannot read from")
             }
             offset += received
         }
@@ -55,7 +56,7 @@ public final class StreamSocket {
     }
 
     private func failure(_ what: String) -> NomacError {
-        NomacError("\(what) \(Self.describe(address))\(errno == 0 ? "" : ": " + String(cString: strerror(errno)))")
+        NomacError("\(what) \(Self.describe(address)): \(String(cString: strerror(errno)))")
     }
 
     public static func describe(_ address: Address) -> String {

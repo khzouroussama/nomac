@@ -10,7 +10,7 @@ struct DeviceCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "device",
         abstract: "List and check devices, and read crash reports.",
-        subcommands: [List.self, Status.self, Images.self, Personalize.self, Mount.self, Unmount.self, Crashes.self, Symbolicate.self, Query.self, Check.self]
+        subcommands: [List.self, Pair.self, DeveloperMode.self, Status.self, Images.self, Personalize.self, Mount.self, Unmount.self, Crashes.self, Symbolicate.self, Query.self, Check.self]
     )
 
     struct List: ParsableCommand {
@@ -19,14 +19,77 @@ struct DeviceCommand: ParsableCommand {
             discussion: """
             Asks usbmuxd (/var/run/usbmuxd, or USBMUXD_SOCKET_ADDRESS as UNIX:<path> or \
             <host>:<port>) for its devices and prints one line per device: its UDID and \
-            connection type (docs/formats/usbmux.md).
+            connection type (docs/formats/usbmux.md). With no device, says on standard error what \
+            to check.
             """
         )
 
         func run() throws {
             let address = try USBMux.address(environment: ProcessInfo.processInfo.environment)
-            for device in try USBMuxClient(address: address).devices() {
+            let usbmux = USBMuxClient(address: address)
+            let devices = try usbmux.devices()
+            for device in devices {
                 print("\(device.serialNumber)\t\(device.connectionType)")
+            }
+            if devices.isEmpty {
+                FileHandle.standardError.write(Data((usbmux.noDeviceNotes(seen: []).map { "note: \($0)" }.joined(separator: "\n") + "\n").utf8))
+            }
+        }
+    }
+
+    struct Pair: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "Pair this host with a device, which asks you to tap Trust on it.",
+            discussion: """
+            Does nothing when a session already starts with usbmuxd's pair record. Otherwise makes \
+            the host's keys and certificates, sends lockdownd's Pair and waits for the Trust \
+            dialog's answer on the unlocked device, then gives usbmuxd the record \
+            (docs/formats/lockdown.md "Pairing"). On Linux, usbmuxd also pairs by itself when you \
+            tap Trust; this command accepts that too.
+            """
+        )
+
+        @Option(help: "The UDID of the device.")
+        var device: String
+
+        @Option(help: "How many seconds to wait for you to unlock the device and tap Trust.")
+        var timeout: Int = 120
+
+        func run() throws {
+            let usbmux = USBMuxClient(address: try USBMux.address(environment: ProcessInfo.processInfo.environment))
+            let outcome = try Pairing.pair(usbmux: usbmux, udid: device, timeout: TimeInterval(timeout)) { line in
+                print(line)
+                fflush(nil)
+            }
+            print(outcome == .alreadyPaired ? "already paired with \(device)" : "paired with \(device)")
+        }
+    }
+
+    struct DeveloperMode: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "developer-mode",
+            abstract: "Say whether Developer Mode is on and, when it is off, make it appear in Settings.",
+            discussion: """
+            Settings may not list Developer Mode on a device that has never met a developer tool. \
+            This asks the device's AMFI service to show it, as libimobiledevice's \
+            'idevicedevmodectl reveal' does; turning it on stays yours, on the device, which then \
+            restarts.
+            """
+        )
+
+        @Option(help: "The UDID of the device.")
+        var device: String
+
+        func run() throws {
+            let session = try DeviceSession(usbmux: USBMuxClient(address: try USBMux.address(environment: ProcessInfo.processInfo.environment)), udid: device)
+            do {
+                print(try session.checkDeveloperMode() == nil ? "the device does not report Developer Mode (before iOS 16 it needs none)" : "Developer Mode is on")
+            } catch let error as NomacError where error.message == "Developer Mode is off" {
+                try session.revealDeveloperMode()
+                print("""
+                Developer Mode is off, and Settings now lists it.
+                On the device: Settings > Privacy & Security > Developer Mode, turn it on. It restarts; unlock it and confirm Turn On.
+                """)
             }
         }
     }
@@ -36,8 +99,8 @@ struct DeviceCommand: ParsableCommand {
             abstract: "Check, step by step, what installing and launching on a device needs.",
             discussion: """
             Walks the chain nomac install and nomac launch use and prints each step it passes: \
-            usbmuxd, the device, this host's pairing, a lockdown session, the iOS version, \
-            Developer Mode, the mounted Developer Disk Image, and the CoreDevice tunnel with its \
+            usbmuxd, the device, this host's pairing ('nomac device pair'), a lockdown session, \
+            the iOS version, Developer Mode ('nomac device developer-mode'), the mounted Developer Disk Image, and the CoreDevice tunnel with its \
             app service. Stops at the first step that fails, with what to do about it.
             """
         )

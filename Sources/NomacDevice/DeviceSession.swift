@@ -55,14 +55,38 @@ public final class DeviceSession {
     /// Developer Mode as the `com.apple.security.mac.amfi` domain reports it: true, or nil when
     /// the device does not report it (before iOS 16); off is an error saying how to turn it on.
     public func checkDeveloperMode() throws -> Bool? {
-        switch try? value(domain: "com.apple.security.mac.amfi", key: "DeveloperModeStatus") {
-        case .boolean(true)?:
-            return true
-        case .boolean(false)?:
-            throw NomacError("Developer Mode is off", notes: ["turn it on in Settings > Privacy & Security > Developer Mode on the device; it restarts"])
-        default:
+        let status: PropertyListValue
+        do {
+            status = try value(domain: "com.apple.security.mac.amfi", key: "DeveloperModeStatus")
+        } catch let error as NomacError where error.message.hasPrefix("lockdownd refused") {
             return nil
         }
+        switch status {
+        case .boolean(true): return true
+        case .boolean(false): throw NomacError("Developer Mode is off", notes: Self.developerModeNotes(udid: device.serialNumber))
+        default: return nil
+        }
+    }
+
+    /// Asks the device to show Developer Mode in Settings, where it may be hidden until a developer
+    /// tool has connected: action 0 of the AMFI service (libimobiledevice's `idevicedevmodectl
+    /// reveal`, pymobiledevice3's `reveal_developer_mode_option_in_ui`). Turning it on stays the
+    /// user's, on the device: with a passcode set, AMFI refuses to do it from the host.
+    public func revealDeveloperMode() throws {
+        let amfi = try service(Self.amfiServiceName)
+        try PropertyListMessages.send(["action": .integer(0)], on: amfi)
+        let reply = try PropertyListMessages.receive(from: amfi, source: "AMFI")
+        if case .string(let error)? = reply["Error"] { throw NomacError("the device refused to show Developer Mode: \(error)") }
+        guard reply["success"] != nil else { throw NomacError("AMFI did not say it showed Developer Mode") }
+    }
+
+    public static let amfiServiceName = "com.apple.amfi.lockdown"
+
+    public static func developerModeNotes(udid: String) -> [String] {
+        [
+            "on the device: Settings > Privacy & Security > Developer Mode, turn it on; it restarts, then confirm Turn On after unlocking it",
+            "if Settings does not list it, 'nomac device developer-mode --device \(udid)' makes it appear",
+        ]
     }
 
     /// Whether the personalized Developer Disk Image, which the app service needs, is mounted.

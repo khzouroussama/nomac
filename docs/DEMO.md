@@ -13,7 +13,7 @@ without them (section 3).
   says for a build from source: Swift 6.4.1, `nomac sdk install` from a copy of Xcode 27.0
   (27A266a), `nomac toolchain install` with Swift 6.4.0 and nomac's tool download.
 - The iPhone (iOS 27.0.1) is attached by USB to that Mac. nomac in the container reaches the
-  Mac's usbmuxd over TCP (a loopback-only relay, docs/INSTALL-ON-IPHONE.md step 2) and uses the
+  Mac's usbmuxd over TCP (a loopback-only relay, docs/INSTALL-ON-IPHONE.md "From a container on a Mac") and uses the
   Mac's pairing. A Linux machine's own usbmuxd was not used.
 - The Developer Disk Image was already mounted on the iPhone, by Xcode. nomac's own mount
   (`nomac device mount`, B-403) was not exercised here.

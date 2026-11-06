@@ -41,6 +41,7 @@ public enum USBMux {
         case result(Int64)
         case devices([Device])
         case pairRecord([UInt8])
+        case systemBUID(String)
     }
 
     /// A request with the client fields libusbmuxd sends with each one.
@@ -67,6 +68,7 @@ public enum USBMux {
     public static func reply(_ body: [UInt8]) throws -> Reply {
         let fields = try PropertyListMessages.dictionary(body, source: "usbmuxd")
         if case .data(let record)? = fields["PairRecordData"] { return .pairRecord(record) }
+        if case .string(let identifier)? = fields["BUID"] { return .systemBUID(identifier) }
         if case .array(let entries)? = fields["DeviceList"] {
             return .devices(entries.compactMap(device))
         }
@@ -96,7 +98,13 @@ public enum USBMux {
         ["MessageType": .string("ReadPairRecord"), "PairRecordID": .string(udid)]
     }
 
-    /// The meaning of a `Result` number (libusbmuxd's `usbmuxd-proto.h`).
+    public static let readSystemBUID: [String: PropertyListValue] = ["MessageType": .string("ReadBUID")]
+
+    /// Hands usbmuxd the host's side of a pairing, as libusbmuxd does.
+    public static func savePairRecord(udid: String, deviceID: Int64, record: [UInt8]) -> [String: PropertyListValue] {
+        ["MessageType": .string("SavePairRecord"), "PairRecordID": .string(udid), "DeviceID": .integer(deviceID), "PairRecordData": .data(record)]
+    }
+
     /// `ReadPairRecord` without a record: `Result` 22 from macOS's usbmuxd, 2 from
     /// libimobiledevice's on Linux (`device_experiments.py`, 2026-11-02).
     public static func pairRecordFailure(_ reply: Reply, udid: String) -> NomacError {
@@ -105,8 +113,10 @@ public enum USBMux {
         } else {
             "unexpected usbmuxd reply to ReadPairRecord for \(udid)"
         }
-        return NomacError(message, notes: ["this host is not paired with the device: unlock it, plug it in by USB and tap Trust on the device"])
+        return NomacError(message, notes: ["this host is not paired with the device: unlock it and run 'nomac device pair --device \(udid)', then tap Trust on the device"])
     }
+
+    /// The meaning of a `Result` number (libusbmuxd's `usbmuxd-proto.h`).
 
     public static func describe(result number: Int64) -> String {
         switch number {
@@ -123,8 +133,18 @@ public enum USBMux {
 /// A client of usbmuxd: each request on its own connection, as libusbmuxd does.
 public struct USBMuxClient {
     public let address: StreamSocket.Address
+    private let host: USBMuxHost
+    private let connection: () throws -> ByteStream
 
-    public init(address: StreamSocket.Address) { self.address = address }
+    public init(address: StreamSocket.Address) {
+        self.init(address: address, host: .current) { try StreamSocket(connectingTo: address) }
+    }
+
+    init(address: StreamSocket.Address, host: USBMuxHost, connection: @escaping () throws -> ByteStream) {
+        self.address = address
+        self.host = host
+        self.connection = connection
+    }
 
     public func devices() throws -> [USBMux.Device] {
         let socket = try open()
@@ -133,9 +153,14 @@ public struct USBMuxClient {
         return devices
     }
 
+    /// What to do when usbmuxd lists `devices` and not the one wanted (or none).
+    public func noDeviceNotes(seen devices: [USBMux.Device]) -> [String] {
+        USBMuxHost.noDeviceNotes(seen: devices.map { "\($0.serialNumber) (\($0.connectionType))" }, address: address, host: host)
+    }
+
     /// A stream to TCP `port` on the device: after usbmuxd's success, the socket carries the
     /// port's bytes.
-    public func connect(deviceID: Int64, port: UInt16) throws -> StreamSocket {
+    public func connect(deviceID: Int64, port: UInt16) throws -> ByteStream {
         let socket = try open()
         let reply = try exchange(socket, USBMux.connect(deviceID: deviceID, port: port))
         guard reply == .result(0) else { throw failure(reply, "Connect to port \(port) of device \(deviceID)") }
@@ -149,27 +174,36 @@ public struct USBMuxClient {
         return try PairRecord(bytes: bytes)
     }
 
+    /// The BUID usbmuxd keeps for this host, which a pairing names.
+    public func systemBUID() throws -> String {
+        let socket = try open()
+        let reply = try exchange(socket, USBMux.readSystemBUID)
+        guard case .systemBUID(let identifier) = reply else { throw failure(reply, "ReadBUID") }
+        return identifier
+    }
+
+    /// Hands usbmuxd a pair record. Its reply says nothing: libimobiledevice's usbmuxd 1.1.1 from
+    /// Ubuntu 24.04 answers `Result` 2 with the record written (`first_run_experiments.py`
+    /// `usbmuxd-records`), so whoever saves checks by reading the record back.
+    public func savePairRecord(udid: String, deviceID: Int64, record: [UInt8]) throws {
+        _ = try exchange(try open(), USBMux.savePairRecord(udid: udid, deviceID: deviceID, record: record))
+    }
+
     /// The device usbmuxd lists with the UDID `udid`, by USB before the network.
     public func device(udid: String) throws -> USBMux.Device {
-        let matches = try devices().filter { $0.serialNumber.caseInsensitiveCompare(udid) == .orderedSame }
+        let listed = try devices()
+        let matches = listed.filter { $0.serialNumber.caseInsensitiveCompare(udid) == .orderedSame }
         guard let device = matches.first(where: { $0.connectionType == "USB" }) ?? matches.first else {
-            let seen = try devices().map { "\($0.serialNumber) (\($0.connectionType))" }
-            throw NomacError("usbmuxd sees no device \(udid)", notes: [
-                seen.isEmpty ? "usbmuxd sees no device at all" : "usbmuxd sees \(seen.joined(separator: ", "))",
-                "connect the device by USB and unlock it",
-            ])
+            throw NomacError("usbmuxd sees no device \(udid)", notes: noDeviceNotes(seen: listed))
         }
         return device
     }
 
-    private func open() throws -> StreamSocket {
+    private func open() throws -> ByteStream {
         do {
-            return try StreamSocket(connectingTo: address)
+            return try connection()
         } catch var error as NomacError {
-            switch address {
-            case .unix: error.notes.append("usbmuxd is not running: on Linux, start libimobiledevice's usbmuxd")
-            case .tcp: error.notes.append("nothing answers at USBMUXD_SOCKET_ADDRESS: start the forward of the Mac's usbmuxd (docs/formats/usbmux.md)")
-            }
+            error.notes += USBMuxHost.unreachableNotes(address: address, host: host)
             throw error
         }
     }
@@ -179,7 +213,7 @@ public struct USBMuxClient {
         return NomacError("unexpected usbmuxd reply to \(request)")
     }
 
-    private func exchange(_ socket: StreamSocket, _ request: [String: PropertyListValue]) throws -> USBMux.Reply {
+    private func exchange(_ socket: ByteStream, _ request: [String: PropertyListValue]) throws -> USBMux.Reply {
         try socket.write(USBMux.message(request, tag: 1))
         let header = try USBMux.header(try socket.read(USBMux.headerSize))
         return try USBMux.reply(try socket.read(Int(header.length) - USBMux.headerSize))

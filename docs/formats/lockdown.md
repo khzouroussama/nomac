@@ -5,7 +5,7 @@ lockdownd listens on the device's port 62078, reached through usbmuxd's `Connect
 and starts the services an install uses. Sources: libimobiledevice (`lockdown.c`,
 `property_list_service.c`, `installation_proxy.c`) and pymobiledevice3 (`lockdown.py`,
 `service_connection.py`, `services/installation_proxy.py`). nomac implements it in
-`Sources/NomacDevice/Lockdown.swift`, `PropertyListMessages.swift`,
+`Sources/NomacDevice/Lockdown.swift`, `Pairing.swift`, `PropertyListMessages.swift`,
 `InstallationProxy.swift` and `PairRecord.swift`.
 
 ## Framing
@@ -37,6 +37,46 @@ usbmuxd keeps the host's side of each pairing; `ReadPairRecord` with `PairRecord
 UDID) answers `PairRecordData`, a property list with `HostID`, `SystemBUID`, `HostCertificate`
 and `HostPrivateKey` (PEM), `RootCertificate`, `DeviceCertificate`, `WiFiMACAddress` and
 `EscrowBag`. nomac holds it in memory only.
+
+## Pairing
+
+`nomac device pair`, from libimobiledevice's `lockdown.c` and `userpref.c` and pymobiledevice3's
+`lockdown.py` and `ca.py`; the requests of libimobiledevice 1.3.0's `idevicepair pair`, recorded
+against a scripted device (`first_run_experiments.py` `pair-reference`), and nomac's are the same.
+No iPhone has answered nomac's yet (B-407).
+
+1. `GetValue` of `DevicePublicKey` before a session: an RSA key in PEM, which both sources read as
+   `RSA PUBLIC KEY` or `PUBLIC KEY`. `ReadBUID` from usbmuxd, `GetValue` of `WiFiAddress`.
+2. Three certificates, each X.509 v3 with empty subject and issuer, signed by the root's new RSA
+   2048 key, valid ten years: a root (`basicConstraints` critical `CA:TRUE`), the host's for a new
+   RSA 2048 key and the device's for its key (`basicConstraints` critical `CA:FALSE`, `keyUsage`
+   critical `digitalSignature, keyEncipherment`; the device's also `subjectKeyIdentifier`, the
+   SHA-1 of the key's bits). libimobiledevice writes serial number 0 and, not knowing the device's
+   version at this point, SHA-1; pymobiledevice3 writes 1 and SHA-256; nomac follows pymobiledevice3,
+   and starts the validity a minute early as it does.
+3. `Pair` with `PairRecord` (`DeviceCertificate`, `HostCertificate`, `RootCertificate` as PEM in
+   data, `HostID` a new upper-case UUID, `SystemBUID`), `ProtocolVersion` `2` and `PairingOptions`
+   `{ExtendedPairingErrors: true}`. The answers: `Error` `PairingDialogResponsePending` (the
+   dialog is up), `PasswordProtected` (locked), `UserDeniedPairing`, or success with `EscrowBag`.
+   Asked again every second, as pymobiledevice3 does; each attempt a new connection.
+4. `SavePairRecord` to usbmuxd with the request's fields plus `HostPrivateKey`, `RootPrivateKey`,
+   `EscrowBag` and `WiFiMACAddress`, the nine keys libimobiledevice saves.
+
+In a session's TLS pymobiledevice3 and nomac present the host's certificate and libimobiledevice the
+root's. OpenSSL's verifier calls a certificate with an empty name "self-signed" unless it alone is
+trusted (error 18), so a server built on it refuses the host's against the root; in TLS 1.3 the client
+learns that on its first read, which is why a session makes one request before it counts as started.
+
+## Developer Mode
+
+`com.apple.amfi.lockdown`, with the same framing, takes `{action: <n>}` and answers `success`, or
+`Error`. Action 0 shows Developer Mode in Settings, where it may be hidden until a developer tool
+has connected (libimobiledevice's `idevicedevmodectl reveal`, pymobiledevice3's
+`reveal_developer_mode_option_in_ui`); actions 1 and 2 turn it on and are refused with a passcode set
+("Device has a passcode set"). `nomac device developer-mode` sends only action 0, and only when the
+mode is off. Not yet run on an iPhone.
+
+## Values
 
 Two values the device workflow reads in a session: `ProductVersion` (the CoreDevice tunnel
 needs iOS 17.4) and, in the domain `com.apple.security.mac.amfi`, `DeveloperModeStatus` (true

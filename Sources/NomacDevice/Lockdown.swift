@@ -25,9 +25,12 @@ public enum Lockdown {
     static func hint(for error: String) -> String? {
         switch error {
         case "PasswordProtected": "the device is locked: unlock it and run the command again"
-        case "PairingDialogResponsePending": "the device shows a Trust dialog: answer it on the device"
-        case "UserDeniedPairing": "the device's user declined to trust this host"
-        case "InvalidHostID": "the device no longer knows this host's pairing: unplug it, plug it in again and trust this host on the device"
+        case "EscrowLocked": "the device has not been unlocked since it restarted: unlock it and run the command again"
+        case "PairingDialogResponsePending": "the device shows a Trust dialog: tap Trust on it"
+        case "UserDeniedPairing": Pairing.deniedNote
+        case "InvalidHostID": "the device no longer trusts this host's pairing: run 'nomac device pair --device <UDID>' and tap Trust on the device"
+        case "PairingProhibitedOverThisConnection": "the device pairs only by USB: plug it in and run 'nomac device pair' again"
+        case "MCProtected": "a management profile on the device forbids pairing with new hosts"
         case "InvalidService": "the device does not offer this service (an older iOS, or a service only a mounted Developer Disk Image adds)"
         case "SessionInactive": "the lockdown session ended: run the command again"
         default: nil
@@ -69,10 +72,27 @@ public final class LockdownClient {
     }
 
     /// Starts a session as the paired host `hostID`; when lockdownd asks for it, the rest of the
-    /// connection is TLS, which `secure` wraps around the stream.
+    /// connection is TLS, which `secure` wraps around the stream. One request follows: in TLS 1.3 a
+    /// peer refuses the host's certificate after the client's handshake ends (OpenSSL's server,
+    /// `first_run_experiments.py`), so only a reply shows the session is open.
     public func startSession(hostID: String, systemBUID: String, secure: (ByteStream) throws -> ByteStream) throws {
         let reply = try send("StartSession", ["HostID": .string(hostID), "SystemBUID": .string(systemBUID)])
-        if reply["EnableSessionSSL"] == .boolean(true) { stream = try secure(stream) }
+        guard reply["EnableSessionSSL"] == .boolean(true) else { return }
+        do {
+            stream = try secure(stream)
+            _ = try send("GetValue", ["Key": .string("ProductVersion")])
+        } catch {
+            throw NomacError("the TLS handshake of the lockdown session failed: \((error as? NomacError)?.message ?? "\(error)")", notes: [
+                "the device may no longer trust this host's pair record: run 'nomac device pair --device <UDID>' and tap Trust on the device",
+            ])
+        }
+    }
+
+    /// What the device answers to `Pair` with `record`, the host's side of the pairing without its
+    /// private keys (docs/formats/lockdown.md "Pairing").
+    func pair(record: [String: PropertyListValue]) throws -> Pairing.Answer {
+        try PropertyListMessages.send(Pairing.request(record: record), on: stream)
+        return try Pairing.answer(try PropertyListMessages.receive(from: stream, source: "lockdownd"))
     }
 
     /// Starts the service `name`, which listens on the port of the reply for one connection.

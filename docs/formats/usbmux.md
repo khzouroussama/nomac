@@ -33,6 +33,12 @@ and the request's tag (observed).
   product and speed). Observed with no device attached: `{DeviceList: []}`. The properties of
   an attached iPhone are to be observed (B-400).
 - `ReadBUID`: `{BUID: <string>}`, the host's system BUID, from both.
+- `SavePairRecord` with `PairRecordID`, `PairRecordData` (an XML or binary property list; libusbmuxd
+  sends binary, nomac XML) and `DeviceID`: libimobiledevice's usbmuxd writes
+  `/var/lib/lockdown/<UDID>.plist`, as XML. Its `Result` says nothing: 2 with the record written on
+  Ubuntu 24.04 and 25.10 and Debian 13, 0 on Ubuntu 22.04, Debian 12, Fedora 43, Arch and openSUSE
+  Tumbleweed; 22 without data (`first_run_experiments.py`). nomac checks by starting a session.
+- `DeletePairRecord` with `PairRecordID`: `Result` 0, then 2 once there is none.
 - `ReadPairRecord` with `PairRecordID` (the UDID): `{PairRecordData: <data>}`, an XML property
   list from both (macOS's adds `EscrowBag`, which nomac does not send, docs/formats/lockdown.md).
   libimobiledevice's usbmuxd serves `/var/lib/lockdown/<UDID>.plist` as it is, and writes
@@ -41,6 +47,28 @@ and the request's tag (observed).
 - Any other request is answered with `{MessageType: Result, Number: n}`: 0 success,
   1 bad command (observed for an unknown `MessageType` from both), 2 bad device,
   3 connection refused, 6 bad version.
+
+## On Linux
+
+Observed with no device (`first_run_experiments.py`, 2026-11-06), usbmuxd 1.1.1 or a later
+snapshot from Ubuntu 22.04, 24.04 and 25.10, Debian 12 and 13, Fedora 42 and 43, Arch and openSUSE
+Tumbleweed, each from a package named `usbmuxd`:
+
+- The executable is in `/usr/sbin` (Fedora and Arch: `/usr/bin`, linked from `/usr/sbin`), which a
+  user's `PATH` may not hold.
+- It runs only while needed: udev starts the `usbmuxd` service when an Apple device appears
+  (`39-usbmuxd.rules`, products `5ac/12[9a]x`, newer packages also `5ac/190[1-5]`), and `usbmuxd -x`
+  ends it when the last one leaves. So no socket does not mean not installed.
+- No daemon: no socket, `connect` gives `ENOENT`. A killed daemon leaves its socket: `ECONNREFUSED`.
+  The socket is mode 666 once it runs; a stricter one gives another user `EACCES`.
+- `/var/lib/lockdown` appears when it first runs. It lists `ListDevices` `{DeviceList: []}` with no
+  device, and answers `Connect` to an unknown device with `Result` 2.
+- Its preflight (`preflight.c`) connects to each new device. An unpaired one gets `Pair`, which
+  raises the Trust dialog; the device is listed anyway, and when the user taps Trust usbmuxd pairs
+  and saves the record itself. If that first connection fails, the device is never listed, which is
+  why the kernel can see an iPhone usbmuxd does not.
+
+`nomac device list`, `pair` and `status` say which of these holds (`USBMuxHost`).
 
 ## The socket
 
