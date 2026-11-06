@@ -6813,6 +6813,28 @@ OPTIONS.update({"label-named-helvetica-15": {"deployment": "15.0", "devices": ["
 EXPERIMENTS.update(NAMED_FONTS)
 
 
+# Round 117 (B-290): the objects holding runtime attributes against the decimal strings of their
+# places in all objects plus one, with the root, File's Owner and first responder's neighbors beside
+# deep objects, and past 2, 3 and 4 digits.
+def root_pairs(document):
+    return document.replace('            <point key="canvasLocation"', "".join(
+        f"            {line}\n" for line in runtime(udra("root", "string", "r")).splitlines()) + '            <point key="canvasLocation"', 1)
+
+
+def owner_pairs(document):
+    return document.replace('userLabel="File\'s Owner"/>', 'userLabel="File\'s Owner">\n            '
+                            + runtime(udra("owner", "string", "o")).replace("\n", "\n            ").rstrip() + '\n        </placeholder>')
+
+
+for count in (2, 8, 9, 10, 11, 20, 28, 29, 30, 40, 120):
+    EXPERIMENTS[f"udra-order-root-many-{count}"] = root_pairs(many_pairs(count))
+for count in (2, 10, 20, 120):
+    EXPERIMENTS[f"udra-order-owner-many-{count}"] = owner_pairs(many_pairs(count))
+    EXPERIMENTS[f"udra-order-owner-root-many-{count}"] = owner_pairs(root_pairs(many_pairs(count)))
+for count, every in ((97, 1), (98, 1), (99, 1), (100, 1), (120, 1), (200, 7), (1100, 37)):
+    EXPERIMENTS[f"udra-order-many-{count}" + (f"-every-{every}" if every > 1 else "")] = many_pairs(count, every=every)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

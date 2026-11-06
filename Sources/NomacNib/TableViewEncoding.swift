@@ -268,7 +268,6 @@ extension DocumentCompiler {
         nested.traitStorages = []
         nested.relationshipStorages = []
         nested.keyValuePairs = []
-        nested.settledTies = false
         nested.accessibilityConfigurations = []
         nested.cellSegueOutlets = []
         nested.emptyArray = NibArray([])

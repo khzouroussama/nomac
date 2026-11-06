@@ -72,20 +72,39 @@ import Testing
         (0..<count).map { Self.withRuntime(Self.runtime(Self.attribute("k", "string", value: String(format: "v%02d", $0))), id: String(format: "v%02d-aa-aa1", $0)) }.joined()
     }
 
-    /// `udra-order-many-8`: pairs of several objects, some past the nib's 9th object, those objects
-    /// first, ascending, then the others (B-290).
+    /// `udra-order-many-8`: pairs of several objects, some past the nib's 9th object, by the decimal
+    /// strings of their places plus one: `10` to `13` before `4` to `9`.
     @Test func ordersSeveralObjectsPastTheNinth() throws {
         let nib = try XIBCompiler.compile(Data(Self.xib(Self.views(8)).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
         #expect(nib.count == 1827)
         #expect(VariationTests.digest(nib) == "58d551a0df09a0465f802eadddaa1b0a8e80b8f11a5bfc9ccfa0b4402ad9bfee")
     }
 
-    /// Objects holding pairs under the nib's 9th object beside ones past its 39th, where place 3
-    /// falls between 38 and 39 (`udra-order-many-40`, B-290).
-    @Test func refusesObjectsUnderTheNinthBesidePastTheThirtyNinth() {
-        #expect(throws: NomacError("nomac does not order the user-defined runtime attributes of several objects with one at a nib's first three places, "
-                                   + "or ones under its 9th beside ones past its 39th, yet (BACKLOG B-290)", path: "/tmp/View.xib")) {
-            try XIBCompiler.compile(Data(Self.xib(Self.views(40)).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
-        }
+    /// Place 3, the string `4`, falls between places 38 and 39, `39` and `40` (`udra-order-many-40`);
+    /// past 99 the strings go on: `100` follows `10` (`udra-order-many-120`).
+    @Test(arguments: [(40, 5802, "e01be969c9fad72f00a97c2f1babb272f2fcd972d7464d8e4cb5935008474ba6"),
+                      (120, 15750, "8a6c185d1c8d0920e5e9a31270a886524124c948023256a9cd2cc0bf44ffb854")])
+    func ordersPlacesAsDecimalStrings(count: Int, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(Self.xib(Self.views(count)).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size)
+        #expect(VariationTests.digest(nib) == digest)
+    }
+
+    static func rootPairs(_ document: String) -> String {
+        document.replacingOccurrences(of: #"<point key="canvasLocation""#, with: runtime(attribute("root", "string", value: "r")) + #"<point key="canvasLocation""#)
+    }
+
+    /// The root, at place 2, is the string `3`, between places 28 and 29 (`udra-order-root-many-20`),
+    /// and File's Owner, the string `1`, comes first (`udra-order-owner-root-many-20`).
+    @Test func ordersTheRootAndFilesOwnerBesideDeepObjects() throws {
+        let document = Self.rootPairs(Self.xib(Self.views(20)))
+        let nib = try XIBCompiler.compile(Data(document.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == 3366)
+        #expect(VariationTests.digest(nib) == "25dd9d081a14764c488c59a572bbb46842c5259e5b5964004ea12b3d8720517e")
+        let owner = document.replacingOccurrences(of: #"userLabel="File's Owner"/>"#, with: #"userLabel="File's Owner">"# + "\n"
+            + Self.runtime(Self.attribute("owner", "string", value: "o")) + "</placeholder>")
+        let ownerNib = try XIBCompiler.compile(Data(owner.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(ownerNib.count == 3414)
+        #expect(VariationTests.digest(ownerNib) == "761252d13c9ddce374d4f7770ba14100ad635400baef0b1ba48aef6e7c1218bd")
     }
 }

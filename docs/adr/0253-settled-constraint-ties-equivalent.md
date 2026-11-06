@@ -39,9 +39,10 @@ not equivalent there.
 1. nomac compiles a tie when every constraint in it is required (priority 1000) and satisfied by
    the document's frames (within 0.01 point, by its relation), writing it in document order. A
    safe area counts across only (its edges above and below depend on the device's insets); margins,
-   views deeper than the owner's subviews (all objects lists them in the tie's order: `deep-other-*`)
-   and ties beside the user-defined runtime attributes of several objects (their order follows
-   places the tie's order moves, B-290) stay refused (B-265).
+   and views deeper than the owner's subviews (all objects lists them in the tie's order:
+   `deep-other-*`) stay refused (B-265). Ties beside the user-defined runtime attributes of several
+   objects, refused at first, compile since round 117: those attributes' order follows their
+   objects' places, which swapping constraints within a tie does not move.
 2. `nomac verify` and `.github/scripts/nib_compare.py` count an ibtool output equivalent when its
    only difference from nomac's is the order of such ties: both archives become graphs renumbered
    depth first from the root, each settled tie's constraints (consecutive in a view's list, same

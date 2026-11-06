@@ -68,7 +68,6 @@ extension DocumentCompiler {
                     let settledTie = first.key == second.key && [a, b].allSatisfy { constraint in
                         constraint.priority == 1000 && satisfiedByFrames(constraint, owner: pending.owner) && !namesDeeperView(constraint, owner: pending.owner)
                     }
-                    settledTies = settledTies || settledTie
                     guard settledTie || first.key != second.key || sameItems, !first.normalized, !second.normalized else {
                         throw unsupportedConstraints("constraints that differ only in their constants or relations")
                     }

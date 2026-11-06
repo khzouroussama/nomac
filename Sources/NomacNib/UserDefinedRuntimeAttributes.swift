@@ -78,37 +78,20 @@ extension DocumentCompiler {
         }
     }
 
-    /// The nib's key-value pairs in the order of their objects in all objects, those of one object
-    /// in the document's order, while every object holding pairs is among the nib's first nine
-    /// (`udra-siblings-nested`, `udra-owner`, `udra-three-reversed`). Further on, ibtool writes the
-    /// objects at places 9 and over first, ascending, then those under 9 (`udra-order-*`, 95
-    /// self-written nibs; 34 corpus nibs, 11 of them unseen when the rule was found, then 14 more past
-    /// place 38, up to 97, all at places 9 and over: B-290). nomac refuses several objects' pairs with
-    /// one at places 0 to 2, where the root falls elsewhere (the corpus's wikipedia
-    /// ArticlePopoverViewController, ScrollableEducationPanelView), and places under 9 beside places
-    /// past 38, where place 3 falls between 38 and 39 (`udra-order-many-37`, `-40`, `-40-every-3`).
+    /// The nib's key-value pairs in the order of their objects' places in all objects plus one, as
+    /// decimal strings compared byte by byte (`10` before `4`), those of one object in the document's
+    /// order (`udra-order-*`, 153 nibs of the corpus and the experiments and 48 of the holdout unseen
+    /// when the rule was found; the root and File's Owner `udra-order-root-*`, `udra-order-owner-*`;
+    /// past 99 `udra-order-many-120`).
     mutating func takeKeyValuePairs(allObjects: [NibArchivable]) throws -> [NibArchivable] {
-        defer {
-            keyValuePairs = []
-            settledTies = false
-        }
+        defer { keyValuePairs = [] }
         let places = Dictionary(allObjects.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
-        let keyed = keyValuePairs.enumerated().map { (place: places[ObjectIdentifier($0.element.object)] ?? Int.max, offset: $0.offset, pair: $0.element) }
-        let objectPlaces = Set(keyed.map(\.place))
-        guard !settledTies || objectPlaces.count < 2 else {
-            throw NomacError("nomac does not compile constraints tied to several views beside the user-defined runtime attributes of several objects, "
-                             + "whose order follows places the tie's order moves, yet (BACKLOG B-265)", path: path)
-        }
-        guard objectPlaces.count > 1, let last = objectPlaces.max(), last > 8 else {
-            return keyed.sorted { ($0.place, $0.offset) < ($1.place, $1.offset) }.map(\.pair)
-        }
-        guard objectPlaces.min()! > 2, last <= 38 || objectPlaces.min()! > 8 else {
-            throw NomacError("nomac does not order the user-defined runtime attributes of several objects with one at a nib's first three places, "
-                             + "or ones under its 9th beside ones past its 39th, yet (BACKLOG B-290)", path: path)
+        let keyed = try keyValuePairs.enumerated().map { offset, pair in
+            guard let place = places[ObjectIdentifier(pair.object)] else { throw unsupported("user-defined runtime attributes of an object outside the nib's objects") }
+            return (key: Array(String(place + 1).utf8), offset: offset, pair: pair)
         }
         return keyed.sorted { left, right in
-            let (leftLate, rightLate) = (left.place > 8, right.place > 8)
-            return leftLate != rightLate ? leftLate : (left.place, left.offset) < (right.place, right.offset)
+            left.key == right.key ? left.offset < right.offset : left.key.lexicographicallyPrecedes(right.key)
         }.map(\.pair)
     }
 

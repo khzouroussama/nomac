@@ -148,8 +148,6 @@ struct DocumentCompiler {
     var titleAttributes: [String: NibDictionary] = [:]
     /// The user-defined runtime attributes of the nib being compiled.
     var keyValuePairs: [NibKeyValuePair] = []
-    /// Whether the nib being compiled has a settled tie of constraints to several views (ADR 0253).
-    var settledTies = false
     var accessibilityConfigurations: [NibAccessibilityConfiguration] = []
     /// The document's gesture recognizers by id, which outlets and outlet collections name.
     var gestureRecognizers: [String: NibArchivable] = [:]

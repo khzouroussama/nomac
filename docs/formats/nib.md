@@ -1040,15 +1040,12 @@ not count (`sb-cvmask-none`, `sb-cvmask-own-constraint`, `sb-cvmask-holder-const
 
 An object's `<userDefinedRuntimeAttributes>` (views of every kind and File's Owner; `udra-*`, round
 39) become the root's `UINibKeyValuePairsKey`: an `NSArray` of `UINibKeyValuePair`s (`UIObject`,
-`UIValue`, `UIKeyPath`), in the order of their objects in all objects, those of one object in the document's order, while every
-object holding pairs is among the nib's first nine (`udra-siblings-nested`, `udra-owner`,
-`udra-three-reversed`). Further on ibtool writes the objects at places 9 and over first,
-ascending, then those under 9, ascending (`udra-order-*`, 95 self-written nibs; 34 corpus nibs, 11
-of them from apps not seen when the rule was found; 14 more whose objects all lie at places 9 to
-97). With an object at places 0 to 2 the order is not known (the root between places 11 and 34 in
-the corpus's wikipedia ArticlePopoverViewController), nor with objects under place 9 beside ones
-past 38, where place 3 falls between 38 and 39 (`udra-order-many-37`, `-40`, `-40-every-3`);
-nomac refuses several objects' pairs there (B-290).
+`UIValue`, `UIKeyPath`), by the decimal strings of their objects' places in all objects plus one,
+compared byte by byte (`10` before `4`, `100` between `10` and `11`), those of one object in the
+document's order. This fits every nib with pairs on several objects: 153 of the corpus and the
+experiments, 48 of the holdout not seen when the rule was found, and `udra-order-root-many-*`,
+`udra-order-owner-many-*`, `udra-order-owner-root-many-*`, `udra-order-many-97` to `-120` and
+`-1100-every-37`, recorded to test it (round 117, B-290).
 Accessibility configurations keep the plain all-objects order (`a11y-order-many-*`). Values: `number`
 an `NSNumber` (`<integer>` `NS.intval`, `<real>` `NS.dblval`, 4 as 4.0), `boolean` the integers 1
 and 0, `string` a string (plain in an `.lproj` folder too: `udra-lproj`), `color` a `UIColor`,
