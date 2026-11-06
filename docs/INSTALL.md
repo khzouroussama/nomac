@@ -84,7 +84,7 @@ export PATH=~/swift-6.4.1/usr/bin:$PATH
 git clone https://github.com/khzouroussama/nomac && cd nomac
 swift build -c release
 export PATH=$PWD/.build/release:$PATH
-nomac --version                       # nomac 27.0.4 (Xcode 27.0, 27A266a)
+nomac --version                       # nomac 27.0.5 (Xcode 27.0, 27A266a)
 ```
 
 Keep the resource bundles (`*.bundle`) SwiftPM writes beside the executable when you copy it elsewhere.

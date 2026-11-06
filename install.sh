@@ -13,7 +13,7 @@ set -euo pipefail
 # In a function, so that a download cut short runs nothing, and piped into bash, nothing reads the
 # rest of the script as its input.
 main() {
-version=27.0.4
+version=27.0.5
 swift_version=6.4.0
 swift="swift-$swift_version-RELEASE"
 unxip_version=3.3

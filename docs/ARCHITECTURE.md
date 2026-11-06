@@ -99,7 +99,7 @@ tools. It then runs the real Swift Build on Linux.
 ## One Xcode per release
 
 Each nomac release reproduces one Xcode build (ADR 0012): `nomac --version` prints
-`nomac 27.0.4 (Xcode 27.0, 27A266a)`, and every value that changes with Xcode (pins, tool
+`nomac 27.0.5 (Xcode 27.0, 27A266a)`, and every value that changes with Xcode (pins, tool
 versions written into outputs or answered to probes, SDKs, the reference Mac, the Mac's answers
 to manifest conditions, the `objectVersion`s Xcode reads) is in `XcodeProfile.current`, printed by
 `nomac sdk profile`. Moving to another Xcode observes these values, and the experiments behind

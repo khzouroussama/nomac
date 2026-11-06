@@ -75,8 +75,8 @@ patched llvm-project the LLVM job hands over, then the package, a workflow artif
 
 | Architecture | Built | Packaged |
 |---|---|---|
-| linux-aarch64 | `release-tools` on the public repository's runners (27.0.2: the clang workstream's builds in Docker on the owner's Mac) | `nomac-27.0.4-linux-aarch64.tar.xz` on the release |
-| linux-x86_64 | `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (run 41841448959, 3 h 14 min for the frontend) | `nomac-27.0.4-linux-x86_64.tar.xz` on the release |
+| linux-aarch64 | `release-tools` on the public repository's runners (27.0.2: the clang workstream's builds in Docker on the owner's Mac) | `nomac-27.0.5-linux-aarch64.tar.xz` on the release |
+| linux-x86_64 | `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (run 41841448959, 3 h 14 min for the frontend) | `nomac-27.0.5-linux-x86_64.tar.xz` on the release |
 
 
 ## Publishing the source
@@ -91,9 +91,9 @@ property list, asset catalog or signing file, no path in the home folder of the 
 it, no Claude session line or link). Main is pushed as a fast-forward, never forced. A push runs
 the `ci` and `tags` workflows.
 
-## Release notes: v27.0.4
+## Release notes: v27.0.5
 
-The release's title is "nomac 27.0.4 (Xcode 27.0, 27A266a)". Each release's version follows ADR
+The release's title is "nomac 27.0.5 (Xcode 27.0, 27A266a)". Each release's version follows ADR
 0012: `<Xcode major>.<Xcode minor>.<N>`. The text below is its notes, with each download's
 SHA-256 from its `.sha256`.
 
@@ -101,6 +101,10 @@ SHA-256 from its `.sha256`.
 > Xcode 27.0 download, then signs, installs and launches them on an iPhone.
 >
 > Install on Ubuntu 24.04, arm64 or x86_64: see the [README](https://github.com/khzouroussama/nomac#installation).
+>
+> Since 27.0.4:
+> - Builds no longer run out of open files. As a normal user, a fresh Expo app's archive on arm64
+>   stopped with "Too many open files". nomac now raises its limit itself, up to what the system allows.
 >
 > Since 27.0.3:
 > - A fresh React Native 0.88 app and a fresh Expo SDK 58 app build and archive to an IPA on Linux

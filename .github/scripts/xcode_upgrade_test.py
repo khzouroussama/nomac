@@ -37,7 +37,7 @@ def write_run(root, xcode, setting="NO", warn=False):
                 "XCODE_PRODUCT_BUILD_VERSION": xcode["build"], "SDK_NAME": f"iphoneos{sdk}", "SDKROOT": sdk_path,
                 "SDK_VERSION": sdk, "SDK_PRODUCT_BUILD_VERSION": xcode["sdkBuild"], "IPHONEOS_DEPLOYMENT_TARGET": "18.0",
                 "ENABLE_TESTABILITY": setting}
-    warning = (f"warning: {developer} is Xcode {xcode['version']} ({xcode['build']}), but nomac 27.0.4 reproduces Xcode 27.0 "
+    warning = (f"warning: {developer} is Xcode {xcode['version']} ({xcode['build']}), but nomac 27.0.5 reproduces Xcode 27.0 "
                "(27A266a) only; outputs may differ from that Xcode's (--strict-xcode refuses other builds)\n") if warn else ""
     files = {
         "reference/App/host.json": json.dumps({"developerDirectory": developer, "xcodeBuild": xcode["build"],

@@ -36,7 +36,7 @@ as tested on a clean Ubuntu 24.04 container.
 
 ## Next actions
 
-v27.0.4 is built by `release-tools` on the public repository for both architectures, reusing run
+v27.0.5 is built by `release-tools` on the public repository for both architectures, reusing run
 41841448959's tools (`tools_run_id`), and its release jobs attach the archives to the draft release
 (`release_tag`). v27.0.2 has the arm64 download only; v27.0.1-preview stays, an older build.
 
@@ -44,7 +44,9 @@ v27.0.4 is built by `release-tools` on the public repository for both architectu
    with sudo, `nomac sdk install` a real Xcode_27.xip, `nomac toolchain install`, then archive and
    export a sample app, one with a Swift package from GitHub, and a fresh bare React Native and
    Expo app (docs/DEMO.md), on both architectures (x86_64 under emulation on an arm64 Mac). Each of
-   the first three of these runs on 2026-11-04 found a bug no earlier test had shown.
+   the first three of these runs on 2026-11-04 found a bug no earlier test had shown. So did 27.0.4's
+   on 2026-11-06: as a user, whose soft limit on open files is 1024, a fresh Expo app's archive failed
+   on arm64. Agents' runs as root in Docker have 1048576 and never saw it, so do not run this as root.
 
 ## Where development happens
 
