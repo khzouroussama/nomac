@@ -31,4 +31,17 @@ public enum HostOperatingSystem {
     public static var macBuild: String {
         isMacOS ? build : XcodeProfile.current.referenceMac.operatingSystemBuild
     }
+
+    /// Off macOS, raises this process's soft limit on open files to its hard limit, for the tools
+    /// a build runs too. A user's shell on Ubuntu starts at 1024 and llbuild raises that only to
+    /// 2048, which a fresh Expo app's archive runs out of on arm64 ("Too many open files").
+    public static func raiseOpenFileLimit() {
+        #if !os(macOS)
+        let resource = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+        var limit = rlimit()
+        guard getrlimit(resource, &limit) == 0, limit.rlim_cur < limit.rlim_max else { return }
+        limit.rlim_cur = limit.rlim_max
+        setrlimit(resource, &limit)
+        #endif
+    }
 }

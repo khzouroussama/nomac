@@ -26,6 +26,7 @@ struct Nomac: AsyncParsableCommand {
     /// Runs the command, printing nomac's own errors in Xcode's diagnostic format
     /// (`error: ...` / `note: ...`) and everything else the way ArgumentParser does.
     static func main() async {
+        HostOperatingSystem.raiseOpenFileLimit()
         do {
             // Run through a link named `codesign`, nomac is `nomac codesign`: Swift Build's
             // CodeSign tasks take such a link as `CODESIGN`.

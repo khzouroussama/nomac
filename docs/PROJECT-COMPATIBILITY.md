@@ -97,6 +97,9 @@ leaves them on:
   commands, which script phases find on `PATH` or by the path they use on a Mac.
 - On a case-sensitive disk, the compilers get a case-insensitive view of your headers and frameworks, as
   a Mac's disk gives them.
+- nomac raises its limit on open files to the most the system allows, and the tools a build runs inherit
+  it. A user's shell on Ubuntu starts at 1024, and a fresh Expo app's archive had about 2,700 files open
+  at once.
 
 ## Part B: What you may have to change yourself
 
@@ -141,5 +144,6 @@ or a computed path runs is not seen.
 | Pods or `node_modules` installed on a Mac and copied over, such as a Sentry xcframework that is a symbolic link into the Mac's `~/Library/Caches` | The build fails on the missing file | Run `npm install` and `pod install` on the build machine |
 | A library that does not compile with Xcode 27, or a mix of package versions, such as RevenueCat 5.50.1 | The build fails with the compiler's error, which Xcode 27 gives too | Update the library, or align the versions |
 | What the build machine needs for your project's tools: Node, Ruby and CocoaPods for React Native and Expo | The tool is not found. `nomac doctor` checks nomac's own tools, not these | Install them ([docs/DEMO.md](DEMO.md) lists them) |
+| A system's hard limit on open files too low for your project. Ubuntu's is 1048576, so this is rare | The build fails with "Too many open files" | Raise the hard limit: `/etc/security/limits.conf`, or `--ulimit nofile=` for a container |
 
 If nomac fails on something not in either part, it is a bug or a gap in this list: please open an issue.
