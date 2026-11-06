@@ -340,9 +340,13 @@ whose codesign reads it. Swift Build also exports the answer's keychain to scrip
 that run `codesign --sign` themselves, as CocoaPods' frameworks script does, sign with the same
 identity: `nomac codesign` without `--keychain` reads `CODE_SIGN_KEYCHAIN`. Checked on the signing experiments' app with a self-made identity and
 profile: the commands, the `.xcent`, the signed entitlements and the embedded profile (byte
-for byte, mode 0644) are as observed. Refused, with the reason: automatic signing (it asks
-Apple's services), profiles without `get-task-allow`, and a non-empty entitlements file or
-product type entitlements (not observed, B-302). Xcode's own refusals, observed with the export's
+for byte, mode 0644) are as observed. A UI test target's `AppUITests-Runner.app` and its
+`.xctest` are signed with one `.xcent` holding the three, for the runner's identifier
+(`<bundle id>.xctrunner`), and `keychain-access-groups` naming that identifier, which its product
+type adds (`xctest_experiments.py` `build-for-testing`; nomac's `.xcent` for the same project and
+profile holds the same values). Refused, with the reason: automatic signing (it asks
+Apple's services), profiles without `get-task-allow`, and a product type's other entitlements
+under a profile that allows them (not observed, B-302). Xcode's own refusals, observed with the export's
 profiles in a build with manual signing (`distribution_experiments.py` `apple-profile`), each a
 target's error with Swift Build's ` (in target '<target>' from project '<project>')`: a profile
 not signed by Apple is not installed (`No profile for team '<DEVELOPMENT_TEAM>' matching

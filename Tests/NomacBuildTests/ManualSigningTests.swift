@@ -43,6 +43,31 @@ import Testing
                              productTypeEntitlements: productType)
     }
 
+    /// Xcode 27.0's `.xcent` for a UI test target under a wildcard development profile
+    /// (`xctest_experiments.py` `build-for-testing`): the runner's identifier in both.
+    @Test func aUITestRunnerGetsItsKeychainGroup() throws {
+        let directory = try TemporaryDirectory()
+        let material = try Self.material(in: directory)
+        let inputs = ManualSigning.provisioning(Self.source(bundle: "org.nomac.signing.uitests.xctrunner", productType: [
+            "get-task-allow": .plBool(true), "keychain-access-groups": .plArray([.plString("$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)")]),
+        ]), material: material)
+        #expect(inputs.errors.isEmpty)
+        #expect(inputs.signedEntitlements == [
+            "application-identifier": .plString("ABCDE12345.org.nomac.signing.uitests.xctrunner"),
+            "com.apple.developer.team-identifier": .plString("ABCDE12345"),
+            "get-task-allow": .plBool(true),
+            "keychain-access-groups": .plArray([.plString("ABCDE12345.org.nomac.signing.uitests.xctrunner")]),
+        ])
+    }
+
+    /// Only a UI test runner's product type entitlements are observed under a profile that allows them.
+    @Test func anotherProductTypeEntitlementTheProfileAllowsStops() throws {
+        let directory = try TemporaryDirectory()
+        let material = try Self.material(in: directory)
+        let inputs = ManualSigning.provisioning(Self.source(productType: ["application-identifier": .plString("ABCDE12345.org.nomac.signing")]), material: material)
+        #expect(inputs.errors.first?["description"] == "how Xcode merges the product type's entitlement application-identifier with this profile is not observed yet (BACKLOG B-302)")
+    }
+
     @Test func appGetsTheIdentityTheProfileAndThreeEntitlements() throws {
         let directory = try TemporaryDirectory()
         let material = try Self.material(in: directory)

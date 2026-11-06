@@ -104,12 +104,18 @@ enum ManualSigning {
         }
         // The entitlements file's own, settings expanded, each one the profile must allow; then the
         // three development ones. A product type's entitlements (an App Clip's) the profile lacks
-        // fail the target first; ones it allows are not observed.
+        // fail the target first. Of those a profile allows only a UI test runner's are observed:
+        // `get-task-allow`, and `keychain-access-groups` naming the runner's identifier
+        // (`xctest_experiments.py` `build-for-testing`, with a wildcard development profile).
         let missingProductTypeKeys = source.productTypeEntitlements.keys.filter { profileEntitlements[$0] == nil }.sorted()
-        guard missingProductTypeKeys.count == source.productTypeEntitlements.count else {
-            throw NomacError("how Xcode merges a product type's entitlements with a profile that allows them is not observed yet (BACKLOG B-302)")
-        }
         var signed: [String: SWBPropertyListItem] = [:]
+        for (key, value) in source.productTypeEntitlements where profileEntitlements[key] != nil {
+            let expanded = try expand(value, prefix: "\(profileTeam).", bundleIdentifier: source.bundleIdentifier)
+            guard ["get-task-allow", "keychain-access-groups"].contains(key), let claimed = Self.value(expanded), ProvisioningProfile.authorizes(profileEntitlements[key]!, claimed) else {
+                throw NomacError("how Xcode merges the product type's entitlement \(key) with this profile is not observed yet (BACKLOG B-302)")
+            }
+            signed[key] = expanded
+        }
         var unauthorized: [String] = []
         for (key, value) in source.projectEntitlements ?? [:] {
             let expanded = try expand(value, prefix: "\(profileTeam).", bundleIdentifier: source.bundleIdentifier)
