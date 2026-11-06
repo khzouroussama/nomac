@@ -38,13 +38,28 @@ public enum InstallCheck {
         return problems
     }
 
-    public static func problems(profile: ProvisioningProfile, bundleIdentifier: String, device udid: String?, at date: Date) -> [String] {
+    /// What keeps `profile` from signing with `identity` for a build of nomac's manual signing: the
+    /// refusals of `ManualSigning` and those of a device, before a build would meet them.
+    public static func problems(profile: ProvisioningProfile, identity: SigningIdentity, bundleIdentifier: String?, device udid: String?, at date: Date,
+                                roots: Set<[UInt8]> = ProvisioningProfile.appleRoots) -> [String] {
+        var problems: [String] = []
+        if !profile.isSigned(byRootIn: roots) { problems.append("the profile \"\(profile.name)\" is not signed by Apple") }
+        if !profile.includes(identity) {
+            problems.append("the profile \"\(profile.name)\" does not include the certificate \"\(identity.commonName)\": edit the profile at developer.apple.com, select the certificate and download it again")
+        }
+        if case .dictionary(let entitlements) = profile.entitlements, entitlements["get-task-allow"] != .boolean(true) {
+            problems.append("the profile \"\(profile.name)\" is not a development profile (no get-task-allow): installing from a host needs an iOS App Development profile")
+        }
+        return problems + self.problems(profile: profile, bundleIdentifier: bundleIdentifier, device: udid, at: date)
+    }
+
+    public static func problems(profile: ProvisioningProfile, bundleIdentifier: String?, device udid: String?, at date: Date) -> [String] {
         var problems: [String] = []
         if let expiration = profile.expirationDate, expiration <= date {
             problems.append("the profile \"\(profile.name)\" expired on \(ISO8601DateFormatter().string(from: expiration))")
         }
         if let pattern = profile.applicationIdentifier {
-            if !covers(pattern, bundleIdentifier) {
+            if let bundleIdentifier, !covers(pattern, bundleIdentifier) {
                 problems.append("the profile's App ID \(pattern) does not cover the bundle identifier \(bundleIdentifier)")
             }
         } else {
@@ -52,7 +67,7 @@ public enum InstallCheck {
         }
         if let udid, !profile.provisionsAllDevices,
            !profile.provisionedDevices.contains(where: { $0.caseInsensitiveCompare(udid) == .orderedSame }) {
-            problems.append("the profile \"\(profile.name)\" does not include the device \(udid)")
+            problems.append("the profile \"\(profile.name)\" does not include the device \(udid): register the device at developer.apple.com, edit the profile, select the device and download it again")
         }
         return problems
     }

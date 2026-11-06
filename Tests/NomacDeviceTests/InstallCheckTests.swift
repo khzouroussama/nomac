@@ -40,7 +40,30 @@ import Testing
     @Test func deviceNotInTheProfile() throws {
         let profile = try Self.profile(appID: "ABCDE12345.*", otherKeys: Self.devices)
         #expect(InstallCheck.problems(profile: profile, bundleIdentifier: "org.nomac.app", device: "00008140-000AAAAAAAAAAAAA", at: Self.now)
-            == ["the profile \"nomac Development\" does not include the device 00008140-000AAAAAAAAAAAAA"])
+            == ["the profile \"nomac Development\" does not include the device 00008140-000AAAAAAAAAAAAA: register the device at developer.apple.com, edit the profile, select the device and download it again"])
+    }
+
+    /// `nomac signing check`: what `ManualSigning` and a device refuse, before a build.
+    @Test func signingCheckOfAnIdentityAgainstAProfile() throws {
+        let identity = try SigningIdentity(named: "Apple Development", pem: TestIdentities.appleShaped, path: "identity.pem")
+        func profile(_ entitlements: String, certificates: [[UInt8]], expiration: String = "2027-01-01T00:00:00Z") throws -> ProvisioningProfile {
+            try ProvisioningProfile(bytes: SyntheticProfile.profile(uuid: "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0", name: "nomac Development", expiration: expiration, entitlements: entitlements,
+                                                                    certificates: certificates, otherKeys: Self.devices), path: "test.mobileprovision")
+        }
+        let development = "\t<dict>\n\t\t<key>application-identifier</key>\n\t\t<string>ABCDE12345.*</string>\n\t\t<key>get-task-allow</key>\n\t\t<true/>\n\t</dict>"
+        let distribution = "\t<dict>\n\t\t<key>application-identifier</key>\n\t\t<string>ABCDE12345.*</string>\n\t\t<key>get-task-allow</key>\n\t\t<false/>\n\t</dict>"
+        func problems(_ profile: ProvisioningProfile, roots: Set<[UInt8]> = SyntheticProfile.roots) -> [String] {
+            InstallCheck.problems(profile: profile, identity: identity, bundleIdentifier: "org.nomac.app", device: Self.device, at: Self.now, roots: roots)
+        }
+        #expect(problems(try profile(development, certificates: [identity.certificate])).isEmpty)
+        #expect(problems(try profile(development, certificates: []))
+            == ["the profile \"nomac Development\" does not include the certificate \"Apple Development: nomac Test (ABCDE12345)\": edit the profile at developer.apple.com, select the certificate and download it again"])
+        #expect(problems(try profile(distribution, certificates: [identity.certificate]))
+            == ["the profile \"nomac Development\" is not a development profile (no get-task-allow): installing from a host needs an iOS App Development profile"])
+        #expect(problems(try profile(development, certificates: [identity.certificate]), roots: [])
+            == ["the profile \"nomac Development\" is not signed by Apple"])
+        #expect(InstallCheck.problems(profile: try profile(development, certificates: [identity.certificate]), identity: identity, bundleIdentifier: nil, device: nil, at: Self.now,
+                                      roots: SyntheticProfile.roots).isEmpty)
     }
 
     @Test func profileForAllDevices() throws {

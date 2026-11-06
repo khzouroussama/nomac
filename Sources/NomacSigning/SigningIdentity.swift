@@ -31,18 +31,9 @@ public struct SigningIdentity {
     /// codesign signs with the chain up to a self-signed root and fails without one
     /// (`kCMSCertificateChainWithRootOrFail` in Security's `signer.cpp`; observed: "unable to build
     /// chain to self-signed root for signer …", errSecInternalComponent).
-    public init(named name: String, pem: String, path: String) throws {
-        let blocks = PEM.blocks(in: pem)
-        let certificates = try blocks.filter { $0.label == "CERTIFICATE" }.map { try X509Certificate(der: $0.der, path: path) }
-        guard let keyBlock = blocks.first(where: { $0.label == "PRIVATE KEY" || $0.label == "RSA PRIVATE KEY" }) else {
-            throw NomacError("no RSA private key in the identity file", path: path)
-        }
-        let key: _RSA.Signing.PrivateKey
-        do {
-            key = try _RSA.Signing.PrivateKey(pemRepresentation: keyBlock.text)
-        } catch {
-            throw NomacError("unreadable RSA private key: \(error)", path: path)
-        }
+    public init(named name: String, pem: String, path: String, appleRoots: Set<String> = Self.appleRootFingerprints) throws {
+        let certificates = try PEM.blocks(in: pem).filter { $0.label == "CERTIFICATE" }.map { try X509Certificate(der: $0.der, path: path) }
+        let key = try PEM.rsaPrivateKey(in: pem, path: path)
         let publicKey = [UInt8](key.publicKey.derRepresentation)
         let identities = certificates.filter { $0.subjectPublicKeyInfo == publicKey }
         let leaf: X509Certificate
@@ -64,14 +55,14 @@ public struct SigningIdentity {
             }
             chain.append(issuer)
         }
-        self.init(chain: chain) { bytes in
+        self.init(chain: chain, appleRoots: appleRoots) { bytes in
             [UInt8](try key.signature(for: Crypto.SHA256.hash(data: bytes), padding: .insecurePKCS1v1_5).rawRepresentation)
         }
     }
 
     /// SHA-1 fingerprints of Apple's root certificates: Apple Root CA, the root of the Apple
     /// Development chain observed.
-    static let appleRootFingerprints: Set<String> = ["611e5b662c593a08ff58d14ae22452d198df6c60"]
+    public static let appleRootFingerprints: Set<String> = ["611e5b662c593a08ff58d14ae22452d198df6c60"]
 
     /// The leaf certificate's SHA-1, upper-case hex, as Xcode names an identity.
     public var certificateSHA1: String { leaf.sha1Hex.uppercased() }
@@ -81,6 +72,9 @@ public struct SigningIdentity {
 
     /// The leaf certificate's DER bytes.
     public var certificate: [UInt8] { leaf.der }
+
+    /// The leaf certificate's organizational unit: the team of an Apple-issued certificate.
+    public var teamIdentifier: String? { leaf.organizationalUnit }
 
     /// When the leaf certificate expires (`notAfter`).
     public var expirationDate: Date? { leaf.notAfter }
@@ -138,6 +132,10 @@ struct X509Certificate {
 
     /// The subject's common name (OID 2.5.4.3).
     var commonName: String? { attribute([0x55, 0x04, 0x03], of: subject) }
+
+    /// The issuer's common name and organizational unit.
+    var issuerCommonName: String? { attribute([0x55, 0x04, 0x03], of: issuer) }
+    var issuerOrganizationalUnit: String? { attribute([0x55, 0x04, 0x0b], of: issuer) }
 
     /// The subject's organization (OID 2.5.4.10).
     var organization: String? { attribute([0x55, 0x04, 0x0a], of: subject) }
