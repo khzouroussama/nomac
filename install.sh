@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs nomac's release download on Ubuntu 24.04, arm64 or x86_64 (docs/INSTALL.md): the system
+# Installs nomac's release download on Ubuntu 24.04, or Debian 13, arm64 or x86_64 (docs/INSTALL.md): the system
 # packages nomac and Swift need, nomac with its patched tools, the swift.org toolchain nomac builds
 # apps with, checked against swift.org's signature, and unxip, which expands Xcode.xip.
 #
@@ -36,6 +36,20 @@ esac
 [ "$(uname -s)" = Linux ] || { echo "error: this installer is for Linux; on a Mac, build nomac from source (docs/INSTALL.md)" >&2; exit 1; }
 sudo=$([ "$(id -u)" = 0 ] && echo || echo sudo)
 
+unsupported() {
+  echo "error: $1" >&2
+  echo "This installer works on Ubuntu 24.04 and Debian 13 for now, and more systems are coming." >&2
+  echo "Meanwhile nomac runs in an Ubuntu 24.04 container: $repository/blob/main/docs/INSTALL.md" >&2
+  exit 1
+}
+# nomac's download and Swift's are built on Ubuntu 24.04, whose glibc is 2.39.
+glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
+glibc=${glibc#glibc }
+if [ -z "$glibc" ] || [ "$(printf '%s\n' 2.39 "$glibc" | sort -V | head -1)" != 2.39 ]; then
+  unsupported "nomac needs glibc 2.39 or newer; this system has ${glibc:-no glibc}"
+fi
+command -v apt-get >/dev/null || unsupported "this system has no apt-get"
+
 here=$(cd "$(dirname "$0")" && pwd)
 name=nomac-$version-linux-$arch.tar.xz
 if [ -z "$archive" ] && ! { [ -x "$here/bin/nomac" ] && [ -d "$here/tools" ]; }; then
@@ -53,8 +67,9 @@ fi
 echo "==> System packages"
 $sudo env DEBIAN_FRONTEND=noninteractive apt-get update -q < /dev/null
 $sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -q binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
-  libgcc-13-dev libpython3-dev libstdc++-13-dev libxml2-dev libncurses-dev libz3-dev pkg-config tzdata unzip zlib1g-dev \
+  g++ libpython3-dev libxml2-dev libncurses-dev libz3-dev pkg-config tzdata unzip zlib1g-dev \
   curl ca-certificates libsqlite3-0 7zip xz-utils libheif-examples libc++abi1 liblzma-dev < /dev/null
+/sbin/ldconfig -p | grep -q 'libxml2\.so\.2 ' || unsupported "this system's libxml2 is newer than the libxml2.so.2 nomac is built against"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

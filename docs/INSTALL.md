@@ -1,8 +1,17 @@
 # Installing nomac
 
-nomac runs on Ubuntu 24.04, arm64 or x86_64. It needs your own Xcode 27.0 (27A266a), downloaded
-from [developer.apple.com](https://developer.apple.com/download/all/) with your Apple ID: read
+nomac runs on Ubuntu 24.04, arm64 or x86_64. Debian 13 installs too, and builds native and React Native
+apps, but a fresh Expo app's archive failed there on 2026-11-06. nomac needs your own Xcode 27.0 (27A266a),
+downloaded from [developer.apple.com](https://developer.apple.com/download/all/) with your Apple ID: read
 docs/LEGAL.md first.
+
+On any other Linux, run nomac in an Ubuntu 24.04 container for now, with your `.xip` in `~/Downloads`:
+
+```sh
+docker run -it -v ~/Downloads:/xip ubuntu:24.04 bash
+apt-get update && apt-get install -y curl ca-certificates
+# then the commands below, with sudo-free root and /xip/Xcode_27.xip
+```
 
 ## With the installer
 
@@ -117,6 +126,9 @@ for experiments and `nomac verify` against Xcode (CONTRIBUTING.md).
   built a fresh bare React Native app and a fresh Expo app to IPAs with no change to the app, with
   `pod install` using the launchers `nomac toolchain install` wrote beside nomac (docs/DEMO.md). This
   also ran in Docker on a Mac, for arm64 and for x86_64 under emulation.
+- On 2026-11-06 the same test ran on `debian:13` (arm64) from an `Xcode.app`: the sample apps and the
+  bare React Native app reached IPAs, and the fresh Expo app stopped in its `[CP-User] Build ExpoModulesJSI
+  xcframework` phase ("Error: fatalError"). The cause is not known yet.
 
 Each nomac release reproduces one Xcode build, which `nomac --version` names. With another Xcode
 nomac warns that its outputs may differ, and `--strict-xcode` makes it refuse
