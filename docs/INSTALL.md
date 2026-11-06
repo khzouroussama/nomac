@@ -113,9 +113,10 @@ for experiments and `nomac verify` against Xcode (CONTRIBUTING.md).
   `nomac sdk install` with a real `Xcode_27.xip` and `nomac toolchain install`, to a Retro Rampage IPA
   and one with a Swift package resolved from GitHub. This ran in Docker on a Mac, for arm64 and for
   x86_64 under emulation; no x86_64 Linux machine has run it.
-- On 2026-11-05 `nomac toolchain install`, run through a symbolic link on `PATH`, wrote the launchers
-  beside the link, and a fresh Expo app's `pod install` ran with those alone on `PATH` (docs/DEMO.md).
-  That link pointed at a source build; `install.sh`'s own layout has not been tried with them.
+- On 2026-11-06 27.0.5 went the same way as a user with a soft limit of 1024 open files, and then
+  built a fresh bare React Native app and a fresh Expo app to IPAs with no change to the app, with
+  `pod install` using the launchers `nomac toolchain install` wrote beside nomac (docs/DEMO.md). This
+  also ran in Docker on a Mac, for arm64 and for x86_64 under emulation.
 
 Each nomac release reproduces one Xcode build, which `nomac --version` names. With another Xcode
 nomac warns that its outputs may differ, and `--strict-xcode` makes it refuse

@@ -159,6 +159,23 @@ plugin ("external macro implementation type 'ExpoModulesMacros.ExpoModuleMacro' 
 `-IDEBuildingContinueBuildingAfterErrors=YES` its `[Expo] Configure project` also gives Expo's own "Scanning for
 @ExpoModule classes didn't complete".
 
+### From the release download, as a normal user (2026-11-06)
+
+The runs above were source builds as root, whose limit on open files in Docker is 1048576. A normal user's is
+1024, and 27.0.4's fresh Expo archive failed on arm64 with "Too many open files". 27.0.5 raises the limit itself.
+
+27.0.5 then ran on a fresh `ubuntu:24.04`, as a user with sudo, in Docker on a Mac: `curl | bash`, `nomac sdk
+install` with a real `Xcode_27.xip`, `nomac toolchain install`, and the two apps created as above.
+
+| | arm64 | x86_64, under emulation |
+|---|---|---|
+| Bare React Native: `nomac archive`, `nomac export` | succeeded: `RNDemo.ipa`, 6,130,044 bytes | succeeded: `RNDemo.ipa`, 6,130,044 bytes |
+| Expo: `nomac archive`, `nomac export` | succeeded: `expodemo.ipa`, 12,442,484 bytes | succeeded: `expodemo.ipa`, 12,442,478 bytes |
+| `apple.js` on disk after the build | unchanged | unchanged |
+| `pod install` tries, cut by the network (bare, Expo) | 1, 3 | 2, 1 |
+
+These IPAs were not installed on a phone, and no x86_64 Linux machine has run this.
+
 ### With the manual changes, to the iPhone (2026-11-03)
 
 | Step | Bare React Native | Expo |
