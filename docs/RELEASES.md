@@ -75,8 +75,8 @@ patched llvm-project the LLVM job hands over, then the package, a workflow artif
 
 | Architecture | Built | Packaged |
 |---|---|---|
-| linux-aarch64 | `release-tools` on the public repository's runners (27.0.2: the clang workstream's builds in Docker on the owner's Mac) | `nomac-27.0.3-linux-aarch64.tar.xz` on the release |
-| linux-x86_64 | `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (run 41841448959, 3 h 14 min for the frontend) | `nomac-27.0.3-linux-x86_64.tar.xz` on the release |
+| linux-aarch64 | `release-tools` on the public repository's runners (27.0.2: the clang workstream's builds in Docker on the owner's Mac) | `nomac-27.0.4-linux-aarch64.tar.xz` on the release |
+| linux-x86_64 | `release-tools` on the public repository's runners, with only the LLVM targets the frontend takes (run 41841448959, 3 h 14 min for the frontend) | `nomac-27.0.4-linux-x86_64.tar.xz` on the release |
 
 
 ## Publishing the source
@@ -91,9 +91,9 @@ property list, asset catalog or signing file, no path in the home folder of the 
 it, no Claude session line or link). Main is pushed as a fast-forward, never forced. A push runs
 the `ci` and `tags` workflows.
 
-## Release notes: v27.0.3
+## Release notes: v27.0.4
 
-The release's title is "nomac 27.0.3 (Xcode 27.0, 27A266a)". Each release's version follows ADR
+The release's title is "nomac 27.0.4 (Xcode 27.0, 27A266a)". Each release's version follows ADR
 0012: `<Xcode major>.<Xcode minor>.<N>`. The text below is its notes, with each download's
 SHA-256 from its `.sha256`.
 
@@ -102,22 +102,21 @@ SHA-256 from its `.sha256`.
 >
 > Install on Ubuntu 24.04, arm64 or x86_64: see the [README](https://github.com/khzouroussama/nomac#installation).
 >
-> Since 27.0.2:
-> - An x86_64 download.
-> - `nomac archive` works for apps that link an xcframework directly or through a Swift package's
->   binary target; the archive's signature records are Xcode's byte for byte. On Linux nomac reads
->   an xcframework's signature but does not verify it: a framework changed after signing gets a
->   warning where Xcode refuses it.
-> - Apps with Swift packages build from the release download, which 27.0.2 could not: it looked
->   for `swiftc` on `PATH`.
-> - `install.sh` builds unxip, so `nomac sdk install Xcode_27.xip` works on a fresh machine, and
->   its downloads resume after a dropped connection.
-> - `nomac archive` warns when an app built with the iOS 27 SDK has no scene manifest, which stops
->   it at launch (TN3187).
+> Since 27.0.3:
+> - A fresh React Native 0.88 app and a fresh Expo SDK 58 app build and archive to an IPA on Linux
+>   with no change to the app. Where a project's tools assume macOS, nomac changes how a few of them
+>   run for the build, without touching your files: Expo's platform check, a macOS tool named in a
+>   build setting, and a macOS macro plugin. It prints a note when it does and a summary at the end
+>   of the build, `nomac check` lists them, and `--no-project-fixes` turns them off.
+>   [docs/PROJECT-COMPATIBILITY.md](https://github.com/khzouroussama/nomac/blob/main/docs/PROJECT-COMPATIBILITY.md)
+>   lists them, and what you may have to change yourself.
+> - `nomac toolchain install` writes `xcodebuild`, `xcrun` and `command` beside nomac on `PATH`, so
+>   `pod install` needs no `PATH` line.
+> - `install.sh` keeps retrying its downloads for longer on a poor connection.
 >
 > Measured on real open-source apps against Xcode 27's output ([docs/PROGRESS.md](https://github.com/khzouroussama/nomac/blob/main/docs/PROGRESS.md)):
-> - A fresh React Native 0.88 app and a fresh Expo SDK 58 app (with one line changed in Expo's
->   autolinking) build, install and run on an iPhone from Linux ([docs/DEMO.md](https://github.com/khzouroussama/nomac/blob/main/docs/DEMO.md)).
+> - Those two fresh apps have also run on an iPhone from Linux, in an earlier run that still made
+>   two of those changes by hand ([docs/DEMO.md](https://github.com/khzouroussama/nomac/blob/main/docs/DEMO.md)).
 > - React Native and Expo apps, partial run: 49 of the first 61 of 106 public apps reach an IPA.
 > - 19 of 19 holdout apps are read as Xcode reads them.
 > - In the 20 apps nomac was developed against: 2 build end to end on Linux; 457 of 588 storyboards
@@ -127,7 +126,9 @@ SHA-256 from its `.sha256`.
 > Not supported yet: Metal shaders; Core ML pipelines, tree ensembles and neural networks;
 > simulator, macOS, tvOS and visionOS builds; distribution signing, and an upload has never run
 > against Apple; UI tests, `.xcresult`, coverage and test plans on a device; on-demand resources
-> and other rare asset types. nomac stops with a message on what it does not support.
+> and other rare asset types. nomac stops with a message on what it does not support. On Linux nomac
+> reads an xcframework's signature but does not verify it: a framework changed after signing gets a
+> warning where Xcode refuses it.
 >
 > The download holds nomac and open-source tools built from source with nomac's patches (LLVM's lld
 > and clang, the Swift compiler, Apple's cctools and ld64), with the patches and license texts

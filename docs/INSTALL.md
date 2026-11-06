@@ -84,7 +84,7 @@ export PATH=~/swift-6.4.1/usr/bin:$PATH
 git clone https://github.com/khzouroussama/nomac && cd nomac
 swift build -c release
 export PATH=$PWD/.build/release:$PATH
-nomac --version                       # nomac 27.0.3 (Xcode 27.0, 27A266a)
+nomac --version                       # nomac 27.0.4 (Xcode 27.0, 27A266a)
 ```
 
 Keep the resource bundles (`*.bundle`) SwiftPM writes beside the executable when you copy it elsewhere.
@@ -108,9 +108,11 @@ for experiments and `nomac verify` against Xcode (CONTRIBUTING.md).
 - Building from source runs in the `quickstart` workflow on a fresh `ubuntu:24.04`, x86_64 and
   arm64, from this file's block above.
 - On 2026-11-03 a fresh `ubuntu:24.04` (arm64) went from `nomac sdk install` with an `Xcode.app`
-  through `nomac toolchain install` to a Retro Rampage IPA with no network. Installing from a
-  `.xip` has not been tried yet.
-
+  through `nomac toolchain install` to a Retro Rampage IPA with no network.
+- On 2026-11-05 27.0.3 went from `curl | bash` on a fresh `ubuntu:24.04`, as a user with sudo, through
+  `nomac sdk install` with a real `Xcode_27.xip` and `nomac toolchain install`, to a Retro Rampage IPA
+  and one with a Swift package resolved from GitHub. This ran in Docker on a Mac, for arm64 and for
+  x86_64 under emulation; no x86_64 Linux machine has run it.
 - On 2026-11-05 `nomac toolchain install`, run through a symbolic link on `PATH`, wrote the launchers
   beside the link, and a fresh Expo app's `pod install` ran with those alone on `PATH` (docs/DEMO.md).
   That link pointed at a source build; `install.sh`'s own layout has not been tried with them.

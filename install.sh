@@ -13,7 +13,7 @@ set -euo pipefail
 # In a function, so that a download cut short runs nothing, and piped into bash, nothing reads the
 # rest of the script as its input.
 main() {
-version=27.0.3
+version=27.0.4
 swift_version=6.4.0
 swift="swift-$swift_version-RELEASE"
 unxip_version=3.3
@@ -63,7 +63,7 @@ if [ -z "$archive" ] && [ -x "$here/bin/nomac" ] && [ -d "$here/tools" ]; then
 else
   if [ -z "$archive" ]; then
     echo "==> nomac $version for linux-$arch"
-    curl -fL -C - --retry 5 --retry-all-errors -o "$work/$name" "$repository/releases/download/v$version/$name"
+    curl -fL -C - --connect-timeout 20 --retry 12 --retry-all-errors -o "$work/$name" "$repository/releases/download/v$version/$name"
     curl -fsSL --retry 5 -o "$work/$name.sha256" "$repository/releases/download/v$version/$name.sha256"
     (cd "$work" && sha256sum -c "$name.sha256")
     archive=$work/$name
@@ -75,7 +75,7 @@ fi
 
 echo "==> Swift ($swift), which nomac builds apps with"
 url=https://download.swift.org/swift-$swift_version-release/ubuntu2404$suffix/$swift/$swift-ubuntu24.04$suffix.tar.gz
-curl -fL -C - --retry 5 --retry-all-errors -o "$work/swift.tar.gz" "$url"
+curl -fL -C - --connect-timeout 20 --retry 12 --retry-all-errors -o "$work/swift.tar.gz" "$url"
 curl -fsSL --retry 5 -o "$work/swift.tar.gz.sig" "$url.sig"
 export GNUPGHOME=$work/gnupg
 mkdir -m 700 "$GNUPGHOME"
@@ -100,7 +100,7 @@ ln -sf "$prefix/bin/nomac" "$HOME/.local/bin/nomac"
 
 echo "==> unxip $unxip_version, which expands Xcode.xip"
 mkdir "$work/unxip"
-if curl -fsSL --retry 5 --retry-all-errors -o "$work/unxip.tar.gz" "https://github.com/saagarjha/unxip/archive/$unxip_commit.tar.gz" 2>"$work/unxip.log" \
+if curl -fsSL --connect-timeout 20 --retry 12 --retry-all-errors -o "$work/unxip.tar.gz" "https://github.com/saagarjha/unxip/archive/$unxip_commit.tar.gz" 2>"$work/unxip.log" \
    && tar xzf "$work/unxip.tar.gz" -C "$work/unxip" --strip-components=1 \
    && (cd "$work/unxip" && "$prefix/swift/usr/bin/swift" build -c release --product unxip) >>"$work/unxip.log" 2>&1; then
   cp "$work/unxip/.build/release/unxip" "$prefix/bin/unxip"

@@ -36,15 +36,15 @@ as tested on a clean Ubuntu 24.04 container.
 
 ## Next actions
 
-v27.0.3 is built by `release-tools` on the public repository for both architectures, reusing run
+v27.0.4 is built by `release-tools` on the public repository for both architectures, reusing run
 41841448959's tools (`tools_run_id`), and its release jobs attach the archives to the draft release
 (`release_tag`). v27.0.2 has the arm64 download only; v27.0.1-preview stays, an older build.
 
 1. Before publishing a release: install it with `curl | bash` on a fresh ubuntu:24.04 as a user
    with sudo, `nomac sdk install` a real Xcode_27.xip, `nomac toolchain install`, then archive and
-   export a sample app and one with a Swift package from GitHub, on both architectures (x86_64
-   under emulation on an arm64 Mac). Each of the first three of these runs on 2026-11-04 found a
-   bug no earlier test had shown.
+   export a sample app, one with a Swift package from GitHub, and a fresh bare React Native and
+   Expo app (docs/DEMO.md), on both architectures (x86_64 under emulation on an arm64 Mac). Each of
+   the first three of these runs on 2026-11-04 found a bug no earlier test had shown.
 
 ## Where development happens
 
