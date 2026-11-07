@@ -380,7 +380,9 @@ user and autocreated schemes, test plans, workspaces, project references and loc
 It records Xcode's `-dumpPIF`, `-list` and a sample of `-showBuildSettings` captures in
 `capture_reference.py`'s layout. Then it runs `nomac verify` on them, and `nomac list` for the
 `-list` text. Differences are grouped into classes: a differing PIF path, a `-list` entry, or
-the first differing setting of a capture. The most frequent classes are minimized by removing
+the first differing setting of a capture. A case whose only differences `nomac verify` reports
+as equivalent (what xcodebuild changes from one run to the next, "What is compared today") counts
+apart from the different ones. The most frequent classes are minimized by removing
 parts of the generated project while the class still shows. The ranked list goes to
 `FINDINGS.md` in the output folder, with the hypotheses written in its `hypotheses.json`.
 PIF differences are compared after the rewrites of `nomac verify` (docs/adr/0009-synchronized-folder-identifiers.md),

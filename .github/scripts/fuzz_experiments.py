@@ -11,7 +11,9 @@ local Swift packages. For each case:
   1. xcodebuild writes `-dumpPIF`, `-list` (text and `-json`) and `-showBuildSettings` (text and
      `-json`, for a sample of targets and schemes) in capture_reference.py's reference layout;
   2. `nomac verify` compares nomac with that reference, and `nomac list` with the `-list` text;
-  3. every difference gets a class: the first differing PIF path, `-list` entry or setting.
+  3. every difference gets a class: the first differing PIF path, `-list` entry or setting. A
+     case whose only differences `nomac verify` reports as equivalent (outputs xcodebuild itself
+     changes from one run to the next) counts as equivalent, not different.
 
 Classes are ranked in FINDINGS.md with their smallest case, minimized by removing parts of the
 generator's output (projects, targets, files, settings, ...) while the class still shows.
@@ -43,6 +45,7 @@ import pwd
 import random
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -78,8 +81,12 @@ FEATURES = {
     "sync-phase-exceptions": 0.05, "odd-names": 0.35, "file-types": 0.5, "missing-files": 0.2,
     "localization": 0.3, "frameworks": 0.4, "tests": 0.5, "extensions": 0.3, "watch": 0.1, "macos": 0.12,
     "phases": 0.4, "rules": 0.12, "configs": 0.3, "xcconfig": 0.35, "conditional": 0.35, "macros": 0.3,
-    "schemes": 0.45, "user-schemes": 0.15, "test-plans": 0.15, "legacy-format": 0.25, "aggregate": 0.1,
+    "schemes": 0.45, "user-schemes": 0.15, "test-plans": 0.25, "legacy-format": 0.25, "aggregate": 0.1,
     "untyped-files": 0.15,
+    # Shapes of the survey's real projects (~/nomac-out/survey): keys Xcode writes that the parts above leave out.
+    "real-project-keys": 0.7, "real-editor-keys": 0.3, "real-file-types": 0.4, "real-missing": 0.35, "real-workspace-files": 0.5,
+    "real-phases": 0.25, "real-signing": 0.3, "real-scheme-keys": 0.6, "real-test-plan-keys": 0.5, "real-packages": 0.5, "real-ids": 0.13,
+    "remote-packages": 0.35,
 }
 FOCUS_PROBABILITY = 0.9
 
@@ -127,13 +134,13 @@ PRODUCTS = {
 SDK_OF = {"macapp": "macosx", "tool": "macosx", "xpc": "macosx", "dylib": "macosx",
           "watchapp": "watchos", "watchapp2": "watchos", "watchext": "watchos"}
 
-SOURCE_EXTS = {"swift", "m", "mm", "c", "cpp", "cc", "s", "metal", "intentdefinition", "mlmodel", "docc", "l", "y",
+SOURCE_EXTS = {"proto", "swift", "m", "mm", "c", "cpp", "cc", "s", "metal", "intentdefinition", "mlmodel", "docc", "l", "y",
                "applescript", "xcdatamodeld", "fuzz", "r", "iig"}
 HEADER_EXTS = {"h", "hpp", "H", "hh"}
 FRAMEWORK_EXTS = {"framework", "xcframework", "a", "tbd", "dylib"}
 UNBUILT_EXTS = {"entitlements", "modulemap", "xctestplan", "pch", "xcconfig", "md", ""}
 DIRECTORY_TYPES = {"xcassets", "docc", "bundle", "framework", "xcframework", "scnassets", "icon", "mlpackage", "xcstickers",
-                   "playground", "xcdatamodeld"}
+                   "playground", "xcdatamodeld", "xcmappingmodel"}
 BINARY_TYPES = {"png", "PNG", "jpg", "pdf", "ttf", "otf", "mp3", "mov", "mlmodel", "sks", "usdz", "a", "dylib", "heic",
                 "wav", "caf", "zip", "scn"}
 EXTRA_EXTS = (["swift"] * 8 + ["m", "h", "mm", "c", "cpp", "hpp", "H", "s", "metal", "l", "y", "iig", "pch", "modulemap"]
@@ -141,7 +148,8 @@ EXTRA_EXTS = (["swift"] * 8 + ["m", "h", "mm", "c", "cpp", "hpp", "H", "s", "met
                  "strings", "stringsdict", "xcstrings", "storyboard", "xib", "xcassets", "sks", "scnassets", "bundle",
                  "gpx", "geojson", "rtf", "usdz", "xcprivacy", "icon", "opml", "sdef", "fuzzdata", "xcconfig", "sh",
                  "py", "csv", "xml", "svg", "heic", "wav", "js", "ts", "docc", "xcdatamodeld", "intentdefinition",
-                 "mlmodel", "framework", "xcframework", "a", "tbd", "entitlements", "applescript", "zip", ""])
+                 "mlmodel", "framework", "xcframework", "a", "tbd", "entitlements", "applescript", "zip", "",
+                 "rb", "gif", "yml", "icns", "bplist", "aiff", "mk", "proto", "vsh", "bin", "playground", "xcmappingmodel"])
 KNOWN_TYPES = {
     "swift": "sourcecode.swift", "m": "sourcecode.c.objc", "mm": "sourcecode.cpp.objcpp", "c": "sourcecode.c.c",
     "cpp": "sourcecode.cpp.cpp", "cc": "sourcecode.cpp.cpp", "h": "sourcecode.c.h", "hpp": "sourcecode.cpp.h",
@@ -162,8 +170,13 @@ KNOWN_TYPES = {
     "l": "sourcecode.lex", "y": "sourcecode.yacc", "opml": "text.xml", "otf": "file", "pch": "sourcecode.c.h",
     "sdef": "text.xml", "svg": "text.xml", "ts": "sourcecode.typescript", "usdz": "file", "wav": "audio.wav",
     "xcstickers": "folder.stickers", "xml": "text.xml", "zip": "archive.zip",
+    "rb": "text.script.ruby", "gif": "image.gif", "yml": "text.yaml", "icns": "image.icns", "bplist": "file.bplist", "aiff": "audio.aiff",
+    "mk": "sourcecode.make", "proto": "sourcecode.protobuf", "vsh": "sourcecode.glsl", "xcmappingmodel": "wrapper.xcmappingmodel",
 }
-TEXT_ENCODINGS = [4, 4, 4, 10, 30, 12, 2483028224]
+# Other types real projects name for these files (the survey's `PBXFileReference.fileType`).
+DECLARED_TYPES = {"modulemap": ["sourcecode.module"], "plist": ["text.plist"], "bin": ["archive.macbinary"], "playground": ["file.playground"],
+                  "txt": ["undefined"], "json": ["text"], "swift": ["text"], "png": ["file"]}
+TEXT_ENCODINGS = [4, 4, 4, 9, 10, 30, 12, 2483028224]
 CONDITIONAL = [
     ("OTHER_LDFLAGS[sdk=iphoneos*]", ["$(inherited)", "-ObjC"]),
     ("EXCLUDED_ARCHS[sdk=iphonesimulator*]", "arm64"),
@@ -182,7 +195,19 @@ CONDITIONAL = [
     ("HEADER_SEARCH_PATHS[variant=normal]", "$(inherited) /opt/fuzz"),
     ("SDKROOT[arch=arm64]", "iphoneos"),
     ("IPHONEOS_DEPLOYMENT_TARGET[sdk=iphoneos*]", "17.0"),
+    ("PROVISIONING_PROFILE[sdk=iphoneos*]", "0a1b2c3d-1111-2222-3333-444455556666"),
+    ("PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]", "Fuzz Profile"),
+    ("PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]", ""),
 ]
+WORKSPACE_SETTINGS = [{"PreviewsEnabled": False}, {"PreviewsEnabled": False}, {"BuildSystemType": "Latest"}, {"BuildSystemType": "Original"},
+                      {"IDEWorkspaceSharedSettings_AutocreateContextsIfNeeded": False}, {"IDEWorkspaceSharedSettings_AutocreateContextsIfNeeded": True},
+                      {"DisableBuildSystemDeprecationDiagnostic": True}]
+USER_WORKSPACE_SETTINGS = [{"BuildLocationStyle": "UseAppPreferences", "CustomBuildLocationType": "RelativeToDerivedData",
+                            "DerivedDataLocationStyle": "Default", "EnabledFullIndexStoreVisibility": False,
+                            "IssueFilterStyle": "ShowActiveSchemeOnly", "LiveSourceIssuesEnabled": True},
+                           {"HasAskedToTakeAutomaticSafetyMeasures": True, "ShowSharedSchemesAutomaticallyEnabled": True},
+                           {"DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DerivedData"},
+                           {"BuildLocationStyle": "UseTargetSettings"}]
 SCRIPTS = ["echo \"fuzz\"\n", "if which swiftlint >/dev/null; then\n  swiftlint\nfi\n",
            "cp \"${SRCROOT}/a b.txt\" \"${BUILT_PRODUCTS_DIR}/\" # $(TARGET_NAME)\n", "exit 0", "print('ünï')\n"]
 
@@ -201,6 +226,9 @@ def extension(name):
     return base.rsplit(".", 1)[1] if "." in base.lstrip(".") else ""
 
 
+GENERATOR_VERSION = 2
+
+
 class Generator:
     def __init__(self, seed, focus=()):
         self.seed = seed
@@ -211,6 +239,7 @@ class Generator:
         self.odd = False
         self.untyped = False
         self.regions = ["en"]
+        self.editor = self.real_types = self.real_missing = self.real_phases = self.real_signing = self.real_schemes = False
 
     def chance(self, feature, probability=None):
         p = FEATURES[feature] if probability is None else probability
@@ -227,6 +256,8 @@ class Generator:
     def file_type(self, ext):
         if self.untyped and self.maybe(0.3):
             return None
+        if self.real_types and ext in DECLARED_TYPES and self.maybe(0.4):
+            return self.random.choice(DECLARED_TYPES[ext])
         return KNOWN_TYPES.get(ext)
 
     def ident(self, prefix):
@@ -259,6 +290,12 @@ class Generator:
         workspace = self.chance("workspace")
         self.odd = self.chance("odd-names")
         self.untyped = self.chance("untyped-files")
+        self.editor = self.chance("real-editor-keys")
+        self.real_types = self.chance("real-file-types")
+        self.real_missing = self.chance("real-missing")
+        self.real_phases = self.chance("real-phases")
+        self.real_signing = self.chance("real-signing")
+        self.real_schemes = self.chance("real-scheme-keys")
         if self.chance("packages"):
             spec["packages"] = self.packages()
         count = self.random.choice([1, 2, 2, 3]) if workspace else 1
@@ -274,6 +311,7 @@ class Generator:
         if workspace:
             spec["workspace"] = self.workspace(spec)
         spec["features"] = sorted(self.features)
+        spec["generator"] = GENERATOR_VERSION
         return spec
 
     # Packages -----------------------------------------------------------------------------
@@ -297,6 +335,17 @@ class Generator:
                        "tools": self.random.choice(["5.9", "5.10", "6.0"]),
                        "platforms": self.random.choice([[".iOS(.v16)", ".macOS(.v13)"], [".iOS(.v17)"], []]),
                        "products": products, "targets": targets, "deps": [], "schemes": []}
+            if self.chance("real-packages"):
+                package["tools"] = self.random.choice(["5.9", "6.0", "6.2"])
+                package["default_localization"] = self.maybe(0.3)
+                if self.maybe(0.3):
+                    package["platforms"] = self.random.choice([[".iOS(.v16)", ".watchOS(.v9)", ".tvOS(.v16)"], [".iOS(.v17)", ".visionOS(.v1)"]])
+                library = targets[0]
+                library["exclude"] = self.maybe(0.2)
+                library["copy"] = library["resources"] and self.maybe(0.5)
+                library["swift_settings"] = [option for option, rate in [('.define("FUZZ")', 0.3), ('.define("FUZZ_IOS", .when(platforms: [.iOS]))', 0.15),
+                                                                         ('.unsafeFlags(["-Onone"])', 0.1), ('.enableUpcomingFeature("ExistentialAny")', 0.1)]
+                                             if self.maybe(rate)]
             if packages and self.maybe(0.4):
                 other = self.random.choice(packages)
                 package["deps"].append(other["id"])
@@ -307,6 +356,14 @@ class Generator:
                                            "tests": [], "launch": None, "profile": None, "coverage": self.maybe(0.5),
                                            "plans": [], "configs": {}})
             packages.append(package)
+        used_by_others = {dep for package in packages for dep in package["deps"]}
+        for package in packages:
+            if not package["deps"] and package["id"] not in used_by_others and self.chance("remote-packages"):
+                package["dir"] = f".remotes/{package['name']}"
+                package["remote"] = self.random.choice([{"kind": "upToNextMajorVersion", "minimumVersion": "1.0.0"}, {"kind": "upToNextMajorVersion", "minimumVersion": "1.0.0"},
+                                                        {"kind": "upToNextMinorVersion", "minimumVersion": "1.0.0"}, {"kind": "exactVersion", "version": "1.0.0"},
+                                                        {"kind": "branch", "branch": "main"}, {"kind": "revision"}])
+                package["schemes"] = []
         return packages
 
     def package_usage(self, spec, workspace):
@@ -315,7 +372,9 @@ class Generator:
         for package in spec["packages"]:
             if any(package["id"] in other["deps"] for other in spec["packages"]) and self.maybe(0.3):
                 continue
-            if workspace and self.maybe(0.35):
+            if package.get("remote"):
+                project["package_refs"].append({"id": self.ident("r"), "package": package["id"]})
+            elif workspace and self.maybe(0.35):
                 package["in_workspace"] = True
             elif project["object_version"] >= 60 and self.maybe(0.7):
                 project["package_refs"].append({"id": self.ident("r"), "package": package["id"]})
@@ -330,7 +389,7 @@ class Generator:
     # Projects -----------------------------------------------------------------------------
 
     def project(self, index, workspace, used_dirs, secondary=False):
-        pid = f"p{index}"
+        pid = f"p{index}" + ("~obj" if self.chance("real-ids") else "")
         if index == 0:
             name = self.random.choice(ODD_TARGET_NAMES) if self.odd and self.maybe(0.4) else self.random.choice(["App", "Fuzz", "Sample"])
             directory = "" if not workspace or self.maybe(0.6) else self.random.choice(["App", "Apps/Main"])
@@ -343,7 +402,7 @@ class Generator:
             key = nfc_key(f"{directory}/{name}")
         used_dirs.add(key)
         legacy = self.chance("legacy-format")
-        version = self.random.choice([46, 50, 52, 54, 55, 56, 60, 63]) if legacy else 77
+        version = self.random.choice([45, 46, 47, 48, 50, 51, 52, 54, 55, 56, 60, 63, 70]) if legacy else 77
         configs = ["Debug", "Release"]
         if self.chance("configs"):
             extras = self.random.sample(CONFIG_EXTRAS, self.random.choice([1, 1, 2]))
@@ -368,17 +427,97 @@ class Generator:
                    "default_config": default, "xcconfigs": [], "tree": [], "targets": [], "schemes": [],
                    "user_schemes": [], "other_user_schemes": [], "scheme_management": None, "test_plans": [],
                    "package_refs": [], "project_refs": [], "disk_files": [], "embedded_workspace": self.maybe(0.5),
-                   "attributes": {"BuildIndependentTargetsInParallel": "1"} if self.maybe(0.7) else {}}
+                   "attributes": {"BuildIndependentTargetsInParallel": "1"} if self.maybe(0.7) else {},
+                   "workspace_files": self.workspace_files()}
         self.dirs = set()
         self.config_folder = None
         self.project_settings(project)
         if self.chance("xcconfig"):
             self.xcconfigs(project)
         self.targets(project, secondary)
+        if self.chance("real-project-keys"):
+            self.project_keys(project)
         self.shared_files(project)
         self.frameworks_group(project)
+        if self.real_missing:
+            self.missing_parts(project)
         self.schemes(project)
         return project
+
+    def workspace_files(self):
+        if not self.chance("real-workspace-files"):
+            return None
+        return {"checks": self.maybe(0.8),
+                "settings": self.random.choice(WORKSPACE_SETTINGS) if self.maybe(0.3) else None,
+                "user_settings": self.random.choice(USER_WORKSPACE_SETTINGS) if self.maybe(0.15) else None,
+                "resolved": self.random.choice([1, 2, 3]) if self.maybe(0.3) else None}
+
+    def project_keys(self, project):
+        attributes = project["attributes"]
+        if self.maybe(0.9):
+            attributes["ORGANIZATIONNAME"] = self.random.choice(["Fuzz Inc.", "Ünï GmbH", "org.nomac"])
+        if self.maybe(0.1):
+            attributes["LastSwiftMigration"] = "1600"
+        if self.maybe(0.03):
+            attributes["LastTestingUpgradeCheck"] = "0700"
+        if self.maybe(0.03):
+            attributes["DefaultBuildSystemTypeForWorkspace"] = self.random.choice(["Latest", "Original"])
+        if self.maybe(0.02):
+            attributes["KnownAssetTags"] = ["Level1", "Level 2"]
+        for target in project["targets"]:
+            if self.maybe(0.5):
+                target["attributes"]["DevelopmentTeam"] = "FUZZ123456"
+            if self.maybe(0.03):
+                target["attributes"]["DevelopmentTeamName"] = "Fuzz Team (Personal Team)"
+            if self.maybe(0.3):
+                target["attributes"]["SystemCapabilities"] = {"com.apple.Push": {"enabled": 1}, "com.apple.BackgroundModes": {"enabled": self.random.choice([0, 1])}}
+            if self.maybe(0.1):
+                target["attributes"]["LastSwiftMigration"] = "1600"
+
+    def missing_parts(self, project):
+        """What a real project's checkout lacks: CocoaPods' xcconfigs and subprojects it never fetched."""
+        targets = [t for t in project["targets"] if t["kind"] in PRODUCTS]
+        if targets and self.maybe(0.5):
+            target = self.random.choice(targets)
+            folder = f"Pods/Target Support Files/Pods-{slug(target['name'])}"
+            children = []
+            for config in project["configs"]:
+                xcconfig = {"id": self.ident("x"), "path": f"{folder}/Pods-{slug(target['name'])}.{slug(config['name'])}.xcconfig", "lines": [], "on_disk": False}
+                project["xcconfigs"].append(xcconfig)
+                children.append({"id": self.ident("n"), "kind": "file", "path": Path(xcconfig["path"]).name, "name": None, "xcconfig": xcconfig["id"],
+                                 "type": "text.xcconfig", "on_disk": False, "source_tree": "<group>"})
+                target["bases"][config["name"]] = xcconfig["id"]
+            project["tree"].append({"id": self.ident("n"), "kind": "group", "name": "Pods", "path": None, "children": children})
+        if targets and project["object_version"] >= 46 and self.maybe(0.3):
+            node = {"id": self.ident("n"), "kind": "file", "path": "Vendor/Gone/Gone.xcodeproj", "name": "Gone.xcodeproj", "type": "wrapper.pb-project", "on_disk": False}
+            project["tree"].append(node)
+            reference = {"id": self.ident("pr"), "node": node["id"], "missing": True,
+                         "products": [{"path": "libGone.a", "type": "archive.ar"}, {"path": "Gone.framework", "type": "wrapper.framework"}]}
+            project["project_refs"].append(reference)
+            host = self.random.choice(targets)
+            host["deps"].append({"gone": reference["id"], "name": "Gone"})
+            self.phase(host, "frameworks")["files"].append({"id": self.ident("b"), "ref": f"gone:{reference['id']}:{self.random.randrange(2)}"})
+
+    def editor_keys(self, group=False):
+        if not self.editor or not self.maybe(0.25):
+            return None
+        keys = {}
+        if self.maybe(0.5):
+            keys["indentWidth"] = self.random.choice([2, 4, 8])
+        if self.maybe(0.5):
+            keys["tabWidth"] = self.random.choice([2, 4, 8])
+        if self.maybe(0.4):
+            keys["usesTabs"] = self.random.choice([0, 1])
+        if self.maybe(0.2):
+            keys["wrapsLines"] = self.random.choice([0, 1])
+        if not group:
+            if self.maybe(0.4):
+                keys["lineEnding"] = self.random.choice([0, 1, 2])
+            if self.maybe(0.5):
+                keys["xcLanguageSpecificationIdentifier"] = self.random.choice(["xcode.lang.swift", "xcode.lang.objc", "xcode.lang.ruby", "xcode.lang.sh"])
+            if self.maybe(0.1):
+                keys["plistStructureDefinitionIdentifier"] = "com.apple.xcode.plist.structure-definition.iphone.info-plist"
+        return keys or None
 
     def project_settings(self, project):
         candidates = {"ALWAYS_SEARCH_USER_PATHS": "NO", "CLANG_ENABLE_MODULES": "YES", "CLANG_ENABLE_OBJC_ARC": "YES",
@@ -429,6 +568,14 @@ class Generator:
         if self.chance("macros", 0.4):
             base["lines"].append({"set": "FUZZ_SIGN_STYLE", "value": self.random.choice(["Manual", "Automatic"])})
             base["lines"].append({"set": "CODE_SIGN_STYLE", "value": "$(FUZZ_SIGN_STYLE)"})
+        if self.real_missing and self.maybe(0.3):
+            base["lines"].append({"include_path": "../Pods/Target Support Files/Gone.xcconfig", "optional": False})
+        if self.real_signing:
+            for key, value, probability in [("CODE_SIGN_IDENTITY", "Apple Development", 0.4), ("PRODUCT_NAME", "$(TARGET_NAME)", 0.3),
+                                            ("PROVISIONING_PROFILE_SPECIFIER", "Fuzz Profile", 0.3),
+                                            ("CODE_SIGN_IDENTITY[sdk=iphoneos*]", "iPhone Developer", 0.2)]:
+                if self.maybe(probability):
+                    base["lines"].append({"set": key, "value": value})
         project["xcconfigs"] = [shared, base]
         used.update({nfc_key(shared["path"]), nfc_key(base["path"])})
         per_config = {}
@@ -660,7 +807,7 @@ class Generator:
                 return groups[folder]
             parent_folder, _, last = folder.rpartition("/")
             parent = group_for(parent_folder)
-            group = {"id": self.ident("n"), "kind": "group", "name": None, "path": last, "children": []}
+            group = {"id": self.ident("n"), "kind": "group", "name": None, "path": last, "children": [], "extras": self.editor_keys(group=True)}
             if self.maybe(0.1):
                 group["name"] = f"{last} Group"
             parent["children"].append(group)
@@ -676,6 +823,8 @@ class Generator:
                 key = (parent_folder, stem) if extension(name) in ("storyboard", "xib", "strings") else (parent_folder, name)
                 if key not in variants:
                     variant = {"id": self.ident("n"), "kind": "variant", "name": name, "children": []}
+                    if self.real_types and self.maybe(0.1):
+                        variant["path"] = "Localized"
                     variants[key] = variant
                     group_for(parent_folder)["children"].append(variant)
                     phases["resources"].append(variant["id"])
@@ -694,6 +843,7 @@ class Generator:
                 node["versions"] = ["Model", "Model 2"] if self.maybe(0.5) else ["Model"]
             if self.maybe(0.08):
                 node["name"] = name
+            node["extras"] = self.editor_keys()
             if self.maybe(0.15) and ext not in DIRECTORY_TYPES:
                 node["encoding"] = self.random.choice(TEXT_ENCODINGS)
             if self.maybe(0.03):
@@ -703,6 +853,18 @@ class Generator:
             phase = phase_for(ext, name, headers_phase)
             if phase and kind not in ("watchcontainer",):
                 phases[phase].append(node["id"])
+        if self.real_types and root["path"] and self.maybe(0.1):
+            root["source_tree"] = "SOURCE_ROOT"
+        if self.real_types and self.maybe(0.2):
+            folder_node = {"id": self.ident("n"), "kind": "file", "path": self.random.choice(["Blue Folder", "web", "Bundled Data"]), "name": None,
+                           "type": "folder", "on_disk": not self.chance("missing-files", 0.1), "folder_items": ["a.txt", "sub/b.json"]}
+            root["children"].append(folder_node)
+            phases["resources"].append(folder_node["id"])
+        if self.real_missing and self.maybe(0.1):
+            absolute = {"id": self.ident("n"), "kind": "file", "path": "/Users/nobody/Vendor/Gone.m", "name": "Gone.m", "type": "sourcecode.c.objc",
+                        "on_disk": False, "source_tree": "<absolute>"}
+            root["children"].append(absolute)
+            phases["sources"].append(absolute["id"])
         if headers_phase:
             target["phases"].append({"id": self.ident("ph"), "kind": "headers", "files": [self.header_file(ref) for ref in phases["headers"]]})
         for phase_kind in ["sources", "frameworks", "resources"]:
@@ -714,6 +876,10 @@ class Generator:
                         build_file["flags"] = self.random.choice(["-fno-objc-arc", "-DFUZZ=1 -Wall"])
                     if self.maybe(0.04):
                         build_file["platforms"] = self.random.choice([["ios"], ["macos"], ["ios", "maccatalyst"]])
+                    elif self.real_phases and self.maybe(0.05):
+                        build_file["platform"] = self.random.choice(["ios", "macos", "maccatalyst"])
+                    if phase_kind == "resources" and self.real_phases and self.maybe(0.1):
+                        build_file["asset_tags"] = ["Level1"]
                     build_files.append(build_file)
                 target["phases"].append({"id": self.ident("ph"), "kind": phase_kind, "files": build_files})
         return root
@@ -725,6 +891,8 @@ class Generator:
             build_file["attributes"] = ["Public"]
         elif roll < 0.7:
             build_file["attributes"] = ["Private"]
+        elif roll < 0.85 and self.real_phases:
+            build_file["attributes"] = ["Project"]
         return build_file
 
     def target_settings(self, project, target, directory, plist, files):
@@ -738,6 +906,13 @@ class Generator:
                                         ("SWIFT_EMIT_LOC_STRINGS", "YES", 0.3)]:
             if self.maybe(probability):
                 settings[key] = value
+        if self.real_signing:
+            for key, value, probability in [("PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]", "Fuzz Profile", 0.2),
+                                            ("PROVISIONING_PROFILE_SPECIFIER", self.random.choice(["", "Plain Profile", "$(FUZZ_PROFILE)"]), 0.2),
+                                            ("PROVISIONING_PROFILE[sdk=iphoneos*]", "0a1b2c3d-1111-2222-3333-444455556666", 0.2),
+                                            ("PROVISIONING_PROFILE", "", 0.2)]:
+                if self.maybe(probability):
+                    settings[key] = value
         sdk = SDK_OF.get(kind)
         if sdk == "macosx":
             settings["SDKROOT"] = "macosx"
@@ -875,7 +1050,8 @@ class Generator:
                 "input_lists": self.random.choice([[], ["$(SRCROOT)/inputs.xcfilelist"]]),
                 "output_lists": self.random.choice([[], [], ["$(SRCROOT)/outputs.xcfilelist"]]),
                 "always": self.maybe(0.3), "env": self.maybe(0.3), "deployment": self.maybe(0.1),
-                "dependency_file": "$(DERIVED_FILE_DIR)/fuzz.d" if self.maybe(0.1) else None}
+                "dependency_file": "$(DERIVED_FILE_DIR)/fuzz.d" if self.maybe(0.1) else None,
+                "mask": self.random.choice([8, 12]) if self.real_phases and self.maybe(0.2) else None}
 
     def extra_phases(self, target):
         target["phases"].insert(self.random.randint(0, len(target["phases"])), self.script_phase())
@@ -884,7 +1060,9 @@ class Generator:
                                        (13, ""), (16, "$(CONTENTS_FOLDER_PATH)/Library/LoginItems"), (15, "")])
             target["phases"].append({"id": self.ident("ph"), "kind": "copy", "dst_spec": spec[0], "dst_path": spec[1],
                                      "name": self.random.choice(["Copy Files", "Embed Fonts", None]), "files": [],
-                                     "deployment": self.maybe(0.2)})
+                                     "deployment": self.maybe(0.2),
+                                     "mask": self.random.choice([8, 12]) if self.real_phases and self.maybe(0.2) else None,
+                                     "dst_subfolder": self.random.choice(["PlugIns", "Frameworks", "Resources"]) if self.real_phases and self.maybe(0.15) else None})
         if self.maybe(0.15):
             target["phases"].append({"id": self.ident("ph"), "kind": "resources", "files": []})
         if self.maybe(0.1):
@@ -974,7 +1152,7 @@ class Generator:
                 if users:
                     build_file = {"id": self.ident("b"), "ref": node["id"]}
                     if self.maybe(0.3):
-                        build_file["attributes"] = ["Weak"]
+                        build_file["attributes"] = [self.random.choice(["Weak", "Required"]) if self.real_phases else "Weak"]
                     self.phase(self.random.choice(users), "frameworks")["files"].append(build_file)
         project["tree"].append(group)
 
@@ -997,7 +1175,11 @@ class Generator:
         dependency = {"target": target["id"]}
         if self.maybe(0.04):
             dependency["platforms"] = self.random.choice([["ios"], ["ios", "maccatalyst"]])
+        elif self.real_phases and self.maybe(0.05):
+            dependency["platform"] = "ios"
         host["deps"].append(dependency)
+        if self.real_phases and self.maybe(0.08):
+            host["deps"].append({"target": target["id"], "duplicate": True})
 
     def wire(self, project):
         targets = project["targets"]
@@ -1116,8 +1298,18 @@ class Generator:
                   "tests": [{"project": pid, "target": t["id"], "skipped": self.maybe(0.1)} for t in tests],
                   "launch": {"project": pid, "target": launch["id"], "kind": launch_kind} if launch else None,
                   "profile": {"project": pid, "target": profile["id"], "kind": "product"} if profile else None,
-                  "coverage": self.maybe(0.4), "plans": [], "configs": self.configs_for(project), "ask": False}
+                  "coverage": self.maybe(0.4), "plans": [], "configs": self.configs_for(project), "ask": False, "keys": self.scheme_keys()}
         return scheme
+
+    def scheme_keys(self):
+        if not self.real_schemes:
+            return None
+        return {"version": self.random.choice(["1.3", "1.3", "1.7", "1.8", "2.0"]), "extension": self.maybe(0.1), "analyze_no": self.maybe(0.1),
+                "testing_no": self.maybe(0.03), "parallelize_no": self.maybe(0.05), "architectures": self.maybe(0.1), "actions": self.maybe(0.06),
+                "test_macro": self.maybe(0.4), "args_env_no": self.maybe(0.05), "autocreate_plan": self.maybe(0.1), "coverage_targets": self.maybe(0.05),
+                "parallelizable": self.random.choice([None, None, None, "YES", "NO"]), "ordering": self.maybe(0.03), "skipped": self.maybe(0.05),
+                "options": self.maybe(0.3), "language": self.maybe(0.08), "lldb": self.maybe(0.03), "launch_flags": self.maybe(0.1),
+                "custom_archive": self.maybe(0.02), "substyle": self.maybe(0.1), "remote_buildable": self.maybe(0.5)}
 
     def schemes(self, project):
         targets = project["targets"]
@@ -1185,7 +1377,10 @@ class Generator:
             plans.append({"id": self.ident("tp"), "path": f"{folder}{project['name']}{'Tests' if index == 0 else 'More'}.xctestplan",
                           "tests": [{"project": project["id"], "target": t["id"]} for t in tests if self.maybe(0.8)],
                           "coverage": self.random.choice([None, True, False, "targets"]), "valid": not self.maybe(0.1),
-                          "on_disk": not self.chance("missing-files", 0.1)})
+                          "on_disk": not self.chance("missing-files", 0.1),
+                          "keys": {key: self.maybe(rate) for key, rate in [("expansion", 0.3), ("environment", 0.2), ("arguments", 0.1), ("timeouts", 0.15), ("repetition", 0.1),
+                                                                           ("language", 0.1), ("ordering", 0.1), ("skipped", 0.2), ("selected", 0.1), ("parallelizable", 0.2),
+                                                                           ("disabled", 0.1)]} if self.chance("real-test-plan-keys") else None})
         project["test_plans"] = plans
         scheme = schemes[0]
         default_index = self.random.randrange(len(plans))
@@ -1202,6 +1397,16 @@ class Generator:
         for package in spec["packages"]:
             if package.pop("in_workspace", False):
                 items.append({"kind": "package", "package": package["id"], "group": None})
+        if self.real_missing and self.maybe(0.5):
+            items.append({"kind": "raw", "location": "group:Pods/Pods.xcodeproj", "group": None})
+        if self.real_types:
+            if self.maybe(0.2):
+                items.append({"kind": "raw", "location": "group:Podfile", "content": "platform :ios, '15.0'\n", "group": None})
+            if self.maybe(0.1):
+                items.append({"kind": "raw", "location": "group:Sandbox.playground", "playground": True, "group": "Docs"})
+            for item in items:
+                if item["kind"] == "project" and self.maybe(0.15):
+                    item["scheme"] = "container"
         schemes = []
         if self.chance("schemes"):
             buildable = [(p, t) for p in spec["projects"] for t in p["targets"] if t["kind"] not in ("aggregate", "legacy")]
@@ -1214,12 +1419,12 @@ class Generator:
                                     if t["kind"] in ("unit", "ui") and self.maybe(0.5)],
                           "launch": {"project": launch[0]["id"], "target": launch[1]["id"], "kind": "product"} if launch else None,
                           "profile": None, "coverage": self.maybe(0.5), "plans": [],
-                          "configs": self.configs_for(spec["projects"][0]), "ask": False}
+                          "configs": self.configs_for(spec["projects"][0]), "ask": False, "keys": self.scheme_keys()}
                 if spec["packages"] and self.maybe(0.3):
                     package = spec["packages"][0]
                     scheme["build"].append({"package": package["id"], "product": package["products"][0]["name"], "running": True})
                 schemes.append(scheme)
-        return {"name": name, "items": items, "schemes": schemes}
+        return {"name": name, "items": items, "schemes": schemes, "files": self.workspace_files(), "group_location": "group:" if self.real_types and self.maybe(0.2) else "container:"}
 
 
 def phase_for(ext, name, headers_phase):
@@ -1262,7 +1467,8 @@ def pbx_value(value, depth):
 
 
 def object_id(owner, key):
-    return hashlib.md5(f"{owner}/{key}".encode()).hexdigest()[:24].upper()
+    digest = hashlib.md5(f"{owner}/{key}".encode()).hexdigest()
+    return f"OBJ_{int(digest[:8], 16)}" if owner.endswith("~obj") else digest[:24].upper()
 
 
 def identifier(text):
@@ -1327,6 +1533,7 @@ def directory_contents(ext, stem):
         "xcstickers": {"Contents.json": contents, "Sticker Pack.stickerpack/Contents.json": contents},
         "playground": {"contents.xcplayground": XML_DOCUMENT, "Contents.swift": "import Foundation\n"},
         "xcdatamodeld": {"Model.xcdatamodel/contents": XML_DOCUMENT},
+        "xcmappingmodel": {"xcmapping.xml": XML_DOCUMENT},
     }[ext]
 
 
@@ -1404,6 +1611,8 @@ class ProjectRenderer:
     def render(self):
         self.dir.mkdir(parents=True, exist_ok=True)
         for xcconfig in self.project["xcconfigs"]:
+            if not xcconfig.get("on_disk", True):
+                continue
             path = self.dir / xcconfig["path"]
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(xcconfig_text(xcconfig, self.xcconfigs, self.dir))
@@ -1428,6 +1637,7 @@ class ProjectRenderer:
             embedded.mkdir(exist_ok=True)
             (embedded / "contents.xcworkspacedata").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n<Workspace\n   version = "1.0">\n   <FileRef\n      location = "self:">\n   </FileRef>\n</Workspace>\n')
+        write_workspace_files(path / "project.xcworkspace", self.project.get("workspace_files"), self.user)
         self.write_schemes(path)
         self.write_test_plans()
         return path
@@ -1456,6 +1666,7 @@ class ProjectRenderer:
             fields["fileEncoding"] = node["encoding"]
         if node.get("explicit"):
             fields["includeInIndex"] = 0
+        fields.update(node.get("extras") or {})
         return fields
 
     def node(self, node, group_dir):
@@ -1471,6 +1682,7 @@ class ProjectRenderer:
                 fields["name"] = node["name"]
             if node.get("path"):
                 fields["path"] = node["path"]
+            fields.update(node.get("extras") or {})
         elif kind == "file":
             fields = self.file_node_fields(node)
             tree = node.get("source_tree", "<group>")
@@ -1481,7 +1693,11 @@ class ProjectRenderer:
                     return None
                 fields["path"] = os.path.relpath(self.dir / xcconfig["path"], group_dir)
             elif disk is not None and node.get("on_disk", True):
-                write_item(disk)
+                if "folder_items" in node:
+                    for item in node["folder_items"]:
+                        write_item(disk / item)
+                else:
+                    write_item(disk)
         elif kind == "version":
             versions = node.get("versions") or ["Model"]
             path = group_dir / node["path"]
@@ -1491,16 +1707,21 @@ class ProjectRenderer:
                                                           "path": f"{v}.xcdatamodel", "sourceTree": "<group>"}) for v in versions]
             fields = {"isa": "XCVersionGroup", "children": version_ids, "currentVersion": version_ids[-1], "path": node["path"],
                       "sourceTree": "<group>", "versionGroupType": "wrapper.xcdatamodel"}
+            if node.get("name"):
+                fields["name"] = node["name"]
         elif kind == "variant":
             children = []
+            variant_dir = group_dir / node["path"] if node.get("path") else group_dir
             for child in node["children"]:
                 if child.get("on_disk", True):
-                    write_item(group_dir / child["path"])
+                    write_item(variant_dir / child["path"])
                 children.append(self.add(child["id"], {"isa": "PBXFileReference", "name": child["region"], "path": child["path"],
                                                        "sourceTree": "<group>", "lastKnownFileType": KNOWN_TYPES.get(extension(child["path"]), "text")}))
             if not children:
                 return None
             fields = {"isa": "PBXVariantGroup", "children": children, "name": node["name"], "sourceTree": "<group>"}
+            if node.get("path"):
+                fields["path"] = node["path"]
         elif kind == "sync":
             fields = self.sync_node(node, group_dir)
         elif kind == "package":
@@ -1604,6 +1825,12 @@ class ProjectRenderer:
             if dependency is None or dependency["package"] not in self.packages:
                 return None
             fields["productRef"] = self.oid(dependency["id"])
+        elif ref.startswith("gone:"):
+            _, reference_id, index = ref.split(":")
+            reference = next((r for r in self.project["project_refs"] if r["id"] == reference_id), None)
+            if reference is None or reference["node"] not in self.nodes:
+                return None
+            fields["fileRef"] = self.oid(f"{reference_id}/proxy/{index}")
         elif ref.startswith("proxy:"):
             _, reference_id, tid = ref.split(":")
             reference = next((r for r in self.project["project_refs"] if r["id"] == reference_id), None)
@@ -1620,18 +1847,26 @@ class ProjectRenderer:
             settings["ATTRIBUTES"] = build_file["attributes"]
         if build_file.get("flags"):
             settings["COMPILER_FLAGS"] = build_file["flags"]
+        if build_file.get("asset_tags"):
+            settings["ASSET_TAGS"] = build_file["asset_tags"]
         if settings:
             fields["settings"] = settings
         if build_file.get("platforms"):
             fields["platformFilters"] = build_file["platforms"]
+        if build_file.get("platform"):
+            fields["platformFilter"] = build_file["platform"]
         return self.add(build_file["id"], fields)
 
     def phase(self, target, phase):
         files = [f for f in (self.build_file(target, b) for b in phase["files"]) if f]
-        common = {"buildActionMask": 2147483647, "files": files, "runOnlyForDeploymentPostprocessing": 1 if phase.get("deployment") else 0}
+        common = {"buildActionMask": phase.get("mask") or 2147483647, "files": files, "runOnlyForDeploymentPostprocessing": 1 if phase.get("deployment") else 0}
         kind = phase["kind"]
         if kind == "copy":
-            fields = {"isa": "PBXCopyFilesBuildPhase", **common, "dstPath": phase.get("dst_path", ""), "dstSubfolderSpec": phase.get("dst_spec", 7)}
+            fields = {"isa": "PBXCopyFilesBuildPhase", **common, "dstPath": phase.get("dst_path", "")}
+            if phase.get("dst_subfolder"):
+                fields["dstSubfolder"] = phase["dst_subfolder"]
+            else:
+                fields["dstSubfolderSpec"] = phase.get("dst_spec", 7)
             if phase.get("name"):
                 fields["name"] = phase["name"]
         elif kind == "script":
@@ -1653,6 +1888,14 @@ class ProjectRenderer:
         return self.add(phase["id"], fields)
 
     def dependency(self, target, dependency):
+        if dependency.get("gone"):
+            reference = next((r for r in self.project["project_refs"] if r["id"] == dependency["gone"]), None)
+            if reference is None or reference["node"] not in self.nodes:
+                return None
+            proxy = self.add(f"{target['id']}/proxy/{dependency['gone']}", {
+                "isa": "PBXContainerItemProxy", "containerPortal": self.nodes[reference["node"]], "proxyType": 1,
+                "remoteGlobalIDString": object_id(dependency["gone"], "gone-target"), "remoteInfo": dependency["name"]})
+            return self.add(f"{target['id']}/dependency/{dependency['gone']}", {"isa": "PBXTargetDependency", "name": dependency["name"], "targetProxy": proxy})
         if dependency.get("project"):
             reference = next((r for r in self.project["project_refs"] if r["id"] == dependency.get("via")), None)
             other = find_project(self.spec, dependency["project"])
@@ -1666,13 +1909,16 @@ class ProjectRenderer:
         other = self.targets.get(dependency["target"])
         if other is None or other is target:
             return None
-        proxy = self.add(f"{target['id']}/proxy/{other['id']}", {
+        suffix = "/duplicate" if dependency.get("duplicate") else ""
+        proxy = self.add(f"{target['id']}/proxy/{other['id']}{suffix}", {
             "isa": "PBXContainerItemProxy", "containerPortal": self.oid("project"), "proxyType": 1,
             "remoteGlobalIDString": self.oid(other["id"]), "remoteInfo": other["name"]})
         fields = {"isa": "PBXTargetDependency", "target": self.oid(other["id"]), "targetProxy": proxy}
         if dependency.get("platforms"):
             fields["platformFilters"] = dependency["platforms"]
-        return self.add(f"{target['id']}/dependency/{other['id']}", fields)
+        if dependency.get("platform"):
+            fields["platformFilter"] = dependency["platform"]
+        return self.add(f"{target['id']}/dependency/{other['id']}{suffix}", fields)
 
     def rule(self, rule):
         fields = {"isa": "PBXBuildRule", "compilerSpec": rule["compiler"], "fileType": rule["file_type"], "inputFiles": [],
@@ -1756,13 +2002,30 @@ class ProjectRenderer:
         references = []
         for reference in project["package_refs"]:
             package = self.packages.get(reference["package"])
-            if package:
+            if package and package.get("remote"):
+                requirement = dict(package["remote"], **({"revision": package["revision"]} if package["remote"]["kind"] == "revision" else {}))
+                references.append(self.add(reference["id"], {"isa": "XCRemoteSwiftPackageReference", "repositoryURL": f"file://{self.root / package['dir']}",
+                                                             "requirement": requirement}))
+            elif package:
                 references.append(self.add(reference["id"], {"isa": "XCLocalSwiftPackageReference",
                                                              "relativePath": os.path.relpath(self.root / package["dir"], self.dir)}))
         if references:
             fields["packageReferences"] = references
         project_references = []
         for reference in project["project_refs"]:
+            if reference.get("missing"):
+                if reference["node"] not in self.nodes:
+                    continue
+                proxies = []
+                for index, product in enumerate(reference["products"]):
+                    item = self.add(f"{reference['id']}/remote/{index}", {
+                        "isa": "PBXContainerItemProxy", "containerPortal": self.nodes[reference["node"]], "proxyType": 2,
+                        "remoteGlobalIDString": object_id(reference["id"], f"gone-{index}"), "remoteInfo": Path(product["path"]).stem})
+                    proxies.append(self.add(f"{reference['id']}/proxy/{index}", {
+                        "isa": "PBXReferenceProxy", "fileType": product["type"], "path": product["path"], "remoteRef": item, "sourceTree": "BUILT_PRODUCTS_DIR"}))
+                group = self.add(f"{reference['id']}/products", {"isa": "PBXGroup", "children": proxies, "name": "Products", "sourceTree": "<group>"})
+                project_references.append({"ProductGroup": group, "ProjectRef": self.nodes[reference["node"]]})
+                continue
             other = find_project(self.spec, reference["project"])
             if other is None or reference["node"] not in self.nodes:
                 continue
@@ -1832,11 +2095,21 @@ class ProjectRenderer:
         for plan in self.project["test_plans"]:
             if not plan.get("on_disk", True):
                 continue
+            keys = plan.get("keys") or {}
             targets = []
             for entry in plan["tests"]:
                 found = self.buildable(entry, self.dir)
                 if found:
-                    targets.append({"target": {"containerPath": found[3], "identifier": found[0], "name": found[2]}})
+                    item = {"target": {"containerPath": found[3], "identifier": found[0], "name": found[2]}}
+                    if keys.get("skipped"):
+                        item["skippedTests"] = ["FuzzTests/testNothing()"]
+                    elif keys.get("selected"):
+                        item["selectedTests"] = ["FuzzTests/testNothing()"]
+                    if keys.get("parallelizable"):
+                        item["parallelizable"] = True
+                    if keys.get("disabled"):
+                        item["enabled"] = False
+                    targets.append(item)
             options = {}
             if plan["coverage"] is True:
                 options["codeCoverage"] = True
@@ -1844,6 +2117,21 @@ class ProjectRenderer:
                 options["codeCoverage"] = False
             elif plan["coverage"] == "targets":
                 options["codeCoverage"] = {"targets": [t["target"] for t in targets[:1]]}
+            if keys.get("expansion") and targets:
+                options["targetForVariableExpansion"] = targets[0]["target"]
+            if keys.get("environment"):
+                options["environmentVariableEntries"] = [{"key": "FUZZ", "value": "1"}]
+            if keys.get("arguments"):
+                options["commandLineArgumentEntries"] = [{"argument": "-fuzz"}]
+            if keys.get("timeouts"):
+                options["testTimeoutsEnabled"] = True
+            if keys.get("repetition"):
+                options["testRepetitionMode"] = "retryOnFailure"
+            if keys.get("language"):
+                options["language"] = "fr"
+                options["region"] = "FR"
+            if keys.get("ordering"):
+                options["testExecutionOrdering"] = "random"
             document = {"configurations": [{"id": "8D7C5E1A-0F3B-4C2D-9E6F-1A2B3C4D5E6F" if plan["valid"] else "not-a-uuid",
                                             "name": "Test Scheme Action", "options": {}}],
                         "defaultOptions": options, "testTargets": targets, "version": 1}
@@ -1852,7 +2140,31 @@ class ProjectRenderer:
             path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
 
 
+def write_workspace_files(path, files, user):
+    """A workspace's data files: IDEWorkspaceChecks.plist, its shared and per-user settings and an empty Package.resolved."""
+    if not files:
+        return
+    shared = path / "xcshareddata"
+    if files["checks"]:
+        shared.mkdir(parents=True, exist_ok=True)
+        (shared / "IDEWorkspaceChecks.plist").write_bytes(plist_bytes({"IDEDidComputeMac32BitWarning": True}))
+    if files["settings"]:
+        shared.mkdir(parents=True, exist_ok=True)
+        (shared / "WorkspaceSettings.xcsettings").write_bytes(plist_bytes(files["settings"]))
+    if files["user_settings"]:
+        folder = path / "xcuserdata" / f"{user}.xcuserdatad"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "WorkspaceSettings.xcsettings").write_bytes(plist_bytes(files["user_settings"]))
+    if files["resolved"]:
+        folder = shared / "swiftpm"
+        folder.mkdir(parents=True, exist_ok=True)
+        document = {"object": {"pins": []}, "version": 1} if files["resolved"] == 1 else {"pins": [], "version": files["resolved"]}
+        (folder / "Package.resolved").write_text(json.dumps(document, indent=2) + "\n")
+
+
 def scheme_xml(scheme, buildable, plan_reference):
+    keys = scheme.get("keys") or {}
+
     def reference(found, indent):
         pad = " " * indent
         blueprint, buildable_name, blueprint_name, container = (html.escape(str(v)) for v in found)
@@ -1867,8 +2179,10 @@ def scheme_xml(scheme, buildable, plan_reference):
         if found is None:
             return ""
         if entry["kind"] == "remote":
-            return ('      <RemoteRunnable\n         runnableDebuggingMode = "1"\n         BundleIdentifier = "com.apple.springboard"\n'
-                    '         RemotePath = "/System/Library/CoreServices/SpringBoard.app">\n      </RemoteRunnable>\n'
+            inner = reference(found, 9) if keys.get("remote_buildable") else ""
+            mode = "2" if keys.get("remote_buildable") else "1"
+            return (f'      <RemoteRunnable\n         runnableDebuggingMode = "{mode}"\n         BundleIdentifier = "com.apple.springboard"\n'
+                    f'         RemotePath = "/System/Library/CoreServices/SpringBoard.app">\n{inner}      </RemoteRunnable>\n'
                     '      <MacroExpansion>\n' + reference(found, 9) + '      </MacroExpansion>\n')
         if entry["kind"] == "path":
             return ('      <PathRunnable\n         runnableDebuggingMode = "0"\n         FilePath = "/Applications/Safari.app">\n'
@@ -1882,11 +2196,18 @@ def scheme_xml(scheme, buildable, plan_reference):
         if found is None:
             continue
         flag = "YES" if entry["running"] else "NO"
-        entries += ('         <BuildActionEntry\n            buildForTesting = "YES"\n'
+        entries += (f'         <BuildActionEntry\n            buildForTesting = "{"NO" if keys.get("testing_no") else "YES"}"\n'
                     f'            buildForRunning = "{flag}"\n            buildForProfiling = "{flag}"\n'
-                    f'            buildForArchiving = "{flag}"\n            buildForAnalyzing = "YES">\n'
+                    f'            buildForArchiving = "{flag}"\n            buildForAnalyzing = "{"NO" if keys.get("analyze_no") else "YES"}">\n'
                     + reference(found, 12) + "         </BuildActionEntry>\n")
     build = f"      <BuildActionEntries>\n{entries}      </BuildActionEntries>\n" if entries else ""
+    first_build = next((found for found in (buildable(entry) for entry in scheme["build"]) if found), None)
+    if keys.get("actions"):
+        environment = f"               <EnvironmentBuildable>\n{reference(first_build, 18)}               </EnvironmentBuildable>\n" if first_build else ""
+        action = ('         <ExecutionAction\n            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">\n'
+                  '            <ActionContent\n               title = "Run Script"\n               scriptText = "echo fuzz&#10;">\n'
+                  f'{environment}            </ActionContent>\n         </ExecutionAction>\n')
+        build = f"      <PreActions>\n{action}      </PreActions>\n      <PostActions>\n{action}      </PostActions>\n" + build
     plans = ""
     for plan in scheme["plans"]:
         location = plan_reference(plan["plan"])
@@ -1897,25 +2218,67 @@ def scheme_xml(scheme, buildable, plan_reference):
     for test in scheme["tests"]:
         found = buildable(test)
         if found:
-            testables += (f'         <TestableReference\n            skipped = "{"YES" if test.get("skipped") else "NO"}">\n'
-                          + reference(found, 12) + "         </TestableReference>\n")
+            parallel = f'\n            parallelizable = "{keys["parallelizable"]}"' if keys.get("parallelizable") else ""
+            ordering = '\n            testExecutionOrdering = "random"' if keys.get("ordering") else ""
+            skipped = '            <SkippedTests>\n               <Test\n                  Identifier = "FuzzTests/testNothing()">\n               </Test>\n            </SkippedTests>\n' if keys.get("skipped") else ""
+            testables += (f'         <TestableReference\n            skipped = "{"YES" if test.get("skipped") else "NO"}"{parallel}{ordering}>\n'
+                          + reference(found, 12) + skipped + "         </TestableReference>\n")
     test_body = (f"      <TestPlans>\n{plans}      </TestPlans>\n" if plans else "") + (f"      <Testables>\n{testables}      </Testables>\n" if testables else "")
     coverage = '\n      codeCoverageEnabled = "YES"' if scheme.get("coverage") else ""
     ask = '\n      askForAppToLaunch = "Yes"\n      launchAutomaticallySubstyle = "2"' if scheme.get("ask") else ""
+    build_keys = '\n      buildArchitectures = "Automatic"' if keys.get("architectures") else ""
+    version = keys.get("version", "1.7")
+    extension_key = '\n   wasCreatedForAppExtension = "YES"' if keys.get("extension") else ""
+    test_keys, test_after, launch_keys, launch_after = "", "", "", ""
+    if keys.get("autocreate_plan"):
+        test_keys += '\n      shouldAutocreateTestPlan = "YES"'
+    if keys.get("language"):
+        test_keys += '\n      language = "fr"\n      region = "FR"'
+        launch_keys += '\n      language = "fr"\n      region = "FR"'
+    if keys.get("lldb"):
+        test_keys += '\n      customLLDBInitFile = "$(SRCROOT)/.lldbinit"'
+        launch_keys += '\n      customLLDBInitFile = "$(SRCROOT)/.lldbinit"'
+    if keys.get("launch_flags"):
+        launch_keys += ('\n      enableGPUValidationMode = "1"\n      queueDebuggingEnabled = "No"\n      disableMainThreadChecker = "YES"'
+                        '\n      viewDebuggingEnabled = "No"\n      showNonLocalizedStrings = "YES"\n      debugXPCServices = "NO"')
+    if keys.get("test_macro") and first_build:
+        test_after += "      <MacroExpansion>\n" + reference(first_build, 9) + "      </MacroExpansion>\n"
+    if keys.get("coverage_targets") and first_build:
+        test_keys += '\n      onlyGenerateCoverageForSpecifiedTargets = "YES"'
+        test_after += "      <CodeCoverageTargets>\n" + reference(first_build, 9) + "      </CodeCoverageTargets>\n"
+    if keys.get("options"):
+        options = ('      <CommandLineArguments>\n         <CommandLineArgument\n            argument = "-fuzz"\n            isEnabled = "YES">\n'
+                   '         </CommandLineArgument>\n         <CommandLineArgument\n            argument = "-off"\n            isEnabled = "NO">\n'
+                   '         </CommandLineArgument>\n      </CommandLineArguments>\n'
+                   '      <EnvironmentVariables>\n         <EnvironmentVariable\n            key = "FUZZ"\n            value = "YES"\n            isEnabled = "NO">\n'
+                   '         </EnvironmentVariable>\n         <EnvironmentVariable\n            key = "FUZZ_ON"\n            value = "1"\n            isEnabled = "YES">\n'
+                   '         </EnvironmentVariable>\n      </EnvironmentVariables>\n'
+                   '      <AdditionalOptions>\n         <AdditionalOption\n            key = "NSZombieEnabled"\n            value = "YES"\n            isEnabled = "YES">\n'
+                   '         </AdditionalOption>\n      </AdditionalOptions>\n')
+        launch_after += options
+        test_after += options
+    profile_keys = '\n      launchAutomaticallySubstyle = "2"\n      askForAppToLaunch = "Yes"' if keys.get("substyle") else ""
+    profile_after = "      <MacroExpansion>\n" + reference(first_build, 9) + "      </MacroExpansion>\n" if keys.get("test_macro") and first_build and not scheme.get("profile") else ""
+    if keys.get("launch_flags"):
+        launch_after += ('      <StoreKitConfigurationFileReference\n         identifier = "../Fuzz.storekit">\n      </StoreKitConfigurationFileReference>\n'
+                         '      <LocationScenarioReference\n         identifier = "London, England"\n         referenceType = "1">\n      </LocationScenarioReference>\n')
+    archive_keys = '\n      customArchiveName = "Fuzz Archive"' if keys.get("custom_archive") else ""
+    parallelize = "NO" if keys.get("parallelize_no") else "YES"
+    use_launch = "NO" if keys.get("args_env_no") else "YES"
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1600"
-   version = "1.7">
+   LastUpgradeVersion = "1600"{extension_key}
+   version = "{version}">
    <BuildAction
-      parallelizeBuildables = "YES"
-      buildImplicitDependencies = "YES">
+      parallelizeBuildables = "{parallelize}"
+      buildImplicitDependencies = "YES"{build_keys}>
 {build}   </BuildAction>
    <TestAction
       buildConfiguration = "{html.escape(configs.get('test', 'Debug'))}"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"{coverage}>
-{test_body}   </TestAction>
+      shouldUseLaunchSchemeArgsEnv = "{use_launch}"{coverage}{test_keys}>
+{test_after}{test_body}   </TestAction>
    <LaunchAction
       buildConfiguration = "{html.escape(configs.get('launch', 'Debug'))}"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
@@ -1925,21 +2288,21 @@ def scheme_xml(scheme, buildable, plan_reference):
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
-      allowLocationSimulation = "YES"{ask}>
-{runnable(scheme.get('launch'))}   </LaunchAction>
+      allowLocationSimulation = "YES"{ask}{launch_keys}>
+{runnable(scheme.get('launch'))}{launch_after}   </LaunchAction>
    <ProfileAction
       buildConfiguration = "{html.escape(configs.get('profile', 'Release'))}"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
-      debugDocumentVersioning = "YES">
-{runnable(scheme.get('profile'))}   </ProfileAction>
+      debugDocumentVersioning = "YES"{profile_keys}>
+{runnable(scheme.get('profile'))}{profile_after}   </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "{html.escape(configs.get('analyze', 'Debug'))}">
    </AnalyzeAction>
    <ArchiveAction
       buildConfiguration = "{html.escape(configs.get('archive', 'Release'))}"
-      revealArchiveInOrganizer = "YES">
+      revealArchiveInOrganizer = "YES"{archive_keys}>
    </ArchiveAction>
 </Scheme>
 """
@@ -1963,11 +2326,14 @@ def package_manifest(package, packages, root):
         deps += [f'.product(name: "{d["product"]}", package: "{Path(by_id[d["package"]]["dir"]).name}")'
                  for d in target["product_deps"] if d["package"] in by_id and d["package"] in package["deps"]]
         function = {"library": "target", "executable": "executableTarget", "test": "testTarget"}[target["kind"]]
-        resources = ', resources: [.process("Resources")]' if target["resources"] else ""
-        targets.append(f'.{function}(name: "{target["name"]}", dependencies: [{", ".join(deps)}]{resources})')
+        exclude = ', exclude: ["notes.txt"]' if target.get("exclude") else ""
+        resources = (', resources: [.copy("Resources/data.json")]' if target.get("copy") else ', resources: [.process("Resources")]') if target["resources"] else ""
+        settings = f', swiftSettings: [{", ".join(target["swift_settings"])}]' if target.get("swift_settings") else ""
+        targets.append(f'.{function}(name: "{target["name"]}", dependencies: [{", ".join(deps)}]{exclude}{resources}{settings})')
     platforms = f"    platforms: [{', '.join(package['platforms'])}],\n" if package["platforms"] else ""
+    localization = '    defaultLocalization: "en",\n' if package.get("default_localization") else ""
     return (f"// swift-tools-version: {package['tools']}\nimport PackageDescription\n\nlet package = Package(\n"
-            f'    name: "{package["name"]}",\n{platforms}    products: [{", ".join(products)}],\n'
+            f'    name: "{package["name"]}",\n{localization}{platforms}    products: [{", ".join(products)}],\n'
             f"    dependencies: [{', '.join(dependencies)}],\n    targets: [{', '.join(targets)}]\n)\n")
 
 
@@ -1981,6 +2347,8 @@ def render_package(package, packages, root):
         source = {"library": f"public enum {identifier(target['name'])} {{}}\n", "executable": 'print("fuzz")\n',
                   "test": "import XCTest\n\nfinal class FuzzTests: XCTestCase {}\n"}[target["kind"]]
         (folder / ("main.swift" if target["kind"] == "executable" else f"{target['name']}.swift")).write_text(source)
+        if target.get("exclude"):
+            (folder / "notes.txt").write_text("notes\n")
         if target["resources"]:
             (folder / "Resources").mkdir(exist_ok=True)
             (folder / "Resources" / "data.json").write_text("{}\n")
@@ -1993,11 +2361,23 @@ def render_package(package, packages, root):
         (folder / f"{scheme['name']}.xcscheme").write_text(scheme_xml(scheme, buildable, lambda _: None))
 
 
+def publish_package(package, root):
+    """Makes a remote package's folder a git repository with a tag, for its `file:` URL."""
+    directory = root / package["dir"]
+    identity = {"GIT_AUTHOR_NAME": "fuzz", "GIT_AUTHOR_EMAIL": "fuzz@nomac.invalid", "GIT_COMMITTER_NAME": "fuzz", "GIT_COMMITTER_EMAIL": "fuzz@nomac.invalid",
+                "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"}
+    for command in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "fuzz"], ["tag", "1.0.0"]):
+        subprocess.run(["git", *command], cwd=directory, env={**os.environ, **identity}, check=True, capture_output=True)
+    package["revision"] = subprocess.run(["git", "rev-parse", "HEAD"], cwd=directory, check=True, capture_output=True, text=True).stdout.strip()
+
+
 def render(spec, root, user):
     """Writes `spec` under `root`; returns the container path relative to `root`."""
     root.mkdir(parents=True, exist_ok=True)
     for package in spec["packages"]:
         render_package(package, spec["packages"], root)
+        if package.get("remote"):
+            publish_package(package, root)
     containers = [ProjectRenderer(spec, project, root, user).render() for project in spec["projects"]]
     workspace = spec.get("workspace")
     if not workspace:
@@ -2007,6 +2387,14 @@ def render(spec, root, user):
     body = ""
     groups = collections.OrderedDict()
     for item in workspace["items"]:
+        if item["kind"] == "raw":
+            scheme, _, location = item["location"].partition(":")
+            if item.get("content"):
+                (root / location).write_text(item["content"])
+            if item.get("playground"):
+                write_item(root / location)
+            groups.setdefault(item.get("group"), []).append(f"{scheme}:{location}")
+            continue
         if item["kind"] == "project":
             project = find_project(spec, item["project"])
             if project is None:
@@ -2017,12 +2405,13 @@ def render(spec, root, user):
             if package is None:
                 continue
             location = package["dir"]
-        groups.setdefault(item.get("group"), []).append(location)
+        groups.setdefault(item.get("group"), []).append(f'{item.get("scheme", "group")}:{location}')
     for group, locations in groups.items():
-        refs = "".join(f'{"   " if group else ""}   <FileRef\n{"   " if group else ""}      location = "group:{html.escape(location)}">\n'
+        refs = "".join(f'{"   " if group else ""}   <FileRef\n{"   " if group else ""}      location = "{html.escape(location)}">\n'
                        f'{"   " if group else ""}   </FileRef>\n' for location in locations)
-        body += f'   <Group\n      location = "container:"\n      name = "{group}">\n{refs}   </Group>\n' if group else refs
+        body += f'   <Group\n      location = "{workspace.get("group_location", "container:")}"\n      name = "{group}">\n{refs}   </Group>\n' if group else refs
     (path / "contents.xcworkspacedata").write_text(f'<?xml version="1.0" encoding="UTF-8"?>\n<Workspace\n   version = "1.0">\n{body}</Workspace>\n')
+    write_workspace_files(path, workspace.get("files"), user)
     if workspace["schemes"]:
         renderer = ProjectRenderer(spec, spec["projects"][0], root, user)
         folder = path / "xcshareddata" / "xcschemes"
@@ -2268,7 +2657,7 @@ def json_class(detail, kind):
     """The class of a `-json` capture that differs while its text capture matches."""
     first = detail[0] if detail else ""
     if first.startswith("xcodebuild exited with status"):
-        status = re.search(r"status (\d+)", first).group(1)
+        status = re.search(r"status (-?\d+)", first).group(1)
         nomac = re.search(r"nomac failed with status (\d+)", " ".join(detail))
         return f"settings-json/{kind}: xcodebuild {status}, nomac {nomac.group(1) if nomac else 'succeeds'}"
     xcode_line = next((d[len("Xcode: "):] for d in detail if d.startswith("Xcode: ")), "")
@@ -2323,10 +2712,13 @@ class Runner:
     def xcodebuild(self, args, cwd, out_path=None):
         argv = ["xcodebuild"] + args
         started = time.time()
-        try:
-            proc = subprocess.run(argv, cwd=cwd, env=self.env, capture_output=True, timeout=COMMAND_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            proc = subprocess.CompletedProcess(argv, 124, b"", b"timeout")
+        for _ in range(3):
+            try:
+                proc = subprocess.run(argv, cwd=cwd, env=self.env, capture_output=True, timeout=COMMAND_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc = subprocess.CompletedProcess(argv, 124, b"", b"timeout")
+            if proc.returncode != -signal.SIGKILL:
+                break
         if out_path is not None:
             Path(out_path).write_bytes(proc.stdout)
             Path(str(out_path) + ".cmd").write_text(json.dumps({"argv": argv, "cwd": str(cwd), "exitStatus": proc.returncode,
@@ -2447,7 +2839,10 @@ class Runner:
                                      "--report", str(work / "report.json")], work / "home")
             (work / "verify.log").write_bytes(verify.stdout + b"\n--- stderr\n" + verify.stderr)
             result["classes"] = self.classify(spec, src, ref, work, container, flag, verify, kinds, check)
-            result["status"] = "different" if result["classes"] else "identical"
+            report_path = work / "report.json"
+            checks = json.loads(report_path.read_text())["checks"] if report_path.exists() else []
+            result["equivalent"] = [c["name"] for c in checks if c["status"] == "equivalent"]
+            result["status"] = "different" if result["classes"] else "equivalent" if result["equivalent"] else "identical"
             return result
         finally:
             self.clean_derived_data(container)
@@ -2470,7 +2865,7 @@ class Runner:
         text_status = {c["name"]: c["status"] for c in report["checks"] if c["kind"] == "settings" and not c["name"].endswith(".json")}
         list_differs = False
         for item in report["checks"]:
-            if item["status"] == "identical":
+            if item["status"] in ("identical", "equivalent"):
                 continue
             kind, name, detail = item["kind"], item["name"], item.get("detail", [])
             if kind == "pif":
@@ -2488,7 +2883,7 @@ class Runner:
                 if check not in (None, "settings"):
                     continue
                 if name.endswith(".json"):
-                    if text_status.get(name[:-5]) != "identical":
+                    if text_status.get(name[:-5]) not in ("identical", "equivalent"):
                         continue
                     add(json_class(detail, capture_kind(kinds.get(name[:-5], {}).get("arguments", []))), f"settings:{name[:-5]}", detail)
                     continue
@@ -2816,7 +3211,7 @@ def class_table(results):
 def summary_text(results):
     statuses = collections.Counter(r["status"] for r in results.values())
     table = class_table(results)
-    lines = [f"cases: {len(results)} ({statuses.get('identical', 0)} identical, {statuses.get('different', 0)} different, "
+    lines = [f"cases: {len(results)} ({statuses.get('identical', 0)} identical, {statuses.get('equivalent', 0)} equivalent, {statuses.get('different', 0)} different, "
              f"{statuses.get('invalid', 0)} rejected by Xcode, {statuses.get(None, 0)} incomplete); {len(table)} classes"]
     for key, cases in table[:15]:
         lines.append(f"  {len(cases):4d}  {key}")
@@ -2825,7 +3220,7 @@ def summary_text(results):
 
 def write_findings(out):
     results = load_results(out)
-    valid = {n: r for n, r in results.items() if r["status"] in ("identical", "different")}
+    valid = {n: r for n, r in results.items() if r["status"] in ("identical", "equivalent", "different")}
     table = class_table(results)
     hypotheses = json.loads((out / "hypotheses.json").read_text()) if (out / "hypotheses.json").exists() else {}
     feature_rate = collections.Counter(f for r in valid.values() for f in r.get("features", []))
@@ -2912,7 +3307,7 @@ def run_cases(runner, seeds, focus, jobs):
         except Exception as error:
             result = {"seed": seed, "focus": sorted(focus), "status": None, "classes": [], "error": repr(error)}
             (case_dir / "result.json").write_text(json.dumps(result) + "\n")
-        if result["status"] == "identical" and not runner.keep:
+        if result["status"] in ("identical", "equivalent") and not runner.keep:
             prune_case(case_dir)
         return seed, result
 
