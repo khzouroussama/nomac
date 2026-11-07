@@ -8858,6 +8858,105 @@ EXPERIMENTS["al-unmatched-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, colo
 EXPERIMENTS["al-font-apple-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, font=SYSTEM_FONT_ELEMENT.format(11)), attributed_at("lbl-aa-aa2", 120, '<font key="NSFont" size="11" name=".AppleSystemUIFont"/>'))
 
 
+# Round 154: a form sheet's navigation controller and the sizes of the scenes it reaches.
+def sheet_scenes(nav_attributes, pushed=True, identifier=False):
+    frame = '<rect key="frame" x="0.0" y="0.0" width="393" height="852"/>'
+    root = controller_scene(1, connections='                        <segue destination="vc2-aa-aaa" kind="show" identifier="Next" id="psh-aa-aaa"/>\n' if pushed else "").replace(frame, '<rect key="frame" x="0.0" y="0.0" width="449" height="485"/>')
+    second = controller_scene(2, attributes=' storyboardIdentifier="Two"' if identifier else "").replace(frame, '<rect key="frame" x="0.0" y="0.0" width="449" height="485"/>')
+    return storyboard(navigation_scene("vc1-aa-aaa", attributes=nav_attributes), root, second, initial="nvc-aa-aaa")
+
+
+for name, attributes in (("plain", ""), ("form", ' modalPresentationStyle="formSheet"'), ("page", ' modalPresentationStyle="pageSheet"'), ("over", ' modalPresentationStyle="overFullScreen"')):
+    STORYBOARDS[f"sb-sheet-{name}"] = sheet_scenes(attributes)
+    STORYBOARDS[f"sb-sheet-{name}-root-only"] = sheet_scenes(attributes, pushed=False)
+    STORYBOARDS[f"sb-sheet-{name}-identifier"] = sheet_scenes(attributes, pushed=False, identifier=True)
+
+
+FREEFORM_METRICS = '                    <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>\n                    <size key="freeformSize" width="449" height="485"/>\n'
+WIDE_FRAME = '<rect key="frame" x="0.0" y="0.0" width="449" height="485"/>'
+PHONE_FRAME = '<rect key="frame" x="0.0" y="0.0" width="393" height="852"/>'
+for name, kind, via_navigation in (("show", "show", True), ("push", "push", True), ("presentation", "presentation", False), ("show-direct", "show", False)):
+    root = controller_scene(1, after_view=FREEFORM_METRICS, connections=f'                        <segue destination="vc2-aa-aaa" kind="{kind}" identifier="Next" id="psh-aa-aaa"/>\n').replace(PHONE_FRAME, WIDE_FRAME)
+    second = controller_scene(2).replace(PHONE_FRAME, WIDE_FRAME)
+    STORYBOARDS[f"sb-freeform-source-{name}"] = storyboard(navigation_scene("vc1-aa-aaa"), root, second, initial="nvc-aa-aaa") if via_navigation else storyboard(root, second, initial="vc1-aa-aaa")
+
+
+# Round 155: the sizes of scenes pushed from an embedded navigation controller's root.
+EMBED_SHEET = container_view(EMBED).replace('destination="vc2-aa-aaa"', 'destination="nvc-aa-aaa"')
+def embedded_chain(kinds):
+    scenes = [controller_scene(9, view_extra=container_view(EMBED).replace('destination="vc2-aa-aaa"', 'destination="nvc-aa-aaa"'))]
+    scenes.append(navigation_scene("vc1-aa-aaa"))
+    for index, kind in enumerate(kinds, 1):
+        scenes.append(controller_scene(index, connections=f'                        <segue destination="vc{index + 1}-aa-aaa" kind="{kind}" identifier="N{index}" id="psh-aa-aa{index}"/>\n').replace(PHONE_FRAME, WIDE_FRAME))
+    scenes.append(controller_scene(len(kinds) + 1).replace(PHONE_FRAME, WIDE_FRAME))
+    return storyboard(*scenes, initial="vc9-aa-aaa")
+
+
+for name, kinds in (("root", []), ("push", ["push"]), ("show", ["show"]), ("presentation", ["presentation"]), ("push-push", ["push", "push"]), ("show-show", ["show", "show"]), ("show-presentation", ["show", "presentation"]), ("presentation-show", ["presentation", "show"])):
+    STORYBOARDS[f"sb-embed-nav-{name}"] = embedded_chain(kinds)
+
+
+# Round 156: a table's header and footer views.
+def table_view(key, identifier, y=0, height=34, attributes="", body=""):
+    return (f'                        <view key="{key}" contentMode="scaleToFill"{attributes} id="{identifier}">\n'
+            f'                            <rect key="frame" x="0.0" y="{y}" width="393" height="{height}"/>\n'
+            '                            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+            f'{body}                        </view>\n')
+
+
+HEADER_RED = '                            <color key="backgroundColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'
+HEADER_LABEL = ('                            <subviews>\n                                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="L" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="hlb-aa-aaa">\n'
+                '                                    <rect key="frame" x="0" y="0" width="10" height="10"/>\n                                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>\n'
+                '                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>\n                                </label>\n                            </subviews>\n')
+HEADER_PINNED = ('                            <subviews>\n                                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="L" translatesAutoresizingMaskIntoConstraints="NO" id="hlb-aa-aaa">\n'
+                 '                                    <rect key="frame" x="0" y="0" width="10" height="10"/>\n                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>\n                                </label>\n'
+                 '                            </subviews>\n                            <constraints>\n                                <constraint firstItem="hlb-aa-aaa" firstAttribute="top" secondItem="hdr-aa-aaa" secondAttribute="top" id="hct-aa-aaa"/>\n'
+                 '                            </constraints>\n')
+for name, extra in (("header", table_view("tableHeaderView", "hdr-aa-aaa")), ("footer", table_view("tableFooterView", "ftr-aa-aaa")),
+                    ("both", table_view("tableHeaderView", "hdr-aa-aaa") + table_view("tableFooterView", "ftr-aa-aaa", 78)),
+                    ("footer-first", table_view("tableFooterView", "ftr-aa-aaa", 78) + table_view("tableHeaderView", "hdr-aa-aaa")),
+                    ("header-color", table_view("tableHeaderView", "hdr-aa-aaa", body=HEADER_RED)), ("header-label", table_view("tableHeaderView", "hdr-aa-aaa", body=HEADER_LABEL)),
+                    ("header-pinned", table_view("tableHeaderView", "hdr-aa-aaa", body=HEADER_PINNED)), ("header-class", table_view("tableHeaderView", "hdr-aa-aaa", attributes=' customClass="Header" customModule="T" customModuleProvider="target"')),
+                    ("footer-zero", table_view("tableFooterView", "ftr-aa-aaa", height=0)), ("header-y", table_view("tableHeaderView", "hdr-aa-aaa", y=64)), ("header-opaque-no", table_view("tableHeaderView", "hdr-aa-aaa", attributes=' opaque="NO"'))):
+    STORYBOARDS[f"sb-table-view-{name}"] = storyboard(tvc_scene(extra=extra), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-table-view-proto-{name}"] = storyboard(tvc_scene(extra=extra, body=prototypes(tvc_cell(1))), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-table-view-colored-{name}"] = storyboard(tvc_scene(extra=TABLE_COLOR.format("separatorColor") + extra), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-table-view-static-{name}"] = storyboard(tvc_scene(STATIC.format(header="", cells=tvc_cell(1, y=0, attributes="")), extra=extra, data_mode="static"), initial="tvc-aa-aaa")
+
+
+def header_at(x=0, y=0, width=393, height=34):
+    return table_view("tableHeaderView", "hdr-aa-aaa").replace('x="0.0" y="0" width="393" height="34"', f'x="{x}" y="{y}" width="{width}" height="{height}"')
+
+
+for name, frame in (("narrow", dict(width=100)), ("wide", dict(width=500)), ("x", dict(x=20)), ("x-y", dict(x=20, y=40)), ("negative", dict(y=-20))):
+    STORYBOARDS[f"sb-table-header-frame-{name}"] = storyboard(tvc_scene(extra=header_at(**frame)), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-header-frame-narrow-label"] = storyboard(tvc_scene(extra=table_view("tableHeaderView", "hdr-aa-aaa", body=HEADER_LABEL).replace('width="393" height="34"', 'width="100" height="34"')), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-footer-frame-x"] = storyboard(tvc_scene(extra=table_view("tableFooterView", "ftr-aa-aaa", 78).replace('x="0.0" y="78"', 'x="30" y="78"')), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-footer-frame-narrow"] = storyboard(tvc_scene(extra=table_view("tableFooterView", "ftr-aa-aaa", 78).replace('width="393" height="34"', 'width="100" height="34"')), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-both-frames-narrow"] = storyboard(tvc_scene(extra=table_view("tableHeaderView", "hdr-aa-aaa").replace('width="393" height="34"', 'width="100" height="40"') + table_view("tableFooterView", "ftr-aa-aaa", 78).replace('width="393" height="34"', 'width="50" height="60"')), initial="tvc-aa-aaa")
+
+
+GROUPED_TABLE = TABLE_ATTRIBUTES.replace(' translatesAutoresizingMaskIntoConstraints="NO"', '').replace('style="plain"', 'style="grouped"').replace('"28"', '"18"')
+def static_rows(rows, sections=1):
+    groups = "".join(f'                            <tableViewSection id="sec-aa-a{section}">\n                                <cells>\n' + "".join(tvc_cell(100 * section + row, y=0, attributes="") for row in range(rows))
+                     + '                                </cells>\n                            </tableViewSection>\n' for section in range(sections))
+    return f'                        <sections>\n{groups}                        </sections>\n'
+
+
+FOOTER = table_view("tableFooterView", "ftr-aa-aaa", 400, 44)
+for name, table, body, mode in (("grouped-empty", GROUPED_TABLE, "", "prototypes"), ("grouped-static-1", GROUPED_TABLE, static_rows(1), "static"), ("grouped-static-2", GROUPED_TABLE, static_rows(2), "static"),
+                                ("grouped-static-2-2", GROUPED_TABLE, static_rows(2, 2), "static"), ("plain-static-3", None, static_rows(3), "static"), ("plain-static-2-2", None, static_rows(2, 2), "static"),
+                                ("grouped-proto", GROUPED_TABLE, prototypes(tvc_cell(1)), "prototypes"), ("insetgrouped-static-1", GROUPED_TABLE.replace('style="grouped"', 'style="insetGrouped"'), static_rows(1), "static")):
+    arguments = {"table_attributes": table} if table else {}
+    STORYBOARDS[f"sb-table-footer-{name}"] = storyboard(tvc_scene(body, extra=FOOTER, data_mode=mode, **arguments), initial="tvc-aa-aaa")
+
+
+HEADER_34 = table_view("tableHeaderView", "hdr-aa-aaa")
+for name, table, extra in (("grouped-header", GROUPED_TABLE, HEADER_34 + FOOTER), ("grouped-header-only", GROUPED_TABLE, HEADER_34), ("grouped-heights", GROUPED_TABLE.replace('"18"', '"30"'), FOOTER),
+                           ("grouped-header-height", GROUPED_TABLE.replace('sectionHeaderHeight="18"', 'sectionHeaderHeight="40"'), FOOTER), ("grouped-footer-height", GROUPED_TABLE.replace('sectionFooterHeight="18"', 'sectionFooterHeight="40"'), FOOTER)):
+    STORYBOARDS[f"sb-table-footer-{name}"] = storyboard(tvc_scene("", extra=extra, table_attributes=table), initial="tvc-aa-aaa")
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

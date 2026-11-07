@@ -609,7 +609,7 @@ struct DocumentCompiler {
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
                                 + (element.name == "toolbar" ? ["items"] : []) + (element.name == "wkWebView" ? ["wkWebViewConfiguration"] : [])
                                 + (element.name == "mapView" ? ["standardMapConfiguration"] : [])
-                                + (element.name == "navigationBar" ? ["items", "textAttributes"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
+                                + (element.name == "navigationBar" ? ["items", "textAttributes"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl", "view"] : [])
                                 + (isButton ? ["fontDescription", "state", "inset", "buttonConfiguration", "size"] : []) + (element.name == "segmentedControl" ? ["segments"] : [])
                                 + (isEffect ? ["view", "blurEffect", "vibrancyEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
                                 + (element.name == "textView" ? ["fontDescription", "textInputTraits", "string", "dataDetectorType"] : [])
@@ -669,6 +669,8 @@ struct DocumentCompiler {
         var hasMask = false
         for child in element.children {
             switch (child.name, child.attributes["key"]) {
+            case ("view", "tableHeaderView") where isTable, ("view", "tableFooterView") where isTable:
+                break
             case ("rect", "frame"), ("rect", "contentStretch"), ("point", "canvasLocation"), ("subviews", nil), ("color", "backgroundColor"), ("constraints", nil),
                  ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _),
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
@@ -721,6 +723,15 @@ struct DocumentCompiler {
                 subviews.append(try view(child, topLevel: false, parent: id))
             }
         }
+        // A table's footer and header views are subviews too, in that order (`sb-table-view-*`).
+        func tableSubview(_ key: String) throws -> NibView? {
+            guard isTable, let child = element.child("view", key: key) else { return nil }
+            let keyless = XIBElement(name: child.name, attributes: child.attributes.filter { $0.key != "key" })
+            keyless.children = child.children
+            return try self.view(keyless, topLevel: false, parent: id)
+        }
+        let tableFooterView = try tableSubview("tableFooterView"), tableHeaderView = try tableSubview("tableHeaderView")
+        subviews = [tableFooterView, tableHeaderView].compactMap { $0 } + subviews
         let background = try element.child("color", key: "backgroundColor").map { try color($0) }
         let view = NibView(frame: framelessViewsHaveNoFrame && element.child("rect", key: "frame") == nil ? nil : frame, autoresizingMask: mask, flags: flags, subviews: subviews, backgroundColor: background,
                            customClass: try customClass(element, original: originalClassName ?? Self.originalClassNames[element.name] ?? "UIView"))
@@ -828,6 +839,9 @@ struct DocumentCompiler {
         if isTable {
             var table = try tableContent(element)
             table.refreshControl = try element.children(named: "refreshControl").first.map { try refreshControl($0) }
+            table.headerView = tableHeaderView
+            table.footerView = tableFooterView
+            try layOutHeaderAndFooter(of: table, width: frame.width)
             guard table.refreshControl == nil || table.keyboardDismissMode == nil else {
                 throw unsupported("a table view's refresh control beside a keyboard dismiss mode")
             }

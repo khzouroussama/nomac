@@ -704,7 +704,12 @@ none: `UISeparatorStyleIOS9AndLater` 0; singleLineEtched: all three 2: `table-se
 (false for `contentViewInsetsToSafeArea="NO"`), `UISeparatorColor`, the prototypes, `UISectionIndexColor`,
 `UISectionIndexBackgroundColor`, `UISectionIndexTrackingBackgroundColor` (`sb-table-prototype-*`), `UISeparatorInset`
 (07, then top, left, bottom, right: `sb-table-separator-prototype`), and `UISeparatorInsetReference` 0.
-Its own constraints are listed in all objects as a view's (the corpus's pocket-casts
+`<view key="tableHeaderView">` and `key="tableFooterView"` are the table's first subviews, footer first, written again as
+`UITableHeaderView` and `UITableFooterView` after `UIInsetsContentViewsToSafeArea`, and listed in all objects after its constraints
+and refresh control. IB lays them out whatever their frames: the header at the origin as wide as the table, its
+subviews autoresized; the footer keeps its left and width, below the header, in a grouped table a section footer's height lower with
+35 points for no header; both keep their heights (`sb-table-view-*`, `sb-table-header-frame-*`, `sb-table-footer-*`, round 156; the corpus's
+netnewswire Inspector). Its own constraints are listed in all objects as a view's (the corpus's pocket-casts
 CategorySummaryViewController). A grouped or inset grouped table without a background color gets
 `systemGroupedBackgroundColor`; a plain one's background of white 1 named `whiteColor` or
 `systemBackgroundColor` becomes the system color `tableBackgroundColor` (`table-background-*`).
@@ -1587,7 +1592,8 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
 - A controller's `<size key="freeformSize">` without `<freeformSimulatedSizeMetrics>` also sizes its
   scene's view, resizing it from another frame (round 87, `sb-freeform-size-only*`; wikipedia's
   SavedProgressViewController); an embedded freeform controller keeps its own size
-  (`sb-embed-freeform`).
+  (`sb-embed-freeform`). What an embedded controller's segues reach, one after another and whatever their kinds, takes the
+  container's size too (`sb-embed-nav-*`; the survey's eidolon Fulfillment).
 - A container view's embed segue (round 84, `sb-embed*`; wikipedia's DescriptionWelcome) is a
   `UIStoryboardEmbedSegueTemplate` (`UIIdentifier`, `UIDestinationViewControllerIdentifier`,
   `UIPerformOnViewLoad` true, `UIContainerView` nil) among the buttons' segues, in document order,

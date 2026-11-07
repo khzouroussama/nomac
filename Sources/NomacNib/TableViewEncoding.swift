@@ -6,6 +6,8 @@ import Foundation
 struct TableContent {
     /// Its table view controller's refresh control, after its bounce (`sb-tvc-refresh*`).
     var refreshControl: NibView?
+    var headerView: NibView?
+    var footerView: NibView?
     /// The `<tableView>` attributes observed, besides a view's.
     static let attributes = ["dataMode", "alwaysBounceVertical", "style", "separatorStyle", "rowHeight", "estimatedRowHeight", "sectionHeaderHeight",
                              "sectionFooterHeight", "keyboardDismissMode", "indicatorStyle", "allowsSelection", "allowsSelectionDuringEditing", "scrollEnabled",
@@ -87,6 +89,8 @@ struct TableContent {
         if allowsMultipleSelection { encoder.encode(.boolean(true), forKey: "UIAllowsMultipleSelection") }
         if allowsMultipleSelectionDuringEditing { encoder.encode(.boolean(true), forKey: "UIAllowsMultipleSelectionDuringEditing") }
         encoder.encode(.boolean(insetsContentViewsToSafeArea), forKey: "UIInsetsContentViewsToSafeArea")
+        if let headerView { try encoder.encode(headerView, forKey: "UITableHeaderView") }
+        if let footerView { try encoder.encode(footerView, forKey: "UITableFooterView") }
         if let separatorColor { try encoder.encode(separatorColor, forKey: "UISeparatorColor") }
         if !prototypes.isEmpty {
             let nibs = NibDictionary(), externals = NibDictionary()

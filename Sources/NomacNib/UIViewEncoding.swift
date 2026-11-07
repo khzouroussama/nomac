@@ -211,7 +211,7 @@ final class NibView: NibArchivable, NibObjectChildren {
                 + constraints + movedOutConstraints
         case .cellContentView: return constraints + excludedSubviews
         case .cellSeparator, .systemBackground: return []
-        case .tableView(let table): return (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + [table.refreshControl].compactMap { $0 }
+        case .tableView(let table): return (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + [table.refreshControl].compactMap { $0 } + subviews
         case .collectionCell(let cell):
             let safeArea = safeAreaPlaceholder.map { [$0] } ?? []
             return cell.legacy ? safeArea + cell.contentView.subviews + cell.contentView.constraints : [cell.contentView] + safeArea

@@ -163,6 +163,21 @@ extension DocumentCompiler {
                 embeddedSizes[id] = size
             }
         }
+        // So do what its segues reach, one after another, whatever their kinds (`sb-embed-nav-*`; the survey's eidolon Fulfillment).
+        var reaching = Array(embeddedSizes)
+        while let (id, size) = reaching.popLast() {
+            for segue in byID[id]?.segues ?? [] where segue.kind != .embed {
+                guard let destination = segue.destination else { continue }
+                for reached in [destination] + [byID[destination]?.root].compactMap({ $0 }) {
+                    if let known = embeddedSizes[reached] {
+                        guard known == size else { throw unsupportedScene("a controller embedded in container views of two sizes") }
+                        continue
+                    }
+                    embeddedSizes[reached] = size
+                    reaching.append((reached, size))
+                }
+            }
+        }
         func templates(_ controller: SceneController) throws -> [NibSegueTemplate] {
             var templates: [NibSegueTemplate] = []
             for segue in controller.segues {
@@ -1495,7 +1510,12 @@ extension DocumentCompiler {
     func resize(_ view: NibView, to size: (width: Double, height: Double), keepingOrigin: Bool = false) throws {
         guard let frame = view.frame, (frame.width, frame.height) != size else { return }
         view.frame = (keepingOrigin ? frame.x : 0, keepingOrigin ? frame.y : 0, size.width, size.height)
-        for subview in view.subviews {
+        var tableViews: [NibView] = []
+        if case .tableView(let table) = view.kind {
+            tableViews = [table.headerView, table.footerView].compactMap { $0 }
+            try layOutHeaderAndFooter(of: table, width: size.width)
+        }
+        for subview in view.subviews where !tableViews.contains(where: { $0 === subview }) {
             guard let old = subview.frame else { continue }
             let mask = subview.autoresizingMask
             let horizontal = try share(size.width - frame.width, [(old.x, mask & 1 != 0), (old.width, mask & 2 != 0),
@@ -1506,6 +1526,20 @@ extension DocumentCompiler {
                 throw unsupportedScene("autoresizing the subviews of a resized subview")
             }
             subview.frame = (old.x + horizontal.0, old.y + vertical.0, old.width + horizontal.1, old.height + vertical.1)
+        }
+    }
+
+    /// A table's header view at its origin, as wide as the table; its footer view below the header, in a
+    /// grouped table a section footer lower with 35 points for no header, whatever their frames but their
+    /// heights and the footer's left and width (`sb-table-view-*`, `sb-table-header-frame-*`, `sb-table-footer-*`).
+    func layOutHeaderAndFooter(of table: TableContent, width: Double) throws {
+        if let header = table.headerView, let frame = header.frame {
+            try resize(header, to: (width, frame.height))
+            header.frame = (0, 0, width, frame.height)
+        }
+        if let footer = table.footerView, let frame = footer.frame {
+            let header = table.headerView?.frame?.height
+            footer.frame = (frame.x, table.style == 0 ? header ?? 0 : (header ?? 35) + Double(table.sectionFooterHeight), frame.width, frame.height)
         }
     }
 
