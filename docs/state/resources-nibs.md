@@ -6,8 +6,12 @@ Branch `res/nibs`. BACKLOG B-250–B-269 and B-280–B-289, ADRs 0250–0259 (B-
 ## Current step
 
 Working from the coverage survey's split below, weighted toward live projects (those Xcode 27 accepts
-as they are), with the corpus ranking beside it. Colors are done but for one route (B-281); next are the
-other families of the split. Earlier state, kept for reference:
+as they are), with the corpus ranking beside it. Colors are done but for one route (B-281). Next by survey
+weight: B-268 (cells' `imageView`, then cells without a `<rect>`), B-267, ties (B-265), B-282. Rank with
+`nib_survey_split.py` below. To work in parallel, give each agent its own files and observation directory
+(`~/nomac-out/wt-scratch/nibs/agents/<family>/nib`) and one build at a time; the tools in
+`~/nomac-out/wt-scratch/nibs/color` (`objdiff.py`, `keys.py`, `xibdiff.py`, `sbdiff.py`) read `NIB_OBS` and `NOMAC`.
+Earlier state, kept for reference:
 
 Storyboards are split between two agents since 2026-10-31: this one (`res/nibs`) keeps tofu's list
 (text fields, switches, control actions, cell styles, `<mask>`, `firstBaseline`) with BACKLOG
@@ -67,6 +71,18 @@ Causes in this workstream's families (sums of a family's messages; a project can
   is really absent (`Pods/` not installed, files never committed), 0.9%: `nib:document=missing`.
 
 ## Just finished
+
+- First parallel round (four agents in this worktree, `bars-*`, `cm-*`, `cs-*`, `mx-*`; their observations are
+  merged into `~/nomac-out/wt-scratch/nibs/nib`): toolbars' items, bars' styles and tints, navigation items'
+  lists and attributes and the plain style's warning; labels' masks, size-class masks in cells' content views,
+  variations' own frames, static cells' row heights, prototype cells without reuse identifiers, the value2
+  style, text fields' background images; baseline constraints, classes and symbol types on constraints, margin
+  constraints with multipliers and variations; catalog colors, Xcode 11 pairs, undefined named colors, more
+  system colors, every accessibility trait observed, data detectors, keyboard layout guides without a safe
+  area. What they deferred is B-265 to B-269 and B-282. Two wrong nibs fixed: a prototype cell with an empty
+  reuse identifier got a nib, where Xcode leaves the cell out, and `style="plain"` in a navigation item wrote
+  `UIStyle` 1, where Xcode writes none and warns. Corpus 462 identical and 14 equivalent (from 456 and 14), 0
+  different; experiments 2,858 identical and 7 equivalent, 0 different.
 
 - Colors (`ColorManagement`, docs/formats/nib.md "Color conversions"): every route but one reproduces
   CoreGraphics to the bit, found by observing `CGColor` and `ColorSyncTransformCopyProperty`. The table of
