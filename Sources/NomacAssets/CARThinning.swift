@@ -93,7 +93,7 @@ public enum CARThinning {
             store.free(renditions[index].value)
         }
         let remaining = renditions.indices.filter { kept.contains($0) }.map { renditions[$0] }
-        try renditionTree.finish(in: &store, entries: remaining.map { .init(key: $0.key, value: $0.value, keyBlock: $0.keyBlock) }, name: "RENDITIONS")
+        renditionTree.finish(in: &store, entries: remaining.map { .init(key: $0.key, value: $0.value, keyBlock: $0.keyBlock) })
 
         let identifiers = Set(remaining.compactMap { $0.values[.identifier] })
         var facets: [BOMTree.Entry] = []
@@ -106,7 +106,7 @@ public enum CARThinning {
                 store.free(pair.value)
             }
         }
-        try facetTree.finish(in: &store, entries: facets, name: "FACETKEYS")
+        facetTree.finish(in: &store, entries: facets)
 
         let bitmapKeys = try variable("BITMAPKEYS")
         for block in Self.numberTreeBlocks(store, header: bitmapKeys) { store.free(block) }

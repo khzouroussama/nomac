@@ -47,25 +47,23 @@ public struct CARWriter {
 
         var store = BOMStoreWriter()
         let header = store.reserve()
-        let renditionTree = BOMTree(in: &store, blockSize: 4096)
-        let facetTree = BOMTree(in: &store, blockSize: 4096)
+        var renditionTree = BOMKeyTree(in: &store, blockSize: 4096)
+        var facetTree = BOMKeyTree(in: &store, blockSize: 4096)
         // Appearance keys list the appearances of renditions other than data and stickers icons;
         // a catalog of those only has no such table (`stickers`, firefox, wikipedia). actool creates them in an order that changes from one run to
         // the next (docs/formats/asset-catalog.md, "Determinism"); nomac creates them in name order.
         let appearances = Set(renditions.filter { $0.kind != .data && $0.kind != .stickersIcon }.map { RenditionAppearance(rawValue: $0.attributes[.appearance] ?? 0) ?? .any })
-        let appearanceTree = appearances.isEmpty ? nil : BOMTree(in: &store, blockSize: 4096)
-        var appearanceEntries: [BOMTree.Entry] = []
+        var appearanceTree = appearances.isEmpty ? nil : BOMKeyTree(in: &store, blockSize: 4096)
         for appearance in appearances.sorted(by: { $0.name.utf8.lexicographicallyPrecedes($1.name.utf8) }) {
             let key = Array(appearance.name.utf8)
             let keyBlock = store.add(key)
             var value = ByteWriter()
             value.appendLE(appearance.rawValue)
-            appearanceEntries.append(.init(key: key, value: store.add(value.bytes), keyBlock: keyBlock))
+            try appearanceTree?.insert(key: BOMBlockKey(bytes: key, block: keyBlock), value: store.add(value.bytes), in: &store)
         }
 
         // Facet names are stored decomposed (NFD); the identifier and the CSI keep the name as
         // the file system spells it.
-        var facetEntries: [BOMTree.Entry] = []
         let facetKeys = Dictionary(uniqueKeysWithValues: names.map { ($0, Array($0.decomposedStringWithCanonicalMapping.utf8)) })
         for name in names.sorted(by: { facetKeys[$0]!.lexicographicallyPrecedes(facetKeys[$1]!) }) {
             let key = facetKeys[name]!
@@ -89,7 +87,7 @@ public struct CARWriter {
                 token.appendLE(attribute)
                 token.appendLE(value)
             }
-            facetEntries.append(.init(key: key, value: store.add(token.bytes), keyBlock: keyBlock))
+            try facetTree.insert(key: BOMBlockKey(bytes: key, block: keyBlock), value: store.add(token.bytes), in: &store)
         }
 
         var format = ByteWriter()
@@ -117,14 +115,13 @@ public struct CARWriter {
             return Keyed(values: values, rendition: rendition, identifier: identifier)
         }.sorted { $0.values.lexicographicallyPrecedes($1.values) }
 
-        var renditionEntries: [BOMTree.Entry] = []
         var creationOrder: [Keyed] = []
         Self.midpointPreorder(keyed.count) { creationOrder.append(keyed[$0]) }
         for item in creationOrder {
             var key = ByteWriter()
             for value in item.values { key.appendLE(value) }
             let keyBlock = store.add(key.bytes)
-            renditionEntries.append(.init(key: key.bytes, value: store.add(item.rendition.csi), keyBlock: keyBlock))
+            try renditionTree.insert(key: BOMBlockKey(bytes: key.bytes, block: keyBlock), value: store.add(item.rendition.csi), in: &store)
         }
 
         var metadata = ByteWriter()
@@ -152,9 +149,9 @@ public struct CARWriter {
         carHeader.appendLE(UInt32(2))
         store.set(header, carHeader.bytes)
 
-        try renditionTree.finish(in: &store, entries: renditionEntries.sorted { $0.key.lexicographicallyPrecedes($1.key) }, name: "RENDITIONS")
-        try facetTree.finish(in: &store, entries: facetEntries, name: "FACETKEYS")
-        try appearanceTree?.finish(in: &store, entries: appearanceEntries, name: "APPEARANCEKEYS")
+        renditionTree.finish(in: &store)
+        facetTree.finish(in: &store)
+        appearanceTree?.finish(in: &store)
         bitmapTree.finish(in: &store)
 
         store.addVariable("CARHEADER", block: header)
@@ -176,7 +173,12 @@ public struct CARWriter {
         var masks: [UInt16: [RenditionAttribute: UInt32]] = [:]
         var order = BitmapKeyTable()
         for item in renditions where item.identifier != 0 {
-            if masks[item.identifier] == nil { order.insert(item.identifier) }
+            if masks[item.identifier] == nil {
+                guard order.count < BitmapKeyTable.mostIdentifiers else {
+                    throw NomacError("asset catalogs of more than \(BitmapKeyTable.mostIdentifiers) names are not supported yet (BACKLOG B-201)")
+                }
+                order.insert(item.identifier)
+            }
             for (attribute, value) in zip(keyFormat, item.values) where !RenditionAttribute.unmasked.contains(attribute) {
                 masks[item.identifier, default: [:]][attribute, default: 0] |= 1 << attribute.maskBit(value)
             }
@@ -211,14 +213,16 @@ public struct CARWriter {
 
 /// The order actool creates `BITMAPKEYS` values in: the slot order of an open-addressing hash
 /// table of identifiers (docs/formats/asset-catalog.md, "Bitmap keys"), observed on 43
-/// catalogs of 1 to 126 names.
+/// catalogs of 1 to 126 names and on `large-tables`.
 struct BitmapKeyTable {
-    private static let sizes = [3, 7, 13, 23, 41, 71, 127, 191, 251, 383, 631, 1087]
-    private static let capacities = [3, 6, 11, 19, 32, 52, 85, 118, 155, 237, 390, 672]
+    private static let sizes = [3, 7, 13, 23, 41, 71, 127, 191, 251, 383, 631, 1087, 1723, 2803, 4523, 7351, 11959, 19447, 31231, 50683]
+    private static let capacities = [3, 6, 11, 19, 32, 52, 85, 118, 155, 237, 390, 672, 1065, 1732, 2795, 4543, 7391, 12019, 19302, 31324]
+    /// The most identifiers the observed sizes hold (`large-tables`, up to 24,000 names).
+    static let mostIdentifiers = capacities.last!
 
     private var level = 0
-    private var slots: [UInt16?] = Array(repeating: nil, count: sizes[0])
-    private var count = 0
+    private(set) var slots: [UInt16?] = Array(repeating: nil, count: sizes[0])
+    private(set) var count = 0
 
     mutating func insert(_ identifier: UInt16) {
         if count == slots.count { grow() }

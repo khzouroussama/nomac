@@ -128,9 +128,8 @@ struct BOMStoreWriter {
     static let headerSize = 512
 }
 
-/// A B+-tree of a BOM store, as the tables of `Assets.car` use it: a header block and one
-/// leaf block of entries sorted by key, each key a block of its own (docs/formats/asset-catalog.md,
-/// "Trees").
+/// A one-leaf B+-tree of a BOM store read back for thinning: a header block and one leaf block
+/// of entries sorted by key, each key a block of its own (docs/formats/asset-catalog.md, "Trees").
 struct BOMTree {
     struct Entry {
         var key: [UInt8]
@@ -141,18 +140,11 @@ struct BOMTree {
     let headerBlock: UInt32
     let leafBlock: UInt32
     let blockSize: Int
-    /// The key length a tree read back declares (0xFFFFFFFF for keys of different lengths),
-    /// which it keeps when written again.
-    private(set) var declaredKeyLength: UInt32?
+    /// The key length the tree declares (0xFFFFFFFF for keys of different lengths), which it
+    /// keeps when written again.
+    let declaredKeyLength: UInt32
 
-    /// Reserves the tree's header and leaf blocks, the order actool creates them in.
-    init(in store: inout BOMStoreWriter, blockSize: Int) {
-        headerBlock = store.reserve()
-        leafBlock = store.reserve()
-        self.blockSize = blockSize
-    }
-
-    /// The one-leaf tree whose header is `headerBlock` in a store read back, and its entries.
+    /// The one-leaf tree whose header is `headerBlock` in a store read back.
     init(reading store: BOMStoreWriter, headerBlock: UInt32, name: String, path: String) throws {
         guard let header = store.block(headerBlock), header.count >= 21, header.starts(with: Array("tree".utf8)) else {
             throw NomacError("malformed \(name) table", path: path)
@@ -160,7 +152,7 @@ struct BOMTree {
         func be32(_ bytes: [UInt8], _ at: Int) -> UInt32 { bytes[at..<(at + 4)].reduce(0) { $0 << 8 | UInt32($1) } }
         let root = be32(header, 8)
         guard let leaf = store.block(root), leaf.count >= 12, leaf[0] == 0, leaf[1] == 1 else {
-            throw NomacError("asset catalogs whose \(name) table has more than one leaf are not supported yet (BACKLOG B-201)", path: path)
+            throw NomacError("thinning asset catalogs whose \(name) table has more than one leaf is not supported yet (BACKLOG B-201)", path: path)
         }
         self.headerBlock = headerBlock
         leafBlock = root
@@ -176,19 +168,10 @@ struct BOMTree {
         return (0..<count).map { (be32(12 + 8 * $0), be32(16 + 8 * $0)) }
     }
 
-    /// The most entries one leaf holds; actool splits the leaf beyond it.
-    var leafCapacity: Int { (blockSize - 12) / 8 }
-
-    /// Writes the header and the leaf for `entries`, which must already be sorted by key; the
-    /// leaf also keeps a copy of fixed-length keys.
-    func finish(in store: inout BOMStoreWriter, entries: [Entry], name: String) throws {
-        guard entries.count <= leafCapacity else {
-            throw NomacError("asset catalogs whose \(name) table has more than \(leafCapacity) entries are not supported yet (BACKLOG B-201)")
-        }
-        let lengths = Set(entries.map(\.key.count))
-        let fixedLength: Int? = declaredKeyLength.map { $0 == 0xFFFF_FFFF ? nil : Int($0) } ?? (lengths.count == 1 ? lengths.first : nil)
-        store.set(headerBlock, Self.header(root: leafBlock, blockSize: blockSize, count: entries.count, inline: false,
-                                           keyLength: fixedLength.map(UInt32.init) ?? 0xFFFF_FFFF))
+    /// Writes the header and the leaf for `entries`, in key order; the leaf also keeps a copy of
+    /// fixed-length keys.
+    func finish(in store: inout BOMStoreWriter, entries: [Entry]) {
+        store.set(headerBlock, Self.header(root: leafBlock, blockSize: blockSize, count: entries.count, inline: false, keyLength: declaredKeyLength))
         var leaf = ByteWriter()
         leaf.appendBE(UInt16(1))
         leaf.appendBE(UInt16(entries.count))
@@ -199,10 +182,10 @@ struct BOMTree {
             leaf.appendBE(entry.keyBlock)
         }
         var length = blockSize
-        if let fixedLength {
+        if declaredKeyLength != 0xFFFF_FFFF {
             leaf.appendZeros(4)
             for entry in entries { leaf.append(entry.key) }
-            length += fixedLength * entries.count
+            length += Int(declaredKeyLength) * entries.count
         }
         leaf.appendZeros(length - leaf.count)
         store.set(leafBlock, leaf.bytes)
@@ -222,15 +205,44 @@ struct BOMTree {
     }
 }
 
-/// A BOM B+-tree whose keys are 32-bit numbers stored in the entries (`BITMAPKEYS`), built as
-/// actool builds it, one entry at a time: a full leaf takes the new entry, keeps the first
-/// ⌈n / 2⌉ entries and moves the others to a new leaf created right then, whose separator, the
-/// kept leaf's last key, goes to the parent, a new root branch when the leaf was the root
-/// (docs/formats/asset-catalog.md, "Trees"; 19 trees of 127 to 510 entries identical).
-struct BOMNumberTree {
+/// What a tree's entries hold for a key: the 32-bit number itself (`BITMAPKEYS`), or the block of
+/// its bytes, which the node also copies when every key of the tree has the same length.
+protocol BOMTreeKey: Comparable {
+    static var isStoredInEntries: Bool { get }
+    var field: UInt32 { get }
+    var bytes: [UInt8] { get }
+}
+
+extension UInt32: BOMTreeKey {
+    static var isStoredInEntries: Bool { true }
+    var field: UInt32 { self }
+    var bytes: [UInt8] { [] }
+}
+
+/// A key in a block of its own, ordered by its bytes, a shorter prefix first.
+struct BOMBlockKey: BOMTreeKey {
+    let bytes: [UInt8]
+    let block: UInt32
+
+    static var isStoredInEntries: Bool { false }
+    var field: UInt32 { block }
+
+    static func < (left: Self, right: Self) -> Bool { left.bytes.lexicographicallyPrecedes(right.bytes) }
+    static func == (left: Self, right: Self) -> Bool { left.bytes == right.bytes }
+}
+
+typealias BOMNumberTree = BOMGrowingTree<UInt32>
+typealias BOMKeyTree = BOMGrowingTree<BOMBlockKey>
+
+/// A BOM B+-tree built as actool builds its tables, one entry at a time in the order it creates
+/// their values: a full leaf takes the new entry, keeps the first ⌈n / 2⌉ entries and moves the
+/// others to a new leaf created right then, whose separator, the kept leaf's last key, goes to
+/// the parent, a new root branch when the leaf was the root (docs/formats/asset-catalog.md,
+/// "Trees"; `bitmap-order`, `large-tables`).
+struct BOMGrowingTree<Key: BOMTreeKey> {
     struct Node {
         var isLeaf: Bool
-        var keys: [UInt32] = []
+        var keys: [Key] = []
         /// Value blocks of a leaf, child blocks of a branch (one more than its keys).
         var blocks: [UInt32] = []
         var forward: UInt32 = 0
@@ -244,6 +256,7 @@ struct BOMNumberTree {
     private(set) var nodes: [UInt32: Node]
     private(set) var count = 0
 
+    /// Reserves the tree's header and root blocks, the order actool creates them in.
     init(in store: inout BOMStoreWriter, blockSize: Int) {
         headerBlock = store.reserve()
         root = store.reserve()
@@ -253,7 +266,8 @@ struct BOMNumberTree {
 
     var capacity: Int { (blockSize - 12) / 8 }
 
-    mutating func insert(key: UInt32, value: UInt32, in store: inout BOMStoreWriter) throws {
+    /// Inserts an entry whose key and value blocks the caller has just created.
+    mutating func insert(key: Key, value: UInt32, in store: inout BOMStoreWriter) throws {
         var block = root
         while let node = nodes[block], !node.isLeaf {
             block = node.blocks[node.keys.firstIndex { key <= $0 } ?? node.keys.count]
@@ -275,31 +289,52 @@ struct BOMNumberTree {
         leaf.keys.removeSubrange(kept...)
         leaf.blocks.removeSubrange(kept...)
         leaf.forward = right
-        let separator = leaf.keys[kept - 1]
-        if let parent = leaf.parent {
-            nodes[block] = leaf
-            var branch = nodes[parent]!
-            let index = branch.blocks.firstIndex(of: block)!
-            branch.keys.insert(separator, at: index)
-            branch.blocks.insert(right, at: index + 1)
-            guard branch.keys.count <= capacity else {
-                throw NomacError("asset catalogs whose BITMAPKEYS table needs more than one branch level are not supported yet (BACKLOG B-201)")
-            }
-            nodes[parent] = branch
-        } else {
+        nodes[block] = leaf
+        try promote(leaf.keys[kept - 1], right: right, of: block, in: &store)
+    }
+
+    /// Puts `separator` and the new node `right` in the parent of `block`, a new root when
+    /// `block` was the root. A branch that overflows keeps its first ⌊n / 2⌋ separators and moves
+    /// all but the next one, which goes up, to a new branch created before the parent's changes.
+    private mutating func promote(_ separator: Key, right: UInt32, of block: UInt32, in store: inout BOMStoreWriter) throws {
+        guard let parent = nodes[block]!.parent else {
             let newRoot = store.reserve()
-            leaf.parent = newRoot
-            nodes[block] = leaf
+            nodes[block]!.parent = newRoot
             nodes[right]!.parent = newRoot
             nodes[newRoot] = Node(isLeaf: false, keys: [separator], blocks: [block, right])
             root = newRoot
+            return
         }
+        var branch = nodes[parent]!
+        let index = branch.blocks.firstIndex(of: block)!
+        branch.keys.insert(separator, at: index)
+        branch.blocks.insert(right, at: index + 1)
+        guard branch.keys.count > capacity else {
+            nodes[parent] = branch
+            return
+        }
+        guard Key.isStoredInEntries else {
+            throw NomacError("asset catalogs whose table of 4,096-byte nodes needs more than one branch level are not supported yet (BACKLOG B-201)")
+        }
+        let middle = branch.keys.count / 2
+        let up = branch.keys[middle]
+        let newBranch = store.reserve()
+        nodes[newBranch] = Node(isLeaf: false, keys: Array(branch.keys[(middle + 1)...]), blocks: Array(branch.blocks[(middle + 1)...]), parent: branch.parent)
+        for child in branch.blocks[(middle + 1)...] { nodes[child]!.parent = newBranch }
+        branch.keys.removeSubrange(middle...)
+        branch.blocks.removeSubrange((middle + 1)...)
+        nodes[parent] = branch
+        try promote(up, right: newBranch, of: parent, in: &store)
     }
 
     /// Writes the header and the nodes: a leaf's entries are (value, key), a branch's (child,
-    /// separator) then its last child.
+    /// separator) then its last child. Keys in blocks that all have one length are also copied
+    /// into every node after 4 bytes, the slot of a branch's last child, and lengthen its block.
     func finish(in store: inout BOMStoreWriter) {
-        store.set(headerBlock, BOMTree.header(root: root, blockSize: blockSize, count: count, inline: true, keyLength: 0))
+        let lengths = Set(nodes.values.flatMap { $0.keys.map(\.bytes.count) })
+        let fixedLength = !Key.isStoredInEntries && lengths.count == 1 ? lengths.first : nil
+        let declared = Key.isStoredInEntries ? 0 : fixedLength.map(UInt32.init) ?? 0xFFFF_FFFF
+        store.set(headerBlock, BOMTree.header(root: root, blockSize: blockSize, count: count, inline: Key.isStoredInEntries, keyLength: declared))
         for (block, node) in nodes {
             var bytes = ByteWriter()
             bytes.appendBE(UInt16(node.isLeaf ? 1 : 0))
@@ -308,10 +343,16 @@ struct BOMNumberTree {
             bytes.appendBE(node.backward)
             for (key, block) in zip(node.keys, node.blocks) {
                 bytes.appendBE(block)
-                bytes.appendBE(key)
+                bytes.appendBE(key.field)
             }
             if !node.isLeaf { bytes.appendBE(node.blocks[node.keys.count]) }
-            bytes.appendZeros(blockSize - bytes.count)
+            var length = blockSize
+            if let fixedLength {
+                if node.isLeaf { bytes.appendZeros(4) }
+                for key in node.keys { bytes.append(key.bytes) }
+                length += fixedLength * node.keys.count
+            }
+            bytes.appendZeros(length - bytes.count)
             store.set(block, bytes.bytes)
         }
     }
