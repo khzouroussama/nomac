@@ -8,27 +8,29 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 
 ## Current step
 
-Paused on 2026-11-03 (the owner saves usage): round 2 is partial, 61 of the manifest's 106 apps
-finished (Round 2 below), the driver stopped with nothing in flight, the volume back to its base
-(3.1 GB: nomac `ad202e5b` at /work/bin/current, its developer directory, the Linux Node, the
-SwiftPM cache) and no checkout kept. Batch 1 (b225fc0c) is in Results and Classes.
+Round 3, started 2026-11-07: every app of the manifest on the 27.0.5 release, as a user gets it (the
+release's download, `nomac sdk install` from an Xcode.app, `nomac toolchain install`, Ubuntu 24.04 with
+install.sh's packages, a soft limit of 1024 open files), the 45 apps that never ran first, then the 61
+of round 2 again. A detached run that outlives any agent:
+
+- Log: `~/nomac-out/sweep/run-27.0.5.log`. Results: `~/nomac-out/sweep/results`, round 2's in
+  `~/nomac-out/sweep/results-round2-ad202e5b`.
+- It runs from a snapshot of the scripts and the manifest, `~/nomac-out/sweep/driver`, so that a rebase of
+  this worktree changes nothing under it. Refresh the snapshot only with no run going.
+- Is it running: `pgrep -f run-27.0.5.sh`. Counts: `python3 ~/nomac-out/sweep/driver/.github/scripts/rn_sweep.py counts`.
+- Resume (a crash, a reboot; it skips what finished):
+
+  ```sh
+  docker start nomac-sweep-run
+  nohup caffeinate -i ~/nomac-out/sweep/run-27.0.5.sh >> ~/nomac-out/sweep/run-27.0.5.log 2>&1 &
+  ```
 
 Next actions:
 
-1. Resume round 2 on the same nomac (`ad202e5b`; never move /work/bin/nomac-ad202e5b, the developer
-   directory's launchers name it), once the Mac has 30 GB free:
-
-   ```sh
-   docker start nomac-sweep-run
-   cd ~/nomac-out/wt/sweep && nohup python3 .github/scripts/rn_sweep.py run --resume --builders 2 \
-       --installers 3 --keep-failed 6 > ~/nomac-out/sweep/run-round2-resume.log 2>&1 &
-   ```
-
-   `--resume` runs the 45 apps without a finished result; then `rn_sweep.py report` gives the table.
-2. The round's classes routed to their workstreams (Classes), the report pasted here.
-3. A next round on a newer main (its own nomac and developer directory, from /ref/llvm-tools at
-   main's stamps) for the 47 results that came from `a9b571ab`, so that one build produces them all.
-4. B-043.
+1. Take nomac's failures as the run finds them, fix them generally, and keep docs/PROGRESS.md's line
+   true, with the date and the nomac version.
+2. `rn_sweep.py report` pasted here when the run ends, each class routed to its workstream.
+3. B-043.
 
 The manifest records what an app asks of a build machine (`env`, `{checkout}` standing for its
 checkout: bluesky's `SENTRY_XCFRAMEWORK_CACHE_DIR`, inside the checkout so that the container sees

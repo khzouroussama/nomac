@@ -35,11 +35,12 @@ Usage (Mac):
   rn_sweep.py prepare [--keep] [app ...]     the Mac steps only (install, survey), the copy deleted after
   rn_sweep.py install|survey [app ...]       one Mac step, the copy kept
   rn_sweep.py report [--root R]              tables: steps, apps, failure classes, survey, requirements
+  rn_sweep.py counts [--root R]              one line: built, the app's own errors, nomac's errors, not run
   rn_sweep.py reclassify [app ...]           the kept logs' failures classified again
 In the container: rn_sweep.py linux [--root R] [--slot S] app
 
-The volume (nomac-sweep) holds bin/current/nomac (a Linux build of nomac), devdir/Xcode_27.app (the
-SDK subset with `nomac toolchain install`'s toolchain), node-linux (the pinned Node for Linux),
+The volume (nomac-sweep) holds bin/current/nomac (a Linux build of nomac, or a release's bin folder as
+install.sh lays it out), devdir/Xcode_27.app (the SDK subset with `nomac toolchain install`'s toolchain), node-linux (the pinned Node for Linux),
 apps (the apps at their Mac paths) and dd (build folders). Results: <root>/results/<app>.json and
 <root>/results/<app>/ (logs, check.json, survey.json).
 """
@@ -70,13 +71,16 @@ import expo_experiments as expo  # noqa: E402
 
 capture = expo.capture
 STEPS = ["install", "check", "fixes", "build", "archive", "export"]
-VOLUME, CONTAINER, IMAGE = "nomac-sweep", "nomac-sweep-run", "nomac-linux:6.4.1-noble"
+VOLUME, CONTAINER, IMAGE = "nomac-sweep", "nomac-sweep-run", "nomac-sweep-user:24.04"
 WORK = Path("/work")
 NOMAC = WORK / "bin/current/nomac"
 DEVELOPER_DIR = WORK / "devdir/Xcode_27.app/Contents/Developer"
 MIN_FREE = 15 << 30
 MIN_FREE_MAC = 30 << 30
 MIN_FREE_MAC_BUILD = 25 << 30
+# A user's soft limit on open files. Root in Docker has 1048576, which hid a failure of 27.0.4's
+# archive on arm64 that every user saw (docs/state/release.md).
+USER_OPEN_FILES = 1024
 MANIFEST_LOCK, POD_LOCK = threading.Lock(), threading.Lock()
 LOCKFILES = [("bun.lock", "bun"), ("bun.lockb", "bun"), ("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"),
              ("package-lock.json", "npm")]
@@ -559,6 +563,12 @@ def linux_environment(root, slot):
             "CI": "1", "EXPO_NO_TELEMETRY": "1"}
 
 
+def nomac_build():
+    """The name of the folder that holds nomac: nomac-<commit> for a build, nomac-<version> for a release."""
+    binary = Path(os.path.realpath(NOMAC))
+    return (binary.parent.parent if binary.parent.name == "bin" else binary.parent).name.removeprefix("nomac-")
+
+
 def container_of(app):
     ios = app / "ios"
     workspaces = sorted(p for p in ios.glob("*.xcworkspace"))
@@ -591,7 +601,7 @@ def linux(root, entry, slot, separate_build=False):
     out = root / "results" / entry["id"]
     top, app = checkout(root, entry), app_folder(root, entry)
     env = app_environment(root, entry, linux_environment(root, slot))
-    result["nomac"] = Path(os.path.realpath(NOMAC)).parent.name.removeprefix("nomac-")
+    result["nomac"] = nomac_build()
     container = container_of(app)
     if container is None:
         step(result, "check", False, time.time(), **{"class": "no Xcode project in ios/"})
@@ -962,6 +972,16 @@ def docker(*argv, **kwargs):
     return subprocess.run(["docker", *argv], **kwargs)
 
 
+def build_image():
+    """A user's machine: Ubuntu 24.04 with the system packages install.sh installs, and Python for
+    this script."""
+    installer = (SCRIPTS.parents[1] / "install.sh").read_text()
+    packages = re.search(r"apt-get install -y -q (.*?) < /dev/null", installer, re.S).group(1).replace("\\\n", " ").split()
+    dockerfile = ("FROM ubuntu:24.04\nRUN apt-get -o Acquire::Retries=8 update -q && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=8 install -y -q "
+                  + " ".join(packages + ["python3"]) + " && rm -rf /var/lib/apt/lists\n")
+    docker("build", "-q", "-t", IMAGE, "-", input=dockerfile, text=True, check=True, stdout=subprocess.DEVNULL)
+
+
 def container_command(root, args):
     """The container for the Linux steps: the volume at /work, its apps folder and Linux Node at the
     Mac's paths, its SwiftPM cache (swift-syntax's repository for macro plugins built from their
@@ -969,6 +989,7 @@ def container_command(root, args):
     this repository's scripts shared with the Mac."""
     (root / "results").mkdir(parents=True, exist_ok=True)
     repository = SCRIPTS.parents[1]
+    build_image()
     argv = ["run", "-d", "--name", args.container, "--network", "none", "-v", f"{args.volume}:/work",
             "--mount", f"type=volume,src={args.volume},dst={root}/apps,volume-subpath=apps",
             "--mount", f"type=volume,src={args.volume},dst={root}/node,volume-subpath=node-linux,readonly",
@@ -1007,7 +1028,8 @@ def linux_steps(root, entry, args, slot):
         if not args.keep:
             shutil.rmtree(top, ignore_errors=True)
         with open(root / "results" / app_id / "linux.log", "ab") as out:
-            docker("exec", args.container, "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
+            docker("exec", args.container, "sh", "-c", f'ulimit -Sn {USER_OPEN_FILES}; exec "$@"', "sh",
+                   "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
                    "--slot", str(slot), *(["--separate-build"] if args.separate_build else []), app_id,
                    stdout=out, stderr=subprocess.STDOUT)
     elif not args.keep:
@@ -1073,6 +1095,27 @@ def run_all(root, apps, args, env):
 
 
 # Report.
+
+def counts(root):
+    apps = manifest()["apps"]
+    results = [load_result(root, e["id"]) for e in apps if results_path(root, e["id"]).exists()]
+    finished = [r for r in results if r.get("finished")]
+    tally = {"built": 0, "app": 0, "install": 0, "nomac": 0}
+    for r in finished:
+        first = next((s for s in STEPS if s in r["steps"] and not r["steps"][s]["ok"]), None)
+        if first is None:
+            tally["built"] += 1
+        elif first == "install":
+            tally["install"] += 1
+        elif (r["steps"][first].get("class") or "").startswith("app:"):
+            tally["app"] += 1
+        else:
+            tally["nomac"] += 1
+    builds = sorted({r.get("nomac", "") for r in finished} - {""})
+    print(f"{len(finished)} of {len(apps)} apps finished on nomac {', '.join(builds)}: {tally['built']} built (archive and "
+          f"export too), {tally['app']} the app's own errors, {tally['nomac']} nomac's errors, "
+          f"{tally['install']} did not install; {len(apps) - len(finished)} not run yet.")
+
 
 def report(root, names):
     results = [load_result(root, e["id"]) for e in entries(names) if results_path(root, e["id"]).exists()]
@@ -1151,7 +1194,7 @@ def report(root, names):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["container", "run", "prepare", "install", "survey", "linux", "report", "reclassify"])
+    parser.add_argument("command", choices=["container", "run", "prepare", "install", "survey", "linux", "report", "counts", "reclassify"])
     parser.add_argument("apps", nargs="*")
     parser.add_argument("--root", type=Path, default=Path.home() / "nomac-out" / "sweep")
     parser.add_argument("--volume", default=VOLUME)
@@ -1172,6 +1215,8 @@ def main():
         return container_command(root, args)
     if args.command == "report":
         return report(root, args.apps)
+    if args.command == "counts":
+        return counts(root)
     if args.command == "reclassify":
         return reclassify(root, args.apps)
     if args.command == "linux":
