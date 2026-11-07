@@ -4,6 +4,7 @@
 public enum RenditionAttribute: UInt16, CaseIterable, Sendable {
     case element = 1
     case part = 2
+    case direction = 4
     case appearance = 7
     case dimension1 = 8
     case dimension2 = 9
@@ -20,7 +21,7 @@ public enum RenditionAttribute: UInt16, CaseIterable, Sendable {
     /// The order attributes take in `KEYFORMAT`.
     static let keyFormatOrder: [RenditionAttribute] = [
         .appearance, .localization, .scale, .idiom, .subtype, .glyphWeight, .glyphSize, .dimension2, .dimension1, .target, .displayGamut,
-        .identifier, .element, .part,
+        .direction, .identifier, .element, .part,
     ]
 
     /// Attributes every key format has, used or not.
@@ -49,12 +50,15 @@ public enum RenditionAppearance: UInt16, Sendable {
     case any = 0
     case dark = 1
     case highContrastAny = 2
+    case highContrastDark = 3
     case light = 4
+    case highContrastLight = 5
     /// Icon Composer icons' tinted appearance (`IconComposerIcon`).
     case tintable = 10
 
-    /// An entry's `appearances`: none, luminosity dark or light, or contrast high (`colors`,
-    /// `image-appearances`); nil for others.
+    /// An entry's `appearances`: none, luminosity dark or light, contrast high, or a luminosity
+    /// and contrast high in either order (`colors`, `image-appearances`, `appearance-pairs`); nil
+    /// for others.
     init?(entry appearances: [[String: Any]]) {
         let pairs = appearances.map { ($0["appearance"] as? String ?? "", $0["value"] as? String ?? "") }
         switch pairs.count {
@@ -62,6 +66,8 @@ public enum RenditionAppearance: UInt16, Sendable {
         case 1 where pairs[0] == ("luminosity", "dark"): self = .dark
         case 1 where pairs[0] == ("luminosity", "light"): self = .light
         case 1 where pairs[0] == ("contrast", "high"): self = .highContrastAny
+        case 2 where pairs.contains(where: { $0 == ("contrast", "high") }) && pairs.contains(where: { $0 == ("luminosity", "dark") }): self = .highContrastDark
+        case 2 where pairs.contains(where: { $0 == ("contrast", "high") }) && pairs.contains(where: { $0 == ("luminosity", "light") }): self = .highContrastLight
         default: return nil
         }
     }
@@ -71,7 +77,9 @@ public enum RenditionAppearance: UInt16, Sendable {
         case .any: "UIAppearanceAny"
         case .dark: "UIAppearanceDark"
         case .highContrastAny: "UIAppearanceHighContrastAny"
+        case .highContrastDark: "UIAppearanceHighContrastDark"
         case .light: "UIAppearanceLight"
+        case .highContrastLight: "UIAppearanceHighContrastLight"
         case .tintable: "ISAppearanceTintable"
         }
     }

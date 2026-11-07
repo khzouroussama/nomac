@@ -38,6 +38,11 @@ enum ImageSet {
         var glyph: (weight: UInt16, size: UInt16, target: UInt16)?
         /// A rasterized image's slice (property 1001): its content, at the bottom left.
         var slice: (x: Int, y: Int, width: Int, height: Int)?
+        /// What an entry's `language-direction`, `alignment-insets` and `resizing` add.
+        var direction: UInt16 = 0
+        var flippable = false
+        var insets: EntryTraits.Insets?
+        var resizing: EntryTraits.Applied?
 
         var isOpaque: Bool
         var isGray: Bool
@@ -60,6 +65,7 @@ enum ImageSet {
             if gamut != 0 { attributes[.displayGamut] = gamut }
             if dimension2 != 0 { attributes[.dimension2] = dimension2 }
             if appearance != 0 { attributes[.appearance] = appearance }
+            if direction != 0 { attributes[.direction] = direction }
             if let glyph {
                 attributes[.glyphWeight] = glyph.weight
                 attributes[.glyphSize] = glyph.size
@@ -127,10 +133,12 @@ enum ImageSet {
             guard let filename = entry["filename"] as? String else { continue }
             let keys = Set(entry.keys).subtracting(["filename", "idiom", "scale"])
             let idiomName = entry["idiom"] as? String ?? "universal"
-            // An entry may have an appearance, a watch image a screen width.
-            guard keys.subtracting(["appearances"]).isEmpty || keys.subtracting(["appearances"]) == ["screen-width"] && idiomName == "watch" else {
+            // An entry may have an appearance and traits, a watch image a screen width.
+            let others = keys.subtracting(["appearances"]).subtracting(EntryTraits.keys)
+            guard others.isEmpty || others == ["screen-width"] && idiomName == "watch" else {
                 throw NomacError("image set entries with \(keys.sorted()) are not supported yet (BACKLOG B-200)", path: asset.path)
             }
+            let traits = try EntryTraits(entry, allEntries: asset.contents["images"] as? [[String: Any]] ?? [], path: asset.path)
             let appearance = try entryAppearance(entry, asset: asset)
             // watchOS keeps only the images for any appearance (`image-appearances` watch cases).
             if platform?.watch == true && appearance != .any { continue }
@@ -165,9 +173,10 @@ enum ImageSet {
                 // own PDF, compiled as it alone (`entries-2`: universal-ipad, iphone-ipad).
                 let files = (asset.contents["images"] as? [[String: Any]] ?? []).filter {
                     $0["filename"] != nil && (try? entryAppearance($0, asset: asset)) == appearance && $0["idiom"] as? String ?? "universal" == idiomName
+                        && EntryTraits.direction($0) == traits.direction
                 }.count
                 guard entry["scale"] == nil || entry["scale"] as? String == "1x" && files == 1,
-                      !sources.contains(where: { $0.idiom == idiom && $0.appearance == appearance.rawValue }) else {
+                      !sources.contains(where: { $0.idiom == idiom && $0.appearance == appearance.rawValue && $0.direction == traits.direction }) else {
                     throw NomacError("PDF image sets with a file per scale are not supported yet (BACKLOG B-215)", path: asset.path)
                 }
                 sources += try pdfImages(asset, filename: filename, renderingIntent: renderingIntent, preservesVector: preservesVector,
@@ -175,23 +184,25 @@ enum ImageSet {
                     var source = source
                     source.idiom = idiom
                     source.appearance = appearance.rawValue
+                    try traits.apply(to: &source, factor: source.scale, path: asset.path)
                     return source
                 }
                 continue
             }
             if type == "svg" {
-                guard idiom == Idiom.universal, !sources.contains(where: { $0.idiom == idiom && $0.appearance == appearance.rawValue }) else {
+                guard idiom == Idiom.universal, !sources.contains(where: { $0.idiom == idiom && $0.appearance == appearance.rawValue && $0.direction == traits.direction }) else {
                     throw NomacError("SVG image set entries other than one universal entry per appearance are not supported yet (BACKLOG B-200)", path: asset.path)
                 }
                 sources += try rasterized(asset, filename: filename, renderingIntent: renderingIntent, preservesVector: preservesVector,
                                           slot: entry["scale"] == nil ? 1 : scale, scales: platform?.rasterScales ?? [1, 2, 3]).map { source in
                     var source = source
                     source.appearance = appearance.rawValue
+                    try traits.apply(to: &source, factor: source.scale, path: asset.path)
                     return source
                 }
                 continue
             }
-            guard !sources.contains(where: { $0.scale == scale && $0.idiom == idiom && $0.subtype == subtype && $0.appearance == appearance.rawValue }) else {
+            guard !sources.contains(where: { $0.scale == scale && $0.idiom == idiom && $0.subtype == subtype && $0.appearance == appearance.rawValue && $0.direction == traits.direction }) else {
                 throw NomacError("image sets with two images of one idiom and scale are not supported yet (BACKLOG B-200)", path: asset.path)
             }
             let path = asset.path + "/" + filename
@@ -217,6 +228,10 @@ enum ImageSet {
             source.appearance = appearance.rawValue
             source.renderingIntent = renderingIntent
             source.preservesVector = preservesVector
+            if !traits.isEmpty {
+                guard type == "png" else { throw NomacError("\(type) image set entries with \(keys.sorted()) are not supported yet (BACKLOG B-200)", path: asset.path) }
+                try traits.apply(to: &source, factor: 1, path: asset.path)
+            }
             sources.append(source)
         }
         return sources
@@ -284,14 +299,24 @@ enum ImageSet {
                 (1003, little(1) + [UInt8](repeating: 0, count: 16) + size)]
     }
 
+    /// A source's slices and metrics: a resizable image's slices, and its insets, the metrics'
+    /// size being what they leave of the image (`image-traits`).
+    static func geometry(_ source: Source) -> [(type: UInt32, value: [UInt8])] {
+        var result = geometry(width: source.image.width, height: source.image.height, slice: source.slice)
+        if let resizing = source.resizing { result[0].value = resizing.sliceProperty }
+        if let insets = source.insets { result[1].value = insets.metrics(width: source.image.width, height: source.image.height) }
+        return result
+    }
+
     /// CSI flags: 0x10 for images without a rendering intent, 0x8 for `template`, 0 for
     /// `original` and app icons (`images` intents, tofu); 0x4 more for an image rasterized from a
     /// vector file and 0x100 for `preserves-vector-representation` (`images` svg cases).
     static func flags(_ source: Source) -> UInt32 {
         if source.kind == .symbol { return 0x4 }
         guard source.kind == .image else { return 0 }
-        // `preserves-vector-representation` sets 0x100, on PNG images too (home-assistant).
-        let vector: UInt32 = (source.rasterized ? 0x4 : 0) | (source.preservesVector ? 0x100 : 0)
+        // `preserves-vector-representation` sets 0x100, on PNG images too (home-assistant); a
+        // set with one language direction 0x40 (`image-traits`).
+        let vector: UInt32 = (source.rasterized ? 0x4 : 0) | (source.preservesVector ? 0x100 : 0) | (source.flippable ? 0x40 : 0)
         switch source.renderingIntent {
         case "template": return 0x8 | vector
         case "original": return vector
@@ -334,11 +359,12 @@ enum ImageSet {
     /// part 42 with the scale of the file's entry (1 without one); flags 4, no size, the file in a `DWAR` payload: an SVG's compressed
     /// when that is smaller, a PDF's as it is (docs/formats/asset-catalog.md, "SVG images", "PDF images").
     static func vectorRendition(_ source: Source, data: [UInt8], pixelFormat: String, colorModel: UInt32 = 0) -> CARRendition {
-        let csi = CSI(name: source.filename, layout: .vector, flags: 4, colorModel: colorModel, pixelFormat: pixelFormat,
+        let csi = CSI(name: source.filename, layout: .vector, flags: source.flippable ? 0x44 : 4, colorModel: colorModel, pixelFormat: pixelFormat,
                       properties: commonProperties, payload: vectorPayload(data, compressed: pixelFormat != "PDF "))
         var attributes: [RenditionAttribute: UInt16] = source.preservesVector ? [.scale: source.vectorScale, .part: 42] : [:]
         if source.idiom != Idiom.universal { attributes[.idiom] = source.idiom }
         if source.appearance != 0 { attributes[.appearance] = source.appearance }
+        if source.direction != 0 { attributes[.direction] = source.direction }
         return CARRendition(name: source.name, kind: source.kind, attributes: attributes, csi: csi.bytes)
     }
 
@@ -413,7 +439,7 @@ enum ImageSet {
             // flags and packing class stay translucent (`vector-images` opaque cases).
             let opaque = source.isOpaque || source.rasterized && stride(from: 3, to: image.pixels.count, by: 4).allSatisfy { image.pixels[$0] == 255 }
             let rowBytes = rowBytes(width: image.width, opaque: opaque, gray: source.isGray, plain: plain)
-            let properties = geometry(width: image.width, height: image.height, slice: source.slice) + commonProperties + [(1007, little(rowBytes))]
+            let properties = geometry(source) + commonProperties + [(1007, little(rowBytes))]
             let pixels = stored(image.pixels, gray: source.isGray, opaque: opaque)
             let payload: [UInt8]
             if let earlier = payloads.first(where: { $0.gray == source.isGray && $0.opaque == opaque && $0.plain == plain && $0.pixels == pixels }) {
@@ -423,7 +449,7 @@ enum ImageSet {
                 payloads.append((pixels, source.isGray, opaque, plain, payload))
             }
             // A symbol set's raster stored alone has layout 0 (home-assistant's watch app).
-            let csi = imageCSI(source, layout: source.kind == .symbol ? .none : .image, properties: properties, payload: payload)
+            let csi = imageCSI(source, layout: source.resizing?.layout ?? (source.kind == .symbol ? .none : .image), properties: properties, payload: payload)
             renditions.append(CARRendition(name: source.name, kind: source.kind, attributes: source.attributes, csi: csi.bytes))
         }
         for index in wideIndices where !widePacked.contains(index) {
@@ -438,7 +464,8 @@ enum ImageSet {
         var numbers: [[Int]: UInt16] = [:]
         for (packingClass, members) in (packable.merging(widePackable) { first, _ in first }).sorted(by: { $0.key < $1.key }) {
             let items = members.map {
-                Atlas.Item(id: $0, width: sources[$0].image.width, height: sources[$0].image.height, identifier: identifiers[sources[$0].name] ?? 0)
+                Atlas.Item(id: $0, width: sources[$0].image.width, height: sources[$0].image.height, identifier: identifiers[sources[$0].name] ?? 0,
+                           direction: sources[$0].direction)
             }
             // actool numbers a class's atlases in the order of their indices as decimal strings
             // ("0", "1", "10", "11", "2", ...; flappy-fly-bird, `packing` many-atlases cases).
@@ -557,8 +584,9 @@ enum ImageSet {
         for item in items {
             let source = sources[item.id]
             let position = positions[item.id]!
-            let link = link(x: position.x, y: position.y, width: item.width, height: item.height, atlasKey: key, layout: source.kind == .symbol ? 0 : 12)
-            let properties = geometry(width: item.width, height: item.height, slice: source.slice) + [(1010, link)] + commonProperties
+            let link = link(x: position.x, y: position.y, width: item.width, height: item.height, atlasKey: key,
+                            layout: source.resizing?.layout.rawValue ?? (source.kind == .symbol ? 0 : 12))
+            let properties = geometry(source) + [(1010, link)] + commonProperties
             let csi = imageCSI(source, layout: .packedImage, properties: properties, payload: [], wide: wide)
             renditions.append(CARRendition(name: source.name, kind: source.kind, attributes: source.attributes(gamut: packingClass.gamut), csi: csi.bytes))
         }

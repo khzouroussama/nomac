@@ -4,6 +4,13 @@ struct CSI {
     enum Layout: UInt16 {
         case none = 0
         case image = 12
+        /// Resizable images by their `resizing` mode and center mode (`image-traits`).
+        case threePartHorizontalTile = 20
+        case threePartHorizontalStretch = 21
+        case threePartVerticalTile = 23
+        case threePartVerticalStretch = 24
+        case ninePartTile = 30
+        case ninePartStretch = 31
         case data = 1000
         /// An image packed into an atlas: no payload, a link property to its place.
         case packedImage = 1003

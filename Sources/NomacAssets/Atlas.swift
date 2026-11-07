@@ -11,11 +11,13 @@ enum Atlas {
         var width: Int
         var height: Int
         var identifier: UInt16
+        var direction: UInt16 = 0
     }
 
-    /// The order actool places images in: largest area first, then by identifier.
+    /// The order actool places images in: largest area first, then as their keys sort, the
+    /// direction before the identifier (`image-traits` neighbours).
     static func packingOrder(_ items: [Item]) -> [Item] {
-        items.sorted { ($0.width * $0.height, $1.identifier) > ($1.width * $1.height, $0.identifier) }
+        items.sorted { ($0.width * $0.height, $1.direction, $1.identifier) > ($1.width * $1.height, $0.direction, $0.identifier) }
     }
 
     /// The growing binary-tree packer over cells of the image size plus 2: each cell goes into the
