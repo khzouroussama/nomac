@@ -161,6 +161,7 @@ extension DocumentCompiler {
                 NibRelationshipTraitStorage.Record(sizeClasses: mask.sizeClasses, added: try mask.included.map(resolve), removed: try mask.excluded.map(resolve))
             }
             var removed = records.first { $0.sizeClasses == SizeClasses() }?.removed ?? []
+            defaultMaskExclusions.append((owner: owner.view, excluded: removed))
             if let device = deviceSizeClasses {
                 for record in records where record.sizeClasses != SizeClasses() && record.sizeClasses.applies(to: device) {
                     removed = removed.filter { object in !record.added.contains { $0 === object } } + record.removed

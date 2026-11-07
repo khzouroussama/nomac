@@ -82,10 +82,21 @@ extension DocumentCompiler {
     /// decimal strings compared byte by byte (`10` before `4`), those of one object in the document's
     /// order (`udra-order-*`, 153 nibs of the corpus and the experiments and 48 of the holdout unseen
     /// when the rule was found; the root and File's Owner `udra-order-root-*`, `udra-order-owner-*`;
-    /// past 99 `udra-order-many-120`).
+    /// past 99 `udra-order-many-120`). What the default size class's masks exclude from a view is
+    /// counted after what the view lists (`mask-pairs-*`, organicmaps' LocationServicesDisabledAlert,
+    /// PixPic's PostViewCell).
     mutating func takeKeyValuePairs(allObjects: [NibArchivable]) throws -> [NibArchivable] {
         defer { keyValuePairs = [] }
-        let places = Dictionary(allObjects.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
+        var numbered = allObjects
+        for (owner, excluded) in defaultMaskExclusions {
+            let ids = Set(excluded.map(ObjectIdentifier.init))
+            let moved = numbered.filter { ids.contains(ObjectIdentifier($0)) }
+            numbered.removeAll { ids.contains(ObjectIdentifier($0)) }
+            let listed = Set(([owner] + owner.childObjects + excluded.flatMap { ($0 as? NibObjectChildren)?.childObjects ?? [] }).map(ObjectIdentifier.init))
+            let last = numbered.lastIndex { listed.contains(ObjectIdentifier($0)) } ?? numbered.count - 1
+            numbered.insert(contentsOf: moved, at: last + 1)
+        }
+        let places = Dictionary(numbered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) }) { first, _ in first }
         let keyed = try keyValuePairs.enumerated().map { offset, pair in
             guard let place = places[ObjectIdentifier(pair.object)] else { throw unsupported("user-defined runtime attributes of an object outside the nib's objects") }
             return (key: Array(String(place + 1).utf8), offset: offset, pair: pair)

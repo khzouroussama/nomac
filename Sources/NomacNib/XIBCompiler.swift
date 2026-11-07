@@ -184,6 +184,9 @@ struct DocumentCompiler {
     /// size classes, which pick the values objects take.
     var traitStorages: [TraitStorage] = []
     /// The `<mask>`s of the nib's views, by view id and size class, then their storages.
+    /// What the default size class's masks exclude, by view: counted after the view's other objects
+    /// in the numbers that order key-value pairs.
+    var defaultMaskExclusions: [(owner: NibView, excluded: [NibArchivable])] = []
     var pendingMasks: [(owner: String, subviews: Bool, sizeClasses: SizeClasses, included: [String], excluded: [String])] = []
     var relationshipStorages: [NibRelationshipTraitStorage] = []
     var deviceSizeClasses: SizeClasses?
