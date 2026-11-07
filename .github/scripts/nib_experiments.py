@@ -7557,6 +7557,32 @@ for version in (6185, 6250, 6751, 7531, 7706, 8191, 9059, 9531, 10116, 10117, 11
     STORYBOARDS[f"sb-no-rect-tools-{version}-view"] = same_scene(subview("sss-ss-ss1", rect=False)).replace('toolsVersion="23504"', f'toolsVersion="{version}"')
 
 
+# Every calibratedWhite of the coverage survey's documents without colorMatched, whose route to Generic
+# RGB is not reproduced to the bit (BACKLOG B-281): their observed values; out-of-range components;
+# storyboards of the converted spaces.
+SURVEY_UNMATCHED_WHITES = ["1", "0.0", "0.5", "0.33333333333333331", "0.66666666666666663", "0.33333299", "0.33333298560000002", "0.80000000000000004", "0.14000000000000001", "0.25", "0.96999999999999997", "0.40000001000000002", "0.054744527000000001", "0.88381044710000001", "0.94954605670000003", "0.24954602940000001", "0.75", "0.5039117192", "0.12", "0.96769046160000005", "0.89909329380000003", "0.64999997620000005", "0.22", "0.14999999999999999", "0.94999999999999996", "0.88", "0.67000000000000004", "0.65000000000000002", "0.77547251559999997", "0.29999999999999999", "0.93785743460000004", "0.1708154616", "0.88162530640000003", "0.95000000000000007", "0.81643775200000002", "0.90000000000000002", "0.17294730389999999", "0.90908394609999998", "0.96121793985366821", "0.24671052631578946", "0.84788435220000002", "0.65159018209999997", "0.9379276916", "0.64999997615814209", "0.92917850378787881", "0.12096422699999999", "0.10000000000000001", "0.90317350900000004", "0.24923406862745098", "0.74959150326797386", "0.90908394607843135", "0.79240171370967749", "0.816437752016129", "0", "0.97947080289999999", "0.97999999999999998", "0.96974794710000001", "0.90268590329999998", "0.89430314781021902", "0.89430314779999998", "0.24647923519736842", "0.24935752467105263", "0.25305818256578949", "0.2486041274509932", "0.25382102712204579", "0.96142578125", "0.24789268092105263", "0.95685135690789469", "0.24851278882277639", "0.2530041493867573", "0.95430715460526316", "0.25100226151315791", "0.90256619090000001", "0.94954605670583325", "0.90256619093402124", "0.253", "0.59999429739999999", "0.1227056664", "0.92000000000000004", "0.53475707120000004", "0.50066129429999995", "0.096031021899999999", "0.88192860399999995", "0.98905109489051091", "0.93792769160583944", "0.24954602935097434", "0.50391171924717781", "0.54870211690000004", "0.40359831204379559", "0.64776739016736407", "0.97240609479249773", "0.94526796189999995", "0.80237086312524208", "0.12096422697368424", "0.28000000000000003", "0.45985814144736842", "0.77032791940789469"]
+UNMATCHED_WHITES = {"unmatched-survey-whites": constrained(color_subviews([f'white="{w}" alpha="1" colorSpace="calibratedWhite"' for w in SURVEY_UNMATCHED_WHITES]), "").replace(' colorMatched="YES"', "")}
+UNMATCHED_WHITES["converted-range-calibratedRGB"] = constrained(color_subviews(['red="1.2" green="-0.1" blue="0.5" alpha="1" colorSpace="calibratedRGB"']), "")
+UNMATCHED_WHITES["converted-range-displayP3"] = constrained(color_subviews(['red="1.2" green="-0.1" blue="0.5" alpha="1" colorSpace="custom" customColorSpace="displayP3"']), "")
+UNMATCHED_WHITES["converted-range-deviceRGB"] = constrained(color_subviews(['red="1.2" green="-0.1" blue="0.5" alpha="1" colorSpace="deviceRGB"']), "")
+UNMATCHED_WHITES["unmatched-range-sRGB"] = constrained(color_subviews(['red="1.2" green="-0.1" blue="0.5" alpha="1" colorSpace="custom" customColorSpace="sRGB"']), "").replace(' colorMatched="YES"', "")
+UNMATCHED_WHITES["unmatched-custom-calibratedRGB"] = constrained(color_subviews(['red="0.2" green="0.4" blue="0.6" alpha="1" colorSpace="custom" customColorSpace="calibratedRGB"']), "").replace(' colorMatched="YES"', "")
+UNMATCHED_WHITES["matched-custom-calibratedRGB"] = constrained(color_subviews(['red="0.2" green="0.4" blue="0.6" alpha="1" colorSpace="custom" customColorSpace="calibratedRGB"']), "")
+UNMATCHED_WHITES["converted-range-white"] = constrained(color_subviews(['white="1.2" alpha="1" colorSpace="calibratedWhite"']), "")
+EXPERIMENTS.update(UNMATCHED_WHITES)
+for _name, _color in {
+    "srgb": 'red="0.12345678901234567" green="0.4" blue="0.87654321098765432" alpha="0.33333333333333331" colorSpace="custom" customColorSpace="sRGB"',
+    "device": 'red="0.2" green="0.4" blue="0.6" alpha="0.33333333333333331" colorSpace="deviceRGB"',
+    "p3": 'red="0.2" green="0.4" blue="0.6" alpha="0.33333333333333331" colorSpace="custom" customColorSpace="displayP3"',
+    "device-white": 'white="0.3" alpha="0.33333333333333331" colorSpace="deviceWhite"',
+    "gamma22": 'white="0.3" alpha="0.33333333333333331" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"',
+    "white-alpha": 'white="0.33333333333333331" alpha="0.41999999999999998" colorSpace="calibratedWhite"',
+}.items():
+    STORYBOARDS[f"sb-color-unmatched-{_name}"] = storyboard(scene(view_extra=f'                        <color key="backgroundColor" {_color}/>\n')).replace(' colorMatched="YES"', "")
+STORYBOARDS["sb-color-matched-device-white"] = storyboard(scene(view_extra='                        <color key="backgroundColor" white="0.3" alpha="0.33333333333333331" colorSpace="deviceWhite"/>\n'))
+STORYBOARDS["sb-color-matched-white"] = storyboard(scene(view_extra='                        <color key="backgroundColor" white="0.3" alpha="0.33333333333333331" colorSpace="calibratedWhite"/>\n'))
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
