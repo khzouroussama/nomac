@@ -228,6 +228,16 @@ def icc_pdf(content, profiles, compress=True, alternate=True, names=None):
     return out + b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
 
 
+def icc_stream(profile, components, alternate):
+    return b"<< /N %d /Alternate /%s /Length %d >>\nstream\n" % (components, alternate, len(profile)) + profile + b"\nendstream"
+
+
+ICC_P3 = icc_stream(P3, 3, b"DeviceRGB")
+ICC_SRGB_LIKE = icc_stream(SRGB_LIKE, 3, b"DeviceRGB")
+ICC_GRAY = icc_stream(GRAY22, 1, b"DeviceGray")
+DEFAULT_RGB = b"/ColorSpace << /DefaultRGB [/ICCBased 5 0 R] >>"
+
+
 def objects_pdf(content, extra, resources, width=20, height=10):
     """A page drawing `content` with `resources`, `extra` objects numbered from 5 (each written as
     given: a stream with its dictionary or any other object)."""
@@ -862,6 +872,28 @@ EXPERIMENT_CASES = {
         "device-sc-only": pdf(b"/DeviceRGB cs 1 0 0 sc 2 2 6 6 re f 0 0 1 sc 10 2 6 6 re f"),
         "rg-then-sc": pdf(b"1 0 0 rg 2 2 6 6 re f 0 0 1 sc 10 2 6 6 re f"),
         "gray-twice": pdf(b"0.5 g 2 2 6 6 re f 0.25 g 10 2 6 6 re f"),
+    },
+    "default-spaces": {
+        "rgb": objects_pdf(RED + b"2 2 6 6 re f 0 0 1 rg 10 2 6 6 re f", [ICC_P3], DEFAULT_RGB),
+        "rgb-same-color": objects_pdf(RED + b"2 2 6 6 re f " + RED + b"10 2 6 6 re f", [ICC_P3], DEFAULT_RGB),
+        "rgb-cs": objects_pdf(b"/DeviceRGB cs 1 0 0 sc 2 2 6 6 re f /DeviceRGB cs 0 0 1 sc 10 2 6 6 re f", [ICC_P3], DEFAULT_RGB),
+        "rgb-stroke": objects_pdf(b"0 0 1 RG 2 w 2 5 m 18 5 l S 1 0 0 RG 2 2 m 18 2 l S", [ICC_P3], DEFAULT_RGB),
+        "rgb-srgb-like": objects_pdf(RED + b"2 2 6 6 re f", [ICC_SRGB_LIKE], DEFAULT_RGB),
+        "rgb-and-gray": objects_pdf(RED + b"2 2 6 6 re f 0.5 g 10 2 6 6 re f", [ICC_P3], DEFAULT_RGB),
+        "gray": objects_pdf(b"0.5 g 2 2 6 6 re f 0.25 g 10 2 6 6 re f", [ICC_GRAY], b"/ColorSpace << /DefaultGray [/ICCBased 5 0 R] >>"),
+        "both": objects_pdf(RED + b"2 2 6 6 re f 0.5 g 10 2 6 6 re f", [ICC_P3, ICC_GRAY],
+                            b"/ColorSpace << /DefaultRGB [/ICCBased 5 0 R] /DefaultGray [/ICCBased 6 0 R] >>"),
+        "unused": objects_pdf(b"0.5 g 2 2 6 6 re f", [ICC_P3], DEFAULT_RGB),
+        "named-too": objects_pdf(RED + b"2 2 6 6 re f /Cs9 cs 0 0 1 sc 10 2 6 6 re f", [ICC_P3],
+                                 b"/ColorSpace << /DefaultRGB [/ICCBased 5 0 R] /Cs9 [/ICCBased 5 0 R] >>"),
+        "form-own": objects_pdf(b"/X1 Do", [ICC_P3, form(RED + b"2 2 16 6 re f", extra=b" /Resources << /ColorSpace << /DefaultRGB [/ICCBased 5 0 R] >> >>")],
+                                b"/XObject << /X1 6 0 R >>"),
+        "form-without": objects_pdf(b"/X1 Do", [ICC_P3, form(RED + b"2 2 16 6 re f", extra=b" /Resources << >>")],
+                                    DEFAULT_RGB + b" /XObject << /X1 6 0 R >>"),
+        "form-inherits": objects_pdf(b"/X1 Do", [ICC_P3, form(RED + b"2 2 16 6 re f")], DEFAULT_RGB + b" /XObject << /X1 6 0 R >>"),
+        "image": objects_pdf(b"q 16 0 0 8 2 1 cm /Im1 Do Q", [ICC_P3, image(RGB4, 2, 2)], DEFAULT_RGB + b" /XObject << /Im1 6 0 R >>"),
+        "shading": objects_pdf(b"/Sh1 sh", [ICC_P3], DEFAULT_RGB + b" /Shading << /Sh1 << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 20 0] "
+                               b"/Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >>"),
     },
     "xobjects": {
         "form": objects_pdf(b"/X1 Do", [form(RED + b"2 2 16 6 re f")], b"/XObject << /X1 5 0 R >>"),
@@ -1719,10 +1751,10 @@ def pdf_payload(block):
     return lzfse_decode(data) if flag == 1 else data
 
 
-def compare_car(x, y):
-    """ADR 0204: the Assets.car files with each PDF vector rendition of nomac's that differs from
-    actool's only in its color profiles (the same CSI header and properties) taken as actool's,
-    then compared as the assets experiments compare rasterized images."""
+def with_alike_pdfs(x, y):
+    """ADR 0204: the Assets.car files, canonical, with each PDF vector rendition of nomac's that
+    differs from actool's only in its color profiles (the same CSI header and properties) taken as
+    actool's, and whether there was one."""
     a, va = ae.bom(ae.canonical_car(x))
     b, vb = ae.bom(ae.canonical_car(y))
     profiles = False
@@ -1735,7 +1767,13 @@ def compare_car(x, y):
             if p[184:184 + props + 8] == q[184:184 + props + 8] and pdfs_alike(pdf_payload(p), pdf_payload(q)):
                 b[index] = p
                 profiles = True
-    result = ae.compare_pixel_car(ae.serialize(a, va), ae.serialize(b, vb), frozenset())
+    return ae.serialize(a, va), ae.serialize(b, vb), profiles
+
+
+def compare_car(x, y, converted=frozenset()):
+    """Then compared as the assets experiments compare rasterized images."""
+    p, q, profiles = with_alike_pdfs(x, y)
+    result = ae.compare_pixel_car(p, q, converted)
     return "equivalent" if profiles and result == "identical" else result
 
 

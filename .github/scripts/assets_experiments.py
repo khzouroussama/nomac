@@ -327,11 +327,14 @@ def converted_files(catalogs):
             if p.parent.suffix not in (".imageset", ".appiconset"):
                 continue
             data, o, profile = p.read_bytes(), 8, None
-            while o < len(data):
+            while data[:4] == b"\x89PNG" and o + 8 <= len(data):
                 n, t = struct.unpack_from(">I4s", data, o)
                 if t == b"iCCP":
                     body = data[o + 8:o + 8 + n]
-                    profile = zlib.decompress(body[body.index(0) + 2:])
+                    try:
+                        profile = zlib.decompressobj(-15).decompress(body[body.index(0) + 4:])
+                    except (ValueError, zlib.error):
+                        pass
                 o += 12 + n
             if profile and hashlib.sha256(profile[128:]).hexdigest() != SRGB_BODY:
                 found.add((p.parent.stem, p.name))
@@ -341,16 +344,17 @@ def converted_files(catalogs):
 SRGB_BODY = "2c4d46e1e255995e1d2592fecec4d8bf7e1dc78179a1cbf2d607301debc630b3"
 
 
-def compare_pixel_car(x, y, converted):
+def pixel_car_blocks(x, y, converted):
     """ADR 0204 for converted and rasterized images: blocks may differ only in the payloads of
     renditions named for a converted PNG of a set named like their facet, of image or link
     renditions with CSI flag 0x4 (rasterized from a vector file), and of the atlases their link
-    renditions point to."""
+    renditions point to. None when the layouts differ, else whether allowed pixels differ and the
+    other blocks that do."""
     if serialize(*bom(x)) != x or serialize(*bom(y)) != y:
-        return "different"
+        return None
     a, va = bom(canonical_car(x)); b, vb = bom(canonical_car(y))
     if va != vb or len(a) != len(b):
-        return "different"
+        return None
     names = dict(va)
     facets = {}
     for value, key in tree_entries(a, names["FACETKEYS"]):
@@ -376,16 +380,30 @@ def compare_pixel_car(x, y, converted):
                 atlases.append({p: q for p, q in (struct.unpack_from("<HH", csi, o + 8 + 30 + 4 * n) for n in range(count)) if p})
             o += 8 + length
     allowed |= {value for k, value in keys if {p: q for p, q in k.items() if q} in atlases}
-    pixels = False
+    pixels, others = False, []
     for i, (p, q) in enumerate(zip(a, b)):
         if p == q:
             continue
         props = struct.unpack_from("<I", p, 168)[0] if len(p) > 184 else 0
         if i in allowed and p[:180] == q[:180] and p[184:184 + props + 12] == q[184:184 + props + 12]:
             pixels = True
-            continue
+        else:
+            others.append(i)
+    return pixels, others
+
+
+def compare_pixel_car(x, y, converted):
+    blocks = pixel_car_blocks(x, y, converted)
+    if blocks is None or blocks[1]:
         return "different"
-    return "equivalent" if pixels else "identical"
+    return "equivalent" if blocks[0] else "identical"
+
+
+def sorted_document_warnings(report):
+    """A report with its document warnings in sorted order, which changes from run to run (ADR 0203)."""
+    sections = re.split(rb"(?=/\* com\.apple\.actool\.)", report)
+    return b"".join(b"\n".join([section.split(b"\n")[0]] + sorted(section.split(b"\n")[1:])) if b"document.warnings" in section[:50] else section
+                    for section in sections)
 
 
 def compare(actool_out, nomac_out, converted=frozenset(), resized=False):
@@ -403,8 +421,14 @@ def compare(actool_out, nomac_out, converted=frozenset(), resized=False):
         if name in ("deps", "stdout.txt"):
             x = x.replace(str(actool_out).encode(), b"OUT")
             y = y.replace(str(nomac_out).encode(), b"OUT")
+        if name == "stdout.txt":
+            x, y = sorted_document_warnings(x), sorted_document_warnings(y)
         if name == "Assets.car" and x != y:
-            result[name] = compare_icon_car(x, y) if b"iconstack" in x else compare_pixel_car(x, y, converted)
+            if b" FDP" in x:
+                from pdf_experiments import compare_car
+                result[name] = compare_car(x, y, converted)
+            else:
+                result[name] = compare_icon_car(x, y) if b"iconstack" in x else compare_pixel_car(x, y, converted)
             continue
         if name.endswith(".png") and x != y and (converted or resized or b"iconstack" in (actool_out / "Assets.car").read_bytes()):
             result[name] = "equivalent" if png_chunks(x) == png_chunks(y) else "different"
@@ -706,6 +730,126 @@ def exp_appearance_order(root, nomac):
         orders.append([blocks[k].decode() for v, k in sorted(entries, key=lambda e: e[1])])
     report["orders"] = orders
     return [report]
+
+
+def appearance_keys(car):
+    blocks, variables = bom(car)
+    return {blocks[k].decode(): v for v, k in leaf_entries(blocks, dict(variables)["APPEARANCEKEYS"])[2]}
+
+
+def exp_appearance_pairs(root, nomac):
+    """Entries for a luminosity and high contrast together: colors and images."""
+    high = {"appearance": "contrast", "value": "high"}
+    dark = {"appearance": "luminosity", "value": "dark"}
+    light = {"appearance": "luminosity", "value": "light"}
+    colors = {
+        "DarkHigh": [entry(rgb("1.000", "0.000", "0.000")), entry(rgb("0.000", "1.000", "0.000"), appearances=[dark, high])],
+        "LightHigh": [entry(rgb("1.000", "0.000", "0.000")), entry(rgb("0.000", "1.000", "0.000"), appearances=[light, high])],
+        "HighFirst": [entry(rgb("1.000", "0.000", "0.000")), entry(rgb("0.000", "1.000", "0.000"), appearances=[high, dark])],
+        "AllFour": [entry(rgb("1.000", "0.000", "0.000")), entry(rgb("0.000", "1.000", "0.000"), appearances=[dark]),
+                    entry(rgb("0.000", "0.000", "1.000"), appearances=[high]), entry(rgb("0.500", "0.000", "0.000"), appearances=[dark, high])],
+        "Six": [entry(rgb("1.000", "0.000", "0.000")), entry(rgb("0.000", "1.000", "0.000"), appearances=[light]),
+                entry(rgb("0.000", "0.000", "1.000"), appearances=[dark]), entry(rgb("0.500", "0.000", "0.000"), appearances=[high]),
+                entry(rgb("0.000", "0.500", "0.000"), appearances=[light, high]), entry(rgb("0.000", "0.000", "0.500"), appearances=[dark, high])],
+    }
+    reports = []
+    for name, entries in colors.items():
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {name: entries})
+        report = case(root, name, [cat], nomac)
+        report["keys"] = appearance_keys((root / name / "actool" / "Assets.car").read_bytes())
+        reports.append(report)
+    cat = catalog(root / "catalogs" / "Image" / "A.xcassets", {})
+    set_folder = cat / "Icon.imageset"
+    images = []
+    for index, (color, appearances) in enumerate((((255, 0, 0, 255), None), ((0, 255, 0, 255), [dark]), ((0, 0, 255, 255), [dark, high]),
+                                                  ((9, 9, 200, 255), [high]), ((200, 9, 9, 255), [light, high]))):
+        png(set_folder / f"{index}.png", 16, 16, lambda x, y, c=color: c)
+        images.append({"filename": f"{index}.png", "idiom": "universal", "scale": "2x", **({"appearances": appearances} if appearances else {})})
+    write_json(set_folder / "Contents.json", {"images": images, **INFO})
+    report = case(root, "Image", [cat], nomac)
+    report["keys"] = appearance_keys((root / "Image" / "actool" / "Assets.car").read_bytes())
+    reports.append(report)
+    return reports
+
+
+SQUARE_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+              '<rect x="2" y="2" width="12" height="12" fill="#ff0000"/></svg>')
+
+
+def exp_image_traits(root, nomac):
+    """Image set entries with alignment insets, a resizing and a language direction: PNG, SVG, PDF
+    entries; each set alone (a set's rendition and its neighbours in the atlas)."""
+    insets = {"alignment-insets": {"top": 1, "bottom": 2, "left": -6, "right": 6}}
+    def resizing(mode, center="stretch", **caps):
+        return {"resizing": {"mode": mode, "center": {"mode": center, "width": 1, "height": 1}, "cap-insets": caps}}
+    pdf = (b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+           b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 16 16] /Contents 4 0 R >>\nendobj\n"
+           b"4 0 obj\n<< /Length 28 >>\nstream\n1 0 0 rg 2 2 12 12 re f      \nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n")
+    ltr, rtl = {"language-direction": "left-to-right"}, {"language-direction": "right-to-left"}
+    cases = {
+        "png-insets": [("png", {"scale": "2x", **insets})],
+        "png-insets-1x2x": [("png", {"scale": "1x", **insets}), ("png", {"scale": "2x", "alignment-insets": {"top": 2, "bottom": 4, "left": 3, "right": 5}})],
+        "png-big-insets": [("big", {"scale": "1x", **insets})],
+        "svg-insets": [("svg", insets)],
+        "pdf-insets": [("pdf", insets)],
+        "png-9part": [("big", {"scale": "1x", **resizing("9-part", top=20, bottom=30, left=18, right=24)})],
+        "png-9part-2x": [("big", {"scale": "2x", **resizing("9-part", top=20, bottom=30, left=18, right=24)})],
+        "png-9part-tile": [("big", {"scale": "1x", **resizing("9-part", "tile", top=20, bottom=30, left=18, right=24)})],
+        "png-3h": [("big", {"scale": "1x", "resizing": {"mode": "3-part-horizontal", "center": {"mode": "stretch", "width": 1}, "cap-insets": {"left": 18, "right": 24}}})],
+        "png-3h-tile": [("big", {"scale": "1x", "resizing": {"mode": "3-part-horizontal", "center": {"mode": "tile", "width": 1}, "cap-insets": {"left": 18, "right": 24}}})],
+        "png-3v": [("big", {"scale": "1x", "resizing": {"mode": "3-part-vertical", "center": {"mode": "stretch", "height": 1}, "cap-insets": {"top": 18, "bottom": 24}}})],
+        "png-3v-tile": [("big", {"scale": "1x", "resizing": {"mode": "3-part-vertical", "center": {"mode": "tile", "height": 1}, "cap-insets": {"top": 18, "bottom": 24}}})],
+        "png-9part-small": [("png", {"scale": "1x", **resizing("9-part", top=2, bottom=3, left=4, right=5)})],
+        "png-9part-center": [("big", {"scale": "1x", "resizing": {"mode": "9-part", "center": {"mode": "tile", "width": 25, "height": 13}, "cap-insets": {"top": 20, "bottom": 30, "left": 18, "right": 24}}})],
+        "png-9part-whole": [("big", {"scale": "1x", "resizing": {"mode": "9-part", "center": {"mode": "tile", "width": 598, "height": 270}, "cap-insets": {"top": 20, "bottom": 30, "left": 18, "right": 24}}})],
+        "pdf-9part": [("pdf", {"resizing": {"mode": "9-part", "center": {"mode": "tile", "width": 1, "height": 1}, "cap-insets": {"top": 2, "bottom": 3, "left": 4, "right": 5}}})],
+        "svg-9part": [("svg", {"resizing": {"mode": "9-part", "center": {"mode": "tile", "width": 1, "height": 1}, "cap-insets": {"top": 2, "bottom": 3, "left": 4, "right": 5}}})],
+        "png-resize-insets": [("big", {"scale": "1x", **insets, **resizing("9-part", top=20, bottom=30, left=18, right=24)})],
+        "png-ltr": [("png", {"scale": "2x", **ltr})],
+        "png-rtl": [("png", {"scale": "2x", **rtl})],
+        "png-both": [("png", {"scale": "2x", **ltr}), ("png", {"scale": "2x", **rtl})],
+        "png-three": [("png", {"scale": "2x"}), ("png", {"scale": "2x", **ltr}), ("png", {"scale": "2x", **rtl})],
+        "svg-ltr": [("svg", ltr)],
+        "svg-both": [("svg", ltr), ("svg", rtl)],
+        "pdf-ltr": [("pdf", ltr)],
+        "pdf-both": [("pdf", ltr), ("pdf", rtl)],
+    }
+    reports = []
+    for name, entries in cases.items():
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {})
+        folder = cat / "Icon.imageset"
+        images = []
+        for index, (kind, extra) in enumerate(entries):
+            file = folder / f"f{index}.{'png' if kind == 'big' else kind}"
+            if kind == "png":
+                png(file, 16, 16, lambda x, y, i=index: (x * 16, y * 16, i * 80, 255))
+            elif kind == "big":
+                png(file, 640, 320, lambda x, y, i=index: (x % 256, y % 256, i * 80, 255))
+            elif kind == "svg":
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(SQUARE_SVG)
+            else:
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(pdf)
+            images.append({"filename": file.name, "idiom": "universal", **extra})
+        write_json(folder / "Contents.json", {"images": images, **INFO})
+        reports.append(case(root, name, [cat], nomac))
+    cat = catalog(root / "catalogs" / "neighbours" / "A.xcassets", {})
+    for name, extra in (("Plain", {}), ("Plain2", {}), ("Inset", insets), ("Rtl", ltr), ("Rtl2", rtl),
+                        ("Nine", resizing("9-part", top=2, bottom=3, left=4, right=5))):
+        png(cat / f"{name}.imageset" / f"{name}.png", 16, 16, lambda x, y: (x * 16, y * 16, len(name) * 9, 255))
+        write_json(cat / f"{name}.imageset" / "Contents.json", {"images": [{"filename": f"{name}.png", "idiom": "universal", "scale": "2x", **extra}], **INFO})
+    reports.append(case(root, "neighbours", [cat], nomac))
+    for name, build in (("order-gamut", lambda c: write_json(c / "Wide.colorset" / "Contents.json", {"colors": [entry(rgb("1.000", "0.000", "0.000"), **{"display-gamut": "display-P3"})], **INFO})),
+                        ("order-atlases", lambda c: [(png(c / f"N{i}.imageset" / "n.png", 256, 256, lambda x, y, i=i: (x, y, i * 19, 255)),
+                                                      write_json(c / f"N{i}.imageset" / "Contents.json", {"images": [{"filename": "n.png", "idiom": "universal", "scale": "1x"}], **INFO}))
+                                                     for i in range(12)])):
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {})
+        png(cat / "Dir.imageset" / "d.png", 16, 16, lambda x, y: (x * 16, y * 16, 9, 255))
+        write_json(cat / "Dir.imageset" / "Contents.json", {"images": [{"filename": "d.png", "idiom": "universal", "scale": "1x", **ltr}], **INFO})
+        build(cat)
+        reports.append(case(root, name, [cat], nomac))
+    return reports
 
 
 def png(path, width, height, pixel):
@@ -1931,6 +2075,487 @@ def app_icon_pixels(car):
     return None
 
 
+def exp_bad_profiles(root, nomac):
+    """PNGs whose iCCP chunk is damaged, as an image set and as an app icon: which give actool's
+    pixels without the chunk (`same-as-plain`), and what it says about them."""
+    import zlib
+    srgb, p3 = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)], [(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)]
+    curve = para(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
+    profile = icc_profile("Display P3 (nomac)", p3, curve)
+    deflated = zlib.compress(profile)
+
+    def chunk(kind, data, crc=None):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", (zlib.crc32(kind + data) & 0xFFFFFFFF) if crc is None else crc)
+
+    def file(size, before=b"", after=b""):
+        width, height = size
+        rows = b"".join(b"\0" + bytes(c for x in range(width) for c in (x * 255 // width, y * 255 // height, 100, 255)) for y in range(height))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) + before
+                + chunk(b"IDAT", zlib.compress(rows, 9)) + after + chunk(b"IEND", b""))
+
+    def tagged(data):
+        return chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(data))
+
+    def without_tag(data, signature):
+        count = struct.unpack_from(">I", data, 128)[0]
+        table = [data[132 + 12 * i:144 + 12 * i] for i in range(count)]
+        kept = [entry for entry in table if entry[:4] != signature]
+        return data[:128] + struct.pack(">I", len(kept)) + b"".join(kept) + bytes(12 * (count - len(kept))) + data[132 + 12 * count:]
+
+    good = chunk(b"iCCP", b"Display P3\0\0" + deflated)
+    srgb_chunk = chunk(b"iCCP", b"sRGB\0\0" + zlib.compress(icc_profile("sRGB (nomac)", srgb, curve)))
+    cases = {
+        "plain": {},
+        "valid": {"before": good},
+        "no-nul": {"before": chunk(b"iCCP", b"Display P3")},
+        "name-only": {"before": chunk(b"iCCP", b"Display P3\0")},
+        "method-only": {"before": chunk(b"iCCP", b"Display P3\0\0")},
+        "empty-name": {"before": chunk(b"iCCP", b"\0\0" + deflated)},
+        "long-name": {"before": chunk(b"iCCP", b"N" * 90 + b"\0\0" + deflated)},
+        "truncated-zlib": {"before": chunk(b"iCCP", b"Display P3\0\0" + deflated[:len(deflated) // 2])},
+        "garbage-zlib": {"before": chunk(b"iCCP", b"Display P3\0\0" + bytes(range(200)))},
+        "bad-adler": {"before": chunk(b"iCCP", b"Display P3\0\0" + deflated[:-4] + b"\0\0\0\0")},
+        "trailing-bytes": {"before": chunk(b"iCCP", b"Display P3\0\0" + deflated + b"\0\0\0\0\0\0")},
+        "not-a-profile": {"before": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(bytes(range(200))))},
+        "empty-profile": {"before": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(b""))},
+        "short-profile": {"before": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(profile[:200]))},
+        "bad-signature": {"before": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(profile[:36] + b"xxxx" + profile[40:]))},
+        "bad-size-field": {"before": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(struct.pack(">I", 9) + profile[4:]))},
+        "wrong-method": {"before": chunk(b"iCCP", b"Display P3\0\x01" + deflated)},
+        "bad-crc": {"before": chunk(b"iCCP", b"Display P3\0\0" + deflated, crc=1)},
+        "after-idat": {"after": good},
+        "twice": {"before": good + srgb_chunk},
+        "twice-srgb-first": {"before": srgb_chunk + good},
+        "gray-on-rgb": {"before": tagged(icc_profile("Gray (nomac)", None, para(2.2), gray=True))},
+        "consistent-short": {"before": tagged(struct.pack(">I", 200) + profile[4:200])},
+        "no-tags": {"before": tagged(struct.pack(">I", 132) + profile[4:128] + bytes(4))},
+        "cmyk-space": {"before": tagged(profile[:16] + b"CMYK" + profile[20:])},
+        "lab-pcs": {"before": tagged(profile[:20] + b"Lab " + profile[24:])},
+        "version-9": {"before": tagged(profile[:8] + b"\x09\0\0\0" + profile[12:])},
+        "class-link": {"before": tagged(profile[:12] + b"link" + profile[16:])},
+        "no-red-curve": {"before": tagged(without_tag(profile, b"rTRC"))},
+        "no-red-colorant": {"before": tagged(without_tag(profile, b"rXYZ"))},
+        "class-scnr": {"before": tagged(profile[:12] + b"scnr" + profile[16:])},
+        "class-prtr": {"before": tagged(profile[:12] + b"prtr" + profile[16:])},
+        "class-spac": {"before": tagged(profile[:12] + b"spac" + profile[16:])},
+        "class-abst": {"before": tagged(profile[:12] + b"abst" + profile[16:])},
+        "version-2": {"before": tagged(profile[:8] + b"\x02\x10\0\0" + profile[12:])},
+        "version-5": {"before": tagged(profile[:8] + b"\x05\0\0\0" + profile[12:])},
+        "last-damaged": {"before": good + chunk(b"iCCP", b"Display P3\0\0" + deflated[:40])},
+        "first-damaged": {"before": chunk(b"iCCP", b"Display P3\0\0" + deflated[:40]) + good},
+        "version-3": {"before": tagged(profile[:8] + b"\x03\x40\0\0" + profile[12:])},
+        "version-1": {"before": tagged(profile[:8] + b"\x01\0\0\0" + profile[12:])},
+        "srgb-then-profile": {"before": chunk(b"sRGB", b"\0") + good},
+        "profile-then-srgb": {"before": good + chunk(b"sRGB", b"\0")},
+    }
+    def palette_file(before=b"", after_palette=b""):
+        rows = b"".join(b"\0" + bytes((x * 4 + y) % 256 for x in range(64)) for y in range(32))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 32, 8, 3, 0, 0, 0)) + before
+                + chunk(b"PLTE", bytes(c for i in range(256) for c in (i, 255 - i, 100))) + after_palette
+                + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+    def gray_file(before=b""):
+        rows = b"".join(b"\0" + bytes((x * 4 + y) % 256 for x in range(64)) for y in range(32))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 64, 32, 8, 0, 0, 0, 0)) + before
+                + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+    others = {"palette-plain": palette_file(), "palette-before-plte": palette_file(before=good), "palette-after-plte": palette_file(after_palette=good),
+              "gray-plain": gray_file(), "rgb-on-gray": gray_file(good),
+              "gray-on-gray": gray_file(tagged(icc_profile("Gray (nomac)", None, para(1.8), gray=True)))}
+    reports = []
+    bases = {}
+    for name, data in others.items():
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {})
+        (cat / "Photo.imageset").mkdir()
+        (cat / "Photo.imageset" / "photo.png").write_bytes(data)
+        write_json(cat / "Photo.imageset" / "Contents.json", {"images": [{"filename": "photo.png", "idiom": "universal", "scale": "1x"}], **INFO})
+        report = case(root, name, [cat], nomac)
+        out = root / name / "actool"
+        report["actool status"] = (out / "status").read_text()
+        report["messages"] = []
+        report["icon chunks"] = None
+        kind = name.split("-")[0] if name.startswith(("palette", "gray-plain")) else "gray"
+        car = canonical_car((out / "Assets.car").read_bytes())
+        bases.setdefault(kind, car)
+        report["same-as-plain"] = car == bases[kind]
+        report["nomac message"] = ((root / name / "nomac" / "stderr.txt").read_text().strip().splitlines() or [""])[-1].split("error: ")[-1][:80] if nomac else ""
+        reports.append(report)
+    plain = {}
+    for name, parts in cases.items():
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {})
+        (cat / "Photo.imageset").mkdir()
+        (cat / "Photo.imageset" / "photo.png").write_bytes(file((64, 32), **parts))
+        write_json(cat / "Photo.imageset" / "Contents.json", {"images": [{"filename": "photo.png", "idiom": "universal", "scale": "1x"}], **INFO})
+        report = case(root, name, [cat], nomac)
+        out = root / name / "actool"
+        report["actool status"] = (out / "status").read_text()
+        report["messages"] = [line for line in (out / "stdout.txt").read_text().splitlines() if "warning" in line or "error" in line][:2]
+        car = out / "Assets.car"
+        if name == "plain":
+            plain = car.read_bytes()
+        report["same-as-plain"] = canonical_car(car.read_bytes()) == canonical_car(plain) if car.exists() else None
+        if nomac:
+            report["nomac message"] = ((root / name / "nomac" / "stderr.txt").read_text().strip().splitlines() or [""])[-1].split("error: ")[-1][:80]
+        icon = catalog(root / "catalogs" / f"icon-{name}" / "A.xcassets", {})
+        folder = icon / "AppIcon.appiconset"
+        folder.mkdir()
+        (folder / "small.png").write_bytes(file((120, 120), **parts))
+        (folder / "big.png").write_bytes(file((1024, 1024), **parts))
+        write_json(folder / "Contents.json", {"images": [{"filename": "small.png", "idiom": "iphone", "scale": "2x", "size": "60x60"},
+                                                         {"filename": "big.png", "idiom": "ios-marketing", "scale": "1x", "size": "1024x1024"}], **INFO})
+        iphone = [a for i, a in enumerate(ACTOOL_ARGS) if a != "ipad" and not (a == "--target-device" and ACTOOL_ARGS[i + 1] == "ipad")]
+        icon_report = case(root, f"icon-{name}", [icon], nomac, ["--app-icon", "AppIcon"], args=iphone)
+        written = root / f"icon-{name}" / "actool" / "AppIcon60x60@2x.png"
+        report["icon chunks"] = [kind.decode() for kind, _ in png_chunks(written.read_bytes())] if written.exists() else None
+        report["icon compare"] = icon_report.get("compare")
+        reports.append(report)
+    return reports
+
+
+def exp_icon_chunks(root, nomac):
+    """Which of an input's chunks an icon PNG keeps, where and how: each chunk alone, all of them
+    before the image data, and some after it."""
+    import zlib
+    curve = para(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
+    profile = icc_profile("Display P3 (nomac)", [(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)], curve)
+    chroma = struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    known = {
+        "gAMA": chunk(b"gAMA", struct.pack(">I", 45455)), "sRGB": chunk(b"sRGB", b"\0"), "cHRM": chunk(b"cHRM", chroma),
+        "iCCP": chunk(b"iCCP", b"Display P3\0\0" + zlib.compress(profile)), "sBIT": chunk(b"sBIT", b"\x08\x08\x08\x08"),
+        "bKGD": chunk(b"bKGD", struct.pack(">3H", 255, 255, 255)), "hIST": chunk(b"hIST", b""), "oFFs": chunk(b"oFFs", struct.pack(">iiB", 5, 7, 0)),
+        "pCAL": chunk(b"pCAL", b"cal\0" + struct.pack(">iiBB", 0, 255, 0, 2) + b"unit\x000\x001"), "sCAL": chunk(b"sCAL", b"\x011.0\x002.0"),
+        "pHYs": chunk(b"pHYs", struct.pack(">IIB", 2835, 2835, 1)), "sPLT": chunk(b"sPLT", b"pal\0\x08" + bytes((1, 2, 3, 255)) + struct.pack(">H", 9)),
+        "tIME": chunk(b"tIME", struct.pack(">HBBBBB", 2020, 1, 2, 3, 4, 5)), "tEXt": chunk(b"tEXt", b"Software\0nomac"),
+        "zTXt": chunk(b"zTXt", b"Comment\0\0" + zlib.compress(b"compressed comment " * 4)),
+        "iTXt": chunk(b"iTXt", b"Title\0\0\0\0\0international"), "eXIf": chunk(b"eXIf", b"MM\0*\0\0\0\x08\0\0\0\0\0\0"),
+        "caNv": chunk(b"caNv", struct.pack(">IIii", 120, 120, 0, 0)), "vpAg": chunk(b"vpAg", struct.pack(">IIB", 120, 120, 0)),
+        "prVW": chunk(b"prVW", b"preview"), "cICP": chunk(b"cICP", bytes((1, 13, 0, 1))), "mDCV": chunk(b"mDCV", bytes(24)), "cLLI": chunk(b"cLLI", bytes(8)),
+        "UnSf": chunk(b"UnSf", b"unsafe to copy"),
+    }
+
+    def build(before=(), after=()):
+        rows = b"".join(b"\0" + bytes(c for x in range(120) for c in (x * 2, y * 2, 100, 255)) for y in range(120))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 120, 120, 8, 6, 0, 0, 0)) + b"".join(known[k] for k in before)
+                + chunk(b"IDAT", zlib.compress(rows, 9)) + b"".join(known[k] for k in after) + chunk(b"IEND", b""))
+
+    everything = [k for k in known if k not in ("sRGB", "cICP", "UnSf", "hIST")]
+    cases = {f"alone-{k}": {"before": [k]} for k in known}
+    cases.update({f"after-{k}": {"after": [k]} for k in ("tEXt", "zTXt", "iTXt", "tIME", "eXIf", "caNv", "pHYs", "bKGD")})
+    cases.update({
+        "all": {"before": everything},
+        "text-order": {"before": ["iTXt", "zTXt", "tEXt"]},
+        "text-split": {"before": ["tEXt", "zTXt"], "after": ["iTXt"]},
+        "unknown-order": {"before": ["vpAg", "eXIf", "caNv"]},
+        "unknown-after": {"before": ["vpAg"], "after": ["caNv"]},
+        "srgb-profile": {"before": ["sRGB", "iCCP"]},
+        "two-times": {"before": ["tIME", "tIME", "pHYs", "pHYs"]},
+    })
+    def form(color_type, depth, samples, extra=b""):
+        rows = b"".join(b"\0" + bytes(samples(y)) for y in range(120))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 120, 120, depth, color_type, 0, 0, 0)) + extra
+                + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+    def packed(y, depth):
+        values = [(x + y) % (1 << depth) for x in range(120)]
+        out = []
+        for start in range(0, 120, 8 // depth):
+            byte = 0
+            for value in values[start:start + 8 // depth]:
+                byte = byte << depth | value
+            out.append(byte << (8 - depth * len(values[start:start + 8 // depth])))
+        return out
+
+    def interlaced(color_type, depth, sample, channels, extra=b""):
+        passes = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+        raw = bytearray()
+        for ox, oy, dx, dy in passes:
+            for y in range(oy, 120, dy):
+                raw.append(0)
+                for x in range(ox, 120, dx):
+                    value = sample(x, y)
+                    raw.extend(value if channels > 1 else (value,))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 120, 120, depth, color_type, 0, 0, 1)) + extra
+                + chunk(b"IDAT", zlib.compress(bytes(raw), 9)) + chunk(b"IEND", b""))
+
+    def bad_crc(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", 1)
+
+    palette = chunk(b"PLTE", bytes(c for i in range(256) for c in (i, 255 - i, 100)))
+    known["badText"] = bad_crc(b"tEXt", b"Software\0nomac")
+    known["badGamma"] = bad_crc(b"gAMA", struct.pack(">I", 45455))
+    known["badPhys"] = bad_crc(b"pHYs", struct.pack(">IIB", 2835, 2835, 1))
+    known["badCaNv"] = bad_crc(b"caNv", struct.pack(">IIii", 120, 120, 0, 0))
+    known["srgb1"] = chunk(b"sRGB", b"\x01")
+    known["gamma1"] = chunk(b"gAMA", struct.pack(">I", 100000))
+    known["chrmOther"] = chunk(b"cHRM", struct.pack(">8I", 31270, 32900, 68000, 32000, 26500, 69000, 15000, 6000))
+    cases.update({"srgb-intent-1": {"before": ["srgb1"]}, "srgb-gamma-other": {"before": ["gamma1", "sRGB"]}, "gamma-other-srgb-after": {"before": ["sRGB", "gamma1"]},
+                  "srgb-chrm-other": {"before": ["chrmOther", "sRGB"]}, "profile-then-srgb": {"before": ["iCCP", "sRGB"]},
+                  "crc-text": {"before": ["badText"]}, "crc-gamma": {"before": ["badGamma"]}, "crc-phys": {"before": ["badPhys"]}, "crc-unknown": {"before": ["badCaNv"]}})
+    forms = {
+        "form-palette-8": form(3, 8, lambda y: [(x + y) % 256 for x in range(120)], palette),
+        "form-palette-4": form(3, 4, lambda y: packed(y, 4), palette),
+        "form-palette-1": form(3, 1, lambda y: packed(y, 1), palette),
+        "form-palette-trns": form(3, 8, lambda y: [(x + y) % 256 for x in range(120)], palette + chunk(b"tRNS", bytes(range(0, 256, 2)))),
+        "form-palette-profile": form(3, 8, lambda y: [(x + y) % 256 for x in range(120)], known["iCCP"] + palette),
+        "form-profile-after-plte": form(3, 8, lambda y: [(x + y) % 256 for x in range(120)], palette + known["iCCP"]),
+        "form-palette-chunks": form(3, 8, lambda y: [(x + y) % 256 for x in range(120)], known["gAMA"] + palette + chunk(b"tRNS", bytes(range(0, 256, 2))) + known["bKGD"].replace(b"", b"") ),
+        "form-palette-interlaced": form(3, 8, lambda y: [], palette) if False else interlaced(3, 8, lambda x, y: (x + y) % 256, 1, palette),
+        "form-gray-interlaced": interlaced(0, 8, lambda x, y: (x + y) % 256, 1),
+        "form-rgba-interlaced": interlaced(6, 8, lambda x, y: (x * 2, y * 2, 100, 255), 4),
+        "form-rgb-trns": form(2, 8, lambda y: [c for x in range(120) for c in (x * 2, y * 2, 100)], chunk(b"tRNS", struct.pack(">3H", 0, 0, 100))),
+        "form-gray-trns": form(0, 8, lambda y: [(x + y) % 256 for x in range(120)], chunk(b"tRNS", struct.pack(">H", 7))),
+        "form-gray-1": form(0, 1, lambda y: packed(y, 1)),
+        "form-gray-4": form(0, 4, lambda y: packed(y, 4)),
+        "form-rgb-16": form(2, 16, lambda y: [c for x in range(120) for c in (x * 2, 3, y * 2, 3, 100, 3)]),
+        "form-rgba-16": form(6, 16, lambda y: [c for x in range(120) for c in (x * 2, 3, y * 2, 3, 100, 3, 255, 255)]),
+        "form-gray-16": form(0, 16, lambda y: [c for x in range(120) for c in ((x + y) % 256, 9)]),
+        "form-gray-alpha-16": form(4, 16, lambda y: [c for x in range(120) for c in ((x + y) % 256, 9, 255, 255)]),
+    }
+    cases.update({name: {"file": data} for name, data in forms.items()})
+    reports = []
+    for name, parts in cases.items():
+        icon = catalog(root / "catalogs" / name / "A.xcassets", {})
+        folder = icon / "AppIcon.appiconset"
+        folder.mkdir()
+        (folder / "small.png").write_bytes(parts["file"] if "file" in parts else build(**parts))
+        png(folder / "big.png", 1024, 1024, lambda x, y: (x % 256, y % 256, 100, 255))
+        write_json(folder / "Contents.json", {"images": [{"filename": "small.png", "idiom": "iphone", "scale": "2x", "size": "60x60"},
+                                                         {"filename": "big.png", "idiom": "ios-marketing", "scale": "1x", "size": "1024x1024"}], **INFO})
+        iphone = [a for i, a in enumerate(ACTOOL_ARGS) if a != "ipad" and not (a == "--target-device" and ACTOOL_ARGS[i + 1] == "ipad")]
+        report = case(root, name, [icon], nomac, ["--app-icon", "AppIcon"], args=iphone)
+        written = root / name / "actool" / "AppIcon60x60@2x.png"
+        report["chunks"] = [kind.decode() for kind, _ in png_chunks(written.read_bytes())] if written.exists() else None
+        report["same-header"] = written.exists() and written.read_bytes()[8:50].hex()
+        report["listed"] = "AppIcon60x60@2x.png" in (root / name / "actool" / "stdout.txt").read_text()
+        reports.append(report)
+    return reports
+
+
+def partial_icon_set(root, entries, side_of=None, stray=False):
+    """An app icon set of `entries` (idiom, size, scale), each a distinct gradient of its pixels."""
+    cat = catalog(root, {})
+    folder = cat / "AppIcon.appiconset"
+    images = []
+    for n, (idiom, size, scale) in enumerate(entries):
+        side = round(float(size.split("x")[0]) * int(scale[0]))
+        side = side_of.get((idiom, size, scale), side) if side_of else side
+        name = f"{idiom}-{size}@{scale}.png"
+        png_form(folder / name, side, side, 8, 6, lambda x, y, n=n: ((x + n) % 256, (x * 7 + y) % 256, (y * 5 + n) % 256, 255))
+        images.append({"filename": name, "idiom": idiom, "scale": scale, "size": size})
+    write_json(folder / "Contents.json", {"images": images, **INFO})
+    if stray:
+        png_form(folder / "stray.png", 8, 8, 8, 6, lambda x, y: (1, 2, 3, 255))
+    return cat
+
+
+def exp_incomplete_icons(root, nomac):
+    """Multi-size app icon sets with what actool's warnings ask for left out, one thing at a time,
+    for iPhone and iPad, iPhone only and iPad only."""
+    phone = [("iphone", size, scale) for size, scale in ICON_SIZES["iphone"]]
+    pad = [("ipad", size, scale) for size, scale in ICON_SIZES["ipad"]]
+    store = [("ios-marketing", "1024x1024", "1x")]
+    full = phone + pad + store
+
+    def without(*names):
+        return [e for e in full if e not in names]
+
+    p60, p60x3, p76, p83, s1024 = ("iphone", "60x60", "2x"), ("iphone", "60x60", "3x"), ("ipad", "76x76", "2x"), ("ipad", "83.5x83.5", "2x"), store[0]
+    both = ["iphone", "ipad"]
+    cases = {
+        "full": (full, both),
+        "no-store": (without(s1024), both),
+        "no-60": (without(p60), both),
+        "no-60-3x": (without(p60x3), both),
+        "no-60-both": (without(p60, p60x3), both),
+        "no-76": (without(p76), both),
+        "no-83": (without(p83), both),
+        "no-76-83": (without(p76, p83), both),
+        "no-83-store": (without(p83, s1024), both),
+        "no-76-83-store": (without(p76, p83, s1024), both),
+        "no-60-83-store": (without(p60, p83, s1024), both),
+        "phone-only": (phone + store, both),
+        "phone-only-no-store": (phone, both),
+        "pad-only": (pad + store, both),
+        "pad-only-no-store": (pad, both),
+        "only-store": (store, both),
+        "one-small": ([("iphone", "29x29", "2x")], both),
+        "target-phone-no-store": (without(s1024), ["iphone"]),
+        "target-phone-no-60": (without(p60), ["iphone"]),
+        "target-phone-no-pad": (phone + store, ["iphone"]),
+        "target-phone-only-pad": (pad + store, ["iphone"]),
+        "target-pad-no-store": (without(s1024), ["ipad"]),
+        "target-pad-no-76": (without(p76), ["ipad"]),
+        "target-pad-no-83": (without(p83), ["ipad"]),
+        "target-pad-only-phone": (phone + store, ["ipad"]),
+    }
+    reports = []
+    for name, (entries, devices) in cases.items():
+        cat = partial_icon_set(root / "catalogs" / name / "A.xcassets", entries)
+        args = [a for i, a in enumerate(ACTOOL_ARGS) if a != "--target-device" and ACTOOL_ARGS[i - 1] != "--target-device"]
+        args = args + [v for d in devices for v in ("--target-device", d)]
+        report = case(root, name, [cat], nomac, ["--app-icon", "AppIcon"], args=args)
+        report["messages"] = [re.sub(r"^.*?(warning|notice|error): ", r"\1: ", line) for line in (root / name / "actool" / "stdout.txt").read_text().splitlines()
+                              if "warning:" in line or "error:" in line]
+        report["pngs"] = sorted(p.name for p in (root / name / "actool").glob("*.png"))
+        reports.append(report)
+    return reports
+
+
+def exp_icon_entries(root, nomac):
+    """App icon set entries outside Xcode's slots, one at a time beside a complete set: other
+    idioms, sizes and scales, keys icon generators add, images of the wrong size or kind, stray
+    files, missing files."""
+    phone = [("iphone", size, scale) for size, scale in ICON_SIZES["iphone"]]
+    pad = [("ipad", size, scale) for size, scale in ICON_SIZES["ipad"]]
+    full = phone + pad + [("ios-marketing", "1024x1024", "1x")]
+    extras = {
+        "car-60-2x": ("car", "60x60", "2x"), "car-60-3x": ("car", "60x60", "3x"), "car-120": ("car", "120x120", "1x"),
+        "phone-40-1x": ("iphone", "40x40", "1x"), "phone-60-1x": ("iphone", "60x60", "1x"), "phone-20-1x": ("iphone", "20x20", "1x"),
+        "phone-1024": ("iphone", "1024x1024", "1x"), "pad-83-1x": ("ipad", "83.5x83.5", "1x"), "pad-60-2x": ("ipad", "60x60", "2x"),
+        "pad-1024": ("ipad", "1024x1024", "1x"), "phone-76-2x": ("iphone", "76x76", "2x"), "store-512": ("ios-marketing", "512x512", "2x"),
+        "tv": ("tv", "400x240", "1x"), "vision": ("vision", "1024x1024", "1x"), "mac-16": ("mac", "16x16", "1x"),
+        "universal-60": ("universal", "60x60", "2x"), "universal-1024-beside": ("universal", "1024x1024", "1x"),
+        "watch-beside": ("watch", "24x24", "2x"),
+    }
+    reports = []
+
+    def run(name, cat, args=ACTOOL_ARGS):
+        report = case(root, name, [cat], nomac, ["--app-icon", "AppIcon"], args=args)
+        report["messages"] = [re.sub(r"^.*?(warning|notice|error): ", r"\1: ", line) for line in (root / name / "actool" / "stdout.txt").read_text().splitlines()
+                              if "warning:" in line or "error:" in line]
+        report["status"] = (root / name / "actool" / "status").read_text()
+        report["nomac message"] = ((root / name / "nomac" / "stderr.txt").read_text().strip().splitlines() or [""])[-1].split("error: ")[-1][:90] if nomac else ""
+        reports.append(report)
+
+    for name, extra in extras.items():
+        run(name, partial_icon_set(root / "catalogs" / name / "A.xcassets", full + [extra]))
+    generator = partial_icon_set(root / "catalogs" / "generator-keys" / "A.xcassets", full)
+    contents = generator / "AppIcon.appiconset" / "Contents.json"
+    data = json.loads(contents.read_text())
+    for image in data["images"]:
+        image.update({"expected-size": "180", "folder": "Assets.xcassets/AppIcon.appiconset/"})
+    write_json(contents, data)
+    run("generator-keys", generator)
+    for name, key in (("properties-prerendered", {"properties": {"pre-rendered": True}}), ("properties-other", {"properties": {"nomac": 1}})):
+        cat = partial_icon_set(root / "catalogs" / name / "A.xcassets", full)
+        contents = cat / "AppIcon.appiconset" / "Contents.json"
+        write_json(contents, {**json.loads(contents.read_text()), **key})
+        run(name, cat)
+    p60 = ("iphone", "60x60", "2x")
+    for name, sides in (("wrong-size-60", {p60: 100}), ("wrong-size-store", {("ios-marketing", "1024x1024", "1x"): 512}), ("wrong-size-29", {("iphone", "29x29", "2x"): 30})):
+        run(name, partial_icon_set(root / "catalogs" / name / "A.xcassets", full, side_of=sides))
+    run("stray-file", partial_icon_set(root / "catalogs" / "stray-file" / "A.xcassets", full, stray=True))
+    cat = partial_icon_set(root / "catalogs" / "missing-file" / "A.xcassets", full)
+    (cat / "AppIcon.appiconset" / "iphone-60x60@2x.png").unlink()
+    run("missing-file", cat)
+    cat = partial_icon_set(root / "catalogs" / "jpeg-named-png" / "A.xcassets", full)
+    (cat / "AppIcon.appiconset" / "iphone-29x29@2x.png").write_bytes(b"\xff\xd8" + jpeg_file(58, 58))
+    run("jpeg-named-png", cat)
+    for name, slot in (("jpg-60", "iphone-60x60@2x"), ("jpg-76", "ipad-76x76@2x"), ("jpg-store", "ios-marketing-1024x1024@1x")):
+        cat = partial_icon_set(root / "catalogs" / name / "A.xcassets", full)
+        folder = cat / "AppIcon.appiconset"
+        side = {"jpg-60": 120, "jpg-76": 152, "jpg-store": 1024}[name]
+        (folder / f"{slot}.png").unlink()
+        (folder / "icon.jpg").write_bytes(b"\xff\xd8" + jpeg_file(side, side))
+        data = json.loads((folder / "Contents.json").read_text())
+        for image in data["images"]:
+            if image["filename"] == f"{slot}.png":
+                image["filename"] = "icon.jpg"
+        write_json(folder / "Contents.json", data)
+        run(name, cat)
+    cat = partial_icon_set(root / "catalogs" / "not-an-image" / "A.xcassets", full)
+    (cat / "AppIcon.appiconset" / "iphone-29x29@2x.png").write_bytes(b"not an image")
+    run("not-an-image", cat)
+    cat = partial_icon_set(root / "catalogs" / "jpg-file" / "A.xcassets", full)
+    folder = cat / "AppIcon.appiconset"
+    (folder / "iphone-29x29@2x.png").unlink()
+    (folder / "icon.jpg").write_bytes(b"\xff\xd8" + jpeg_file(58, 58))
+    data = json.loads((folder / "Contents.json").read_text())
+    for image in data["images"]:
+        if image["filename"] == "iphone-29x29@2x.png":
+            image["filename"] = "icon.jpg"
+    write_json(folder / "Contents.json", data)
+    run("jpg-file", cat)
+    return reports
+
+
+LAUNCH_SLOTS = [
+    ("iphone", "full-screen", "portrait", "7.0", None, "2x", 640, 960), ("iphone", "full-screen", "portrait", "7.0", "retina4", "2x", 640, 1136),
+    ("iphone", "full-screen", "portrait", "8.0", "667h", "2x", 750, 1334), ("iphone", "full-screen", "portrait", "8.0", "736h", "3x", 1242, 2208),
+    ("iphone", "full-screen", "landscape", "8.0", "736h", "3x", 2208, 1242), ("iphone", "full-screen", "portrait", "11.0", "2436h", "3x", 1125, 2436),
+    ("iphone", "full-screen", "landscape", "11.0", "2436h", "3x", 2436, 1125), ("iphone", "full-screen", "portrait", "12.0", "2688h", "3x", 1242, 2688),
+    ("iphone", "full-screen", "landscape", "12.0", "2688h", "3x", 2688, 1242), ("iphone", "full-screen", "portrait", "12.0", "1792h", "2x", 828, 1792),
+    ("iphone", "full-screen", "landscape", "12.0", "1792h", "2x", 1792, 828), ("iphone", "full-screen", "portrait", None, None, "1x", 320, 480),
+    ("iphone", "full-screen", "portrait", None, None, "2x", 640, 960), ("iphone", "full-screen", "portrait", None, "retina4", "2x", 640, 1136),
+    ("ipad", "full-screen", "portrait", "7.0", None, "1x", 768, 1024), ("ipad", "full-screen", "landscape", "7.0", None, "1x", 1024, 768),
+    ("ipad", "full-screen", "portrait", "7.0", None, "2x", 1536, 2048), ("ipad", "full-screen", "landscape", "7.0", None, "2x", 2048, 1536),
+    ("ipad", "to-status-bar", "portrait", None, None, "1x", 768, 1004), ("ipad", "to-status-bar", "landscape", None, None, "1x", 1024, 748),
+    ("ipad", "to-status-bar", "portrait", None, None, "2x", 1536, 2008), ("ipad", "to-status-bar", "landscape", None, None, "2x", 2048, 1496),
+    ("ipad", "full-screen", "portrait", None, None, "1x", 768, 1024), ("ipad", "full-screen", "landscape", None, None, "1x", 1024, 768),
+    ("ipad", "full-screen", "portrait", None, None, "2x", 1536, 2048), ("ipad", "full-screen", "landscape", None, None, "2x", 2048, 1536),
+    ("tv", "full-screen", "landscape", "11.0", None, "2x", 3840, 2160), ("tv", "full-screen", "landscape", "9.0", None, "1x", 1920, 1080),
+]
+
+
+def launch_catalog(root, entries, sizes=True):
+    cat = catalog(root, {})
+    folder = cat / "LaunchImage.launchimage"
+    images = []
+    for n, (idiom, extent, orientation, version, subtype, scale, width, height) in enumerate(entries):
+        name = f"launch{n}.png"
+        png(folder / name, width, height, lambda x, y, n=n: (n * 9 % 256, x % 256, y % 256, 255))
+        image = {"idiom": idiom, "extent": extent, "orientation": orientation, "scale": scale, "filename": name}
+        if version:
+            image["minimum-system-version"] = version
+        if subtype:
+            image["subtype"] = subtype
+        images.append(image)
+    write_json(folder / "Contents.json", {"images": images, **INFO})
+    return cat
+
+
+def exp_launch_images(root, nomac):
+    """Launch image sets with files: each of Xcode's slots alone with `--launch-image`, all of them,
+    and without the option; wrong sizes, missing files and entries without an extent."""
+    reports = []
+
+    def run(name, cat, extra=("--launch-image", "LaunchImage"), args=ACTOOL_ARGS):
+        report = case(root, name, [cat], nomac, list(extra), args=args)
+        out = root / name / "actool"
+        report["status"] = (out / "status").read_text()
+        report["messages"] = [re.sub(r"^.*?(warning|notice|error): ", r"\1: ", line)[:150] for line in (out / "stdout.txt").read_text().splitlines()
+                              if ": warning" in line or ": error" in line or ": notice" in line]
+        report["pngs"] = sorted(p.name for p in out.glob("*.png"))
+        reports.append(report)
+
+    for index, slot in enumerate(LAUNCH_SLOTS):
+        run(f"slot-{index}", launch_catalog(root / "catalogs" / f"slot-{index}" / "A.xcassets", [slot]))
+    run("all", launch_catalog(root / "catalogs" / "all" / "A.xcassets", LAUNCH_SLOTS))
+    run("not-named", launch_catalog(root / "catalogs" / "not-named" / "A.xcassets", LAUNCH_SLOTS), extra=())
+    run("other-name", launch_catalog(root / "catalogs" / "other-name" / "A.xcassets", LAUNCH_SLOTS[:2]), extra=("--launch-image", "Nope"))
+    iphone = [a for i, a in enumerate(ACTOOL_ARGS) if a != "ipad" and not (a == "--target-device" and ACTOOL_ARGS[i + 1] == "ipad")]
+    run("target-iphone", launch_catalog(root / "catalogs" / "target-iphone" / "A.xcassets", LAUNCH_SLOTS), args=iphone)
+    wrong = list(LAUNCH_SLOTS[1])
+    wrong[6] = 100
+    run("wrong-size", launch_catalog(root / "catalogs" / "wrong-size" / "A.xcassets", [tuple(wrong), LAUNCH_SLOTS[2]]))
+    cat = launch_catalog(root / "catalogs" / "missing-file" / "A.xcassets", LAUNCH_SLOTS[:2])
+    (cat / "LaunchImage.launchimage" / "launch0.png").unlink()
+    run("missing-file", cat)
+    for name, images in (("no-extent", [{"idiom": "universal", "scale": "1x"}, {"idiom": "universal", "scale": "2x"}]),
+                         ("no-extent-file", [{"idiom": "universal", "scale": "1x", "filename": "a.png"}])):
+        for option, extra in (("named", ("--launch-image", "LaunchImage")), ("free", ())):
+            cat = catalog(root / "catalogs" / f"{name}-{option}" / "A.xcassets", {})
+            folder = cat / "LaunchImage.launchimage"
+            png(folder / "a.png", 64, 64, lambda x, y: (x, y, 9, 255))
+            write_json(folder / "Contents.json", {"images": images, **INFO})
+            run(f"{name}-{option}", cat, extra=extra)
+    return reports
+
+
 def exp_profiles(root, nomac):
     srgb_curve = para(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
     srgb, p3, adobe = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)], [(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)], [(0.64, 0.33), (0.21, 0.71), (0.15, 0.06)]
@@ -2640,6 +3265,13 @@ EXPERIMENTS = {
     "heic": exp_heic,
     "complications": exp_complications,
     "image-appearances": exp_image_appearances,
+    "appearance-pairs": exp_appearance_pairs,
+    "image-traits": exp_image_traits,
+    "bad-profiles": exp_bad_profiles,
+    "incomplete-icons": exp_incomplete_icons,
+    "launch-images": exp_launch_images,
+    "icon-entries": exp_icon_entries,
+    "icon-chunks": exp_icon_chunks,
     "symbol-extensions": exp_symbol_extensions,
 }
 
