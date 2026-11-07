@@ -545,6 +545,16 @@
    "verdict": "project",
    "class": "source does not compile against the iOS 27.0 SDK",
    "xcode": "fails on the same line under Xcode 27.0"
+  },
+  "Sigil-Wen/Dream-with-Vision-Pro": {
+   "verdict": "project",
+   "class": "needs a file the repository leaves out",
+   "xcode": "not run: the file is missing on any machine; also a visionOS-only app, which nomac does not build (realitytool, B-066)"
+  },
+  "sobri909/ArcMini": {
+   "verdict": "project",
+   "class": "a pinned package does not compile with Xcode 27.0",
+   "xcode": "fails the same way under Xcode 27.0 (strcmp in GRDB); nomac alone also refuses a system color, B-203, so it would stop there next"
   }
  }
 }
