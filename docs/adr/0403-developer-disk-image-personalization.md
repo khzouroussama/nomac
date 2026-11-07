@@ -48,7 +48,8 @@ image (`PersonalizedDMG`) with a loadable trust cache, mounted through lockdownd
 - A device can be prepared for launching from Linux after a restart, with one request to Apple
   per image and nonce; offline, only a device that stores a ticket can mount.
 - The request's host tags are the ones public descriptions give for Xcode's library
-  (`@HostPlatformInfo` `mac`, `@VersionInfo`); Apple's server signs with them from Linux too.
+  (`@HostPlatformInfo` `mac`, `@VersionInfo`), which Apple's server signed; that signing has not been
+  run over the plain HTTP route from Linux yet.
 - If a future iOS refuses the personalized disk image route, launching needs B-403b. A board the
   image's manifest does not list has only the cryptex image (pymobiledevice3's troubleshooting guide):
   such a device cannot mount with nomac yet, and says so.

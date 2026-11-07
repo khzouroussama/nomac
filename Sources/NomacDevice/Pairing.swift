@@ -70,7 +70,8 @@ public enum Pairing {
     /// to `timeout` seconds for the Trust dialog's answer and for the device to be unlocked, asking
     /// every second as pymobiledevice3 does. Between attempts it looks for a record first: on Linux
     /// usbmuxd pairs as soon as the user taps Trust (`preflight.c`), and pairing again would only
-    /// replace that. The device may be unplugged and plugged in meanwhile, under a new device ID.
+    /// replace that. The device may be unplugged and plugged in meanwhile, under a new device ID;
+    /// usbmuxd exits with the last device and starts again with the next.
     public static func pair(usbmux: USBMuxClient, udid: String, timeout: TimeInterval = 120, at date: () -> Date = Date.init, wait: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }, progress: (String) -> Void) throws -> Outcome {
         let device = try usbmux.device(udid: udid)
         if try sessionStarts(usbmux: usbmux, udid: device.serialNumber) { return .alreadyPaired }
@@ -99,7 +100,7 @@ public enum Pairing {
             do {
                 current = try usbmux.device(udid: device.serialNumber)
                 answer = try LockdownClient(stream: try usbmux.connect(deviceID: current.deviceID, port: Lockdown.port)).pair(record: sent)
-            } catch let error as NomacError where error.message.hasPrefix("usbmuxd sees no device") || error.message.hasPrefix("usbmuxd refused Connect") || error.message.hasPrefix("connection closed") {
+            } catch let error as NomacError where ["usbmuxd sees no device", "usbmuxd refused Connect", "connection closed", "cannot connect to"].contains(where: error.message.hasPrefix) {
                 say("waiting for the device to come back: plug it in and unlock it")
                 continue
             }

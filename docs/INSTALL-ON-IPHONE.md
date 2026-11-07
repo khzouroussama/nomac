@@ -7,11 +7,12 @@ afc.md, remotexpc.md) and ADRs 0400 and 0404.
 **What has been checked and what has not.** An iPhone on iOS 27.0.1 by USB installed and launched
 nomac's builds with nomac in a Linux container, through a forward of a Mac's usbmuxd and that
 Mac's pairing (B-407). **No iPhone has been tested on a real Linux machine's USB yet.** The parts
-only a first run from Linux uses, `nomac device pair`, `nomac device developer-mode` and mounting
-the Developer Disk Image on a phone Xcode never prepared, have run against libimobiledevice's
-usbmuxd and a scripted device (`.github/scripts/first_run_experiments.py`), never against an
-iPhone. The certificate request and the identity file are checked against OpenSSL and against the
-identity that installed on that iPhone.
+only a first run from Linux uses have never met an iPhone: `nomac device pair` and `nomac device
+developer-mode` ran against libimobiledevice's usbmuxd and a scripted device
+(`.github/scripts/first_run_experiments.py`), with nomac on a Mac and usbmuxd's messages also on
+Linux, and mounting the Developer Disk Image on a phone Xcode never prepared has only been compared
+with public sources and recorded frames. The certificate request and the identity file are checked
+against OpenSSL and against the identity that installed on that iPhone.
 
 You need nomac and your Xcode's SDK installed first (docs/INSTALL.md): install 7-Zip and xz before
 `nomac sdk install` so that it also extracts the Developer Disk Image (step 5).
@@ -23,7 +24,7 @@ You need nomac and your Xcode's SDK installed first (docs/INSTALL.md): install 7
 | developer.apple.com's Certificates, Identifiers & Profiles | No: Apple gives it with enrollment | Yes |
 | On your own iPhone | Only by signing in inside Xcode or a tool that signs in for you: 3 devices, 10 App IDs and profiles that expire after 7 days, 3 apps per device | Yes, with a profile valid for a year |
 | **With nomac today** | **No.** The certificate and the profile come from Apple's services after a sign-in, and nomac does not sign in to Apple for you | **Yes, this page** |
-| TestFlight and the App Store | No | Yes (`nomac upload`) |
+| TestFlight and the App Store | No | Not yet with nomac alone: `nomac upload` sends an IPA, but `nomac export` signs only development builds so far (B-460) |
 
 The limits are Apple's own (developer.apple.com/support/compare-memberships). So this page needs
 a paid membership. nomac never asks for your Apple ID's password: you do the steps at
@@ -136,13 +137,13 @@ The app's bundle identifier must fall under the profile's App ID: add
 `PRODUCT_BUNDLE_IDENTIFIER=<identifier>` to the command if it does not.
 
 `nomac run` checks the device first, archives the scheme as `nomac archive` does, signs it with
-the identity and the profile, checks the app as `nomac device check` does (signature, profile,
-device, profile expiry, entitlements), installs it and launches it.
+the identity and the profile, checks the app as `nomac device check` does (that it has a profile, the
+profile's expiry, App ID and device, the entitlements), installs it and launches it.
 
 The steps also run one by one:
 
 ```sh
-nomac archive ... -archivePath App.xcarchive          # same arguments as above
+nomac archive ... -archivePath App.xcarchive          # step 6's arguments, without --device
 nomac device check App.xcarchive/Products/Applications/App.app --device <UDID>
 nomac install App.xcarchive/Products/Applications/App.app --device <UDID>   # or an .ipa
 nomac launch <bundle identifier> --device <UDID>
@@ -187,7 +188,8 @@ Every message below says the next step too.
 - The iPhone says Untrusted Developer when you open the app: on the iPhone, Settings > General >
   VPN & Device Management, select your certificate and trust it.
 - The app starts and closes at once: an app built with the iOS 27 SDK needs the scene lifecycle
-  (`UIApplicationSceneManifest`, TN3187); `nomac archive`, `nomac install` and `nomac device check` warn when it is missing.
+  (`UIApplicationSceneManifest`, TN3187); `nomac archive`, `nomac device check` and `nomac install` of a
+  `.app` warn when it is missing.
 
 ## By hand, with OpenSSL
 
@@ -205,6 +207,18 @@ openssl x509 -inform der -in AppleIncRootCertificate.cer -out root.pem
 cat development.key development.pem wwdr.pem root.pem > identity.pem
 chmod 600 identity.pem
 ```
+
+## From a container on Linux
+
+The container of docs/INSTALL.md has no USB, so usbmuxd must run on the host. Install it there as in
+step 1 and give the container the host's `/run`, since usbmuxd's socket comes and goes with the device:
+
+```sh
+docker run -it -v ~/Downloads:/xip -v /run:/host-run ubuntu:24.04
+export USBMUXD_SOCKET_ADDRESS=UNIX:/host-run/usbmuxd     # inside the container
+```
+
+This has not been run with a device.
 
 ## From a container on a Mac
 

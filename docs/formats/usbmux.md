@@ -30,8 +30,8 @@ and the request's tag (observed).
 - `ListDevices`: the reply is `{DeviceList: [...]}`, one dictionary per device with
   `DeviceID` (an integer for later requests), `MessageType` `Attached` and `Properties`:
   `ConnectionType` (`USB` or `Network`), `SerialNumber` (the UDID) and further keys (location,
-  product and speed). Observed with no device attached: `{DeviceList: []}`. The properties of
-  an attached iPhone are to be observed (B-400).
+  product and speed). Observed with no device attached: `{DeviceList: []}`; nomac reads
+  `DeviceID`, `SerialNumber` and `ConnectionType`, which an attached iPhone gave through macOS's.
 - `ReadBUID`: `{BUID: <string>}`, the host's system BUID, from both.
 - `SavePairRecord` with `PairRecordID`, `PairRecordData` (an XML or binary property list; libusbmuxd
   sends binary, nomac XML) and `DeviceID`: libimobiledevice's usbmuxd writes

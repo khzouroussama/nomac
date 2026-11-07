@@ -352,7 +352,7 @@ import Testing
     static let socket = StreamSocket.Address.unix("/var/run/usbmuxd")
 
     func host(linux: Bool = true, exists: Bool = false, writable: Bool = true, daemon: String? = nil, apple: [String] = []) -> USBMuxHost {
-        USBMuxHost(isLinux: linux, exists: { _ in exists }, isWritable: { _ in writable }, daemon: { daemon }, appleDevices: { apple })
+        USBMuxHost(isLinux: linux, isContainer: { false }, exists: { _ in exists }, isWritable: { _ in writable }, daemon: { daemon }, appleDevices: { apple })
     }
 
     @Test func notInstalledNamesEachDistributionsPackage() {
@@ -378,6 +378,13 @@ import Testing
     @Test func aSocketThisUserMayNotWriteSaysSo() {
         let notes = USBMuxHost.unreachableNotes(address: Self.socket, host: host(exists: true, writable: false, daemon: "/usr/sbin/usbmuxd"))
         #expect(notes[0].hasPrefix("this user may not write to /var/run/usbmuxd"))
+    }
+
+    /// docs/INSTALL.md's container on another Linux: installing usbmuxd there would not help.
+    @Test func aContainerSaysTheHostOwnsUSB() {
+        var inContainer = host(daemon: "/usr/sbin/usbmuxd")
+        inContainer.isContainer = { true }
+        #expect(USBMuxHost.unreachableNotes(address: Self.socket, host: inContainer)[0].hasPrefix("this is a container, which has no USB"))
     }
 
     @Test func aForwardAndAMacSayTheirOwn() {

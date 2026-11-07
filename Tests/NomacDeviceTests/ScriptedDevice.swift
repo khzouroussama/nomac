@@ -27,7 +27,7 @@ final class ScriptedDevice {
     var sessionError: String?
     var developerModeError: String?
 
-    var host = USBMuxHost(isLinux: true, exists: { _ in true }, isWritable: { _ in true }, daemon: { "/usr/sbin/usbmuxd" }, appleDevices: { [] })
+    var host = USBMuxHost(isLinux: true, isContainer: { false }, exists: { _ in true }, isWritable: { _ in true }, daemon: { "/usr/sbin/usbmuxd" }, appleDevices: { [] })
 
     var client: USBMuxClient {
         USBMuxClient(address: .unix("/var/run/usbmuxd"), host: host) { Connection(device: self) }

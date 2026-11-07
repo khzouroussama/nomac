@@ -6,6 +6,10 @@ The image that gives a device its developer services (the CoreDevice app service
 in `Sources/NomacDevice/Personalization.swift`, `DeveloperDiskImage.swift` and
 `MobileImageMounter.swift`.
 
+`ReceiveBytes` and `MountImage` below come from the public sources and recorded frames: neither has run
+on a device yet (B-403). What was observed on the iPhone is the identifiers, the nonce, the stored
+manifest's query and the TSS reply.
+
 ## Where it comes from
 
 Xcode ships it in `Contents/Resources/Packages/XcodeSystemResources.pkg`, whose payload holds

@@ -6,6 +6,8 @@ import NomacCore
 /// distribution releases, with no device (`first_run_experiments.py`, docs/formats/usbmux.md "On Linux").
 public struct USBMuxHost: Sendable {
     public var isLinux: Bool
+    /// Inside a container, where USB and the host's usbmuxd are out of reach.
+    public var isContainer: @Sendable () -> Bool
     public var exists: @Sendable (String) -> Bool
     public var isWritable: @Sendable (String) -> Bool
     /// The usbmuxd executable, when installed.
@@ -19,7 +21,7 @@ public struct USBMuxHost: Sendable {
         #else
         let isLinux = false
         #endif
-        return USBMuxHost(isLinux: isLinux, exists: { FileSystem.exists($0) }, isWritable: { access($0, W_OK) == 0 }, daemon: { locateDaemon() },
+        return USBMuxHost(isLinux: isLinux, isContainer: { FileSystem.exists("/.dockerenv") || FileSystem.exists("/run/.containerenv") }, exists: { FileSystem.exists($0) }, isWritable: { access($0, W_OK) == 0 }, daemon: { locateDaemon() },
                           appleDevices: { appleDevices(sysfs: "/sys/bus/usb/devices") })
     }
 
@@ -57,6 +59,9 @@ public struct USBMuxHost: Sendable {
             return ["nothing answers at USBMUXD_SOCKET_ADDRESS: start the forward of the Mac's usbmuxd (docs/formats/usbmux.md)"]
         }
         guard host.isLinux else { return ["usbmuxd does not answer at \(path)"] }
+        if host.isContainer(), !host.exists(path) {
+            return ["this is a container, which has no USB: run usbmuxd on the host and mount its /run here, then set USBMUXD_SOCKET_ADDRESS=UNIX:<that folder>/usbmuxd (docs/INSTALL-ON-IPHONE.md)"]
+        }
         guard host.exists(path) else {
             guard let daemon = host.daemon() else { return installNotes }
             return [
