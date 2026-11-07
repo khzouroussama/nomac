@@ -141,6 +141,16 @@ The main group and its descendants. Children that are the product reference of a
 in the project are removed (they appear inside their targets instead). `children` is omitted
 when a group has no remaining children (retro-rampage's `Products` and `Frameworks` groups).
 
+A file reference that a build phase's file or a base configuration names and no group holds goes last in the
+main group, in a group of its own, as Xcode 27.0 lists it (`orphan_reference_experiments.py`, 17 cases; Expo's
+config plugins write them for the targets they add, 6 in bluesky): `name` "Recovered References", `path` "",
+`sourceTree` `<group>`, so that a `<group>` path is relative to the project's folder. Its children follow the
+build phases' order, not the names or object IDs, and then the base configurations'. An unused reference is
+not listed, nor is a product reference, which is represented in its target. The group's GUID differs from run
+to run of the same project in Xcode; nomac's is the project's GUID and the MD5 of the name. The order across
+several targets has not been observed: nomac takes the targets in order. A variant group no group holds has
+not been observed either, and stays Swift Build's error.
+
 | Element | Keys |
 |---|---|
 | group (`PBXGroup`) | `guid`, `name`, `path`, `sourceTree`, `type: "group"`, `children` |

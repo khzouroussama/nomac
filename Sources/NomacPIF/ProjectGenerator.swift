@@ -56,6 +56,9 @@ struct ProjectGenerator {
         if fileTypes == nil { fileTypes = try FileTypeRegistry.installed() }
         if let mainGroup = root.mainGroup {
             referencePaths = Self.referencePaths(mainGroup: mainGroup, projectDirectory: project.projectDirectory)
+            for reference in recoveredReferences(mainGroup) {
+                referencePaths[reference.uuid] = Self.directory(of: reference, parentDirectory: project.projectDirectory, projectDirectory: project.projectDirectory)
+            }
         }
         try prepareSynchronizedRoots()
         legacyBuildFolder = readLegacyBuildFolder()
@@ -150,7 +153,44 @@ struct ProjectGenerator {
         guard let mainGroup else {
             throw NomacError("the project has no main group", path: project.path)
         }
-        return try reference(mainGroup, isRoot: true)
+        let tree = try reference(mainGroup, isRoot: true)
+        let recovered = recoveredReferences(mainGroup)
+        guard !recovered.isEmpty, var contents = tree.objectValue else { return tree }
+        contents["children"] = .array((contents["children"]?.arrayValue ?? []) + [.object([
+            "children": .array(try recovered.map { try reference($0) }),
+            "guid": .string(projectGUID + MD5.hex(Self.recoveredGroupName)),
+            "name": .string(Self.recoveredGroupName),
+            "path": .string(""),
+            "sourceTree": .string("<group>"),
+            "type": .string("group"),
+        ])])
+        return .object(contents)
+    }
+
+    /// The group Xcode makes for file references that a build phase or a base configuration names and no
+    /// group holds, as Expo's config plugins write them (`orphan_reference_experiments.py`, docs/formats/pif.md
+    /// "Group tree"). Its GUID changes from run to run of the same project in Xcode.
+    static let recoveredGroupName = "Recovered References"
+
+    /// Those file references, the build phases' in their order and then the base configurations'. Product
+    /// references, which are represented inside their targets, are not among them (`orphan-product`).
+    func recoveredReferences(_ mainGroup: PBXGroup) -> [PBXFileReference] {
+        var held = Set<String>()
+        func walk(_ element: PBXFileElement) {
+            held.insert(element.uuid)
+            if let group = element as? PBXGroup { group.children.forEach(walk) }
+        }
+        walk(mainGroup)
+        let root = project.project
+        let targets = root.targets
+        let named: [PBXFileElement?] = targets.flatMap { $0.buildPhases.flatMap { ($0.files ?? []).map(\.file) } }
+            + (targets.map(\.buildConfigurationList) + [root.buildConfigurationList]).flatMap { $0?.buildConfigurations ?? [] }.map(\.baseConfiguration)
+        var recovered: [PBXFileReference] = []
+        for case let reference as PBXFileReference in named.compactMap({ $0 })
+        where !productReferenceIDs.contains(reference.uuid) && held.insert(reference.uuid).inserted {
+            recovered.append(reference)
+        }
+        return recovered
     }
 
     /// `folder` is a path the element's own is listed under.
