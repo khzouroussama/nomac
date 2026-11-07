@@ -664,15 +664,16 @@ from `Shared` this way). Paths are relative to the folder; a variant group is na
 
 | File type | Phase |
 |---|---|
-| `sourcecode.*` except those below, plus `.intentdefinition`, `.mlmodel`, `.mlpackage`, `.docc`, `.xcdatamodeld` | Sources (`.applescript` in netnewswire's tests) |
+| `sourcecode.*` except those below, plus `.intentdefinition`, `.mlmodel`, `.mlpackage`, `.docc`, `.xcdatamodeld`, `.archivingdescription` | Sources (`.applescript` in netnewswire's tests) |
 | `sourcecode.c.h`, `sourcecode.cpp.h`, `text.apinotes` | Headers, only if the target has that phase (netnewswire's app drops its `.h` files) |
-| frameworks, `.xcframework`, `.dylib`, `.a`, `.tbd`, Mach-O object files (by their header, with or without `.o`) | Frameworks |
-| `text.plist.entitlements`, `sourcecode.module-map`, `sourcecode.rez`, `sourcecode.typescript`, `file.playground`, `archive.jar` | none |
-| anything else, variant groups and `sourcecode.javascript` and Markdown included | Resources (`.js`, `.md`, `.xcconfig`, `.xcprivacy`, images, …) |
+| frameworks, `.xcframework`, `.dylib`, `.a`, `.tbd`, `.jar`, `.ear`, `.war`, Mach-O object files (by their header, with or without `.o`) | Frameworks, only if the target has that phase |
+| `text.plist.entitlements`, `sourcecode.module-map`, `sourcecode.rez`, `sourcecode.typescript`, `file.playground` | none |
+| anything else, variant groups and `sourcecode.javascript`, `sourcecode.glsl` and Markdown included | Resources (`.js`, `.md`, `.vsh`, `.xcconfig`, `.xcprivacy`, images, …) |
 
 (loader-experiments `synchronized-phases`, -2: one member of each of 113 extensions and 12
-folder types, in a target with and without a Headers phase; `pif-experiments`
-untyped-folders-2 for `.jar`.)
+folder types, in a target with and without a Headers phase; `synchronized-phases-all`: one of each
+of the 256 extensions Xcode's specifications name, in a target with all four phases; `pif-experiments`
+untyped-folders-2: `.jar` in a target without a Frameworks phase.)
 
 A target that lists the folder takes its members in walk order, except the missing paths named
 in subfolders, which come after all the others, a level at a time (loader-experiments

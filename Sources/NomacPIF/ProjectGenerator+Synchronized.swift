@@ -216,18 +216,18 @@ extension ProjectGenerator {
     /// the `.o` extension, too (`pif-experiments` untyped-frameworks, untyped-macho).
     static let frameworkFileTypes = [
         "wrapper.framework", "wrapper.xcframework", "compiled.mach-o.dylib", "compiled.mach-o.objfile", "archive.ar",
-        "sourcecode.text-based-dylib-definition",
+        "sourcecode.text-based-dylib-definition", "archive.jar", "archive.ear", "archive.war",
     ]
-    /// Types no phase receives (`synchronized-phases`; `pif-experiments` untyped-folders-2: `X.jar`).
+    /// Types no phase receives (`synchronized-phases`).
     static let unbuiltFileTypes: Set<String> = [
-        "text.plist.entitlements", "sourcecode.module-map", "sourcecode.rez", "sourcecode.typescript", "file.playground", "archive.jar",
+        "text.plist.entitlements", "sourcecode.module-map", "sourcecode.rez", "sourcecode.typescript", "file.playground",
     ]
     /// Source code types that Xcode copies as resources (observed: `.js` in netnewswire, `.md`
-    /// in `synchronized-phases`).
-    static let nonCompiledSourceFileTypes = ["sourcecode.javascript", "net.daringfireball.markdown"]
+    /// in `synchronized-phases`, the shader types in `synchronized-phases-all`).
+    static let nonCompiledSourceFileTypes = ["sourcecode.javascript", "net.daringfireball.markdown", "sourcecode.glsl"]
     /// Types outside the `sourcecode` family that Xcode compiles in the Sources phase.
     static let additionalSourceFileTypes: Set<String> = [
-        "file.intentdefinition", "file.mlmodel", "folder.mlpackage", "folder.documentationcatalog",
+        "file.intentdefinition", "file.mlmodel", "folder.mlpackage", "folder.documentationcatalog", "text.xml.ibArchivingDescription",
     ]
 
     /// The kind of synchronized members a build phase receives.

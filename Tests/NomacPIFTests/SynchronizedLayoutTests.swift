@@ -11,6 +11,7 @@ import NomacTestSupport
     \t\tS00000000000000000000001 = {isa = PBXFileSystemSynchronizedRootGroup; path = Src; sourceTree = "<group>"; };
     \t\tH00000000000000000000005 = {isa = PBXHeadersBuildPhase; files = (); };
     \t\tH00000000000000000000006 = {isa = PBXResourcesBuildPhase; files = (); };
+    \t\tH00000000000000000000007 = {isa = PBXFrameworksBuildPhase; files = (); };
 
     """
 
@@ -123,6 +124,19 @@ import NomacTestSupport
         let phases = try Self.phases(try Self.document(files, phases: ["H00000000000000000000005", "F00000000000000000000004", "H00000000000000000000006"]))
         #expect(phases == ["headers": ["t.h", "t.apinotes"], "sources": ["App.swift", "a.swift"], "resources": ["t.md"]])
         #expect(try Self.phases(try Self.document(files))["resources"] == ["t.md"])
+    }
+
+    /// loader-experiments `synchronized-phases-all`: the types the 256 extensions of Xcode's
+    /// specifications showed nomac had in the wrong phase. A target with Headers, Sources,
+    /// Frameworks and Resources phases, as the test above without Frameworks.
+    @Test func shadersArchivesAndArchivingDescriptionsJoinTheirPhases() throws {
+        let shaders = ["vsh", "fsh", "gsh", "vert", "frag", "geom", "ctrl", "eval", "vertex", "fragment", "geometry", "vs", "fs", "gs"]
+        var files = ["Src/t.jar": "x\n", "Src/t.ear": "x\n", "Src/t.war": "x\n", "Src/t.archivingdescription": "x\n"]
+        for shader in shaders { files["Src/t.\(shader)"] = "x\n" }
+        let phases = try Self.phases(try Self.document(files, phases: ["H00000000000000000000005", "F00000000000000000000004", "H00000000000000000000006", "H00000000000000000000007"]))
+        #expect(Set(phases["frameworks"] ?? []) == ["t.jar", "t.ear", "t.war"])
+        #expect(Set(phases["resources"] ?? []) == Set(shaders.map { "t.\($0)" }))
+        #expect(phases["sources"]?.contains("t.archivingdescription") == true)
     }
 
     @Test func coreDataModelFoldersAreVersionGroups() throws {
