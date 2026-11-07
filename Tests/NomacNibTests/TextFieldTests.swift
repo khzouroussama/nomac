@@ -24,6 +24,14 @@ import Testing
                                           + #"returnKeyType="next" enablesReturnKeyAutomatically="YES" secureTextEntry="YES" smartDashesType="no" "#
                                           + #"smartInsertDeleteType="no" smartQuotesType="no" textContentType="username""#),
          2142, "fe346b5bd4abbabe901e533ca4c81c6552de90f4985f093360aab95fe141080c"),
+        ("tf-unpinned-order", field(traits: #" autocapitalizationType="words" autocorrectionType="no" spellCheckingType="no" keyboardType="URL" keyboardAppearance="alert" "#
+                                            + #"returnKeyType="done" enablesReturnKeyAutomatically="YES" smartDashesType="no" smartInsertDeleteType="no" smartQuotesType="no" textContentType="url""#),
+         2111, "2e9ba4ae174f7a165e0b711843be56bb10d603778e304e40bfe9977a5ab64adc"),
+        ("tf-unpinned-order-secure", field(traits: #" autocapitalizationType="words" spellCheckingType="yes" keyboardType="URL" keyboardAppearance="dark" returnKeyType="send" "#
+                                                   + #"enablesReturnKeyAutomatically="YES" secureTextEntry="YES" smartQuotesType="yes" textContentType="new-password""#),
+         2114, "7ad41742d9abf04ce58562939cb0579a2e49c5b9597f27f7224d02510be55920"),
+        ("tf-unpinned-decimal", field(traits: #" keyboardType="decimalPad""#), 1845, "5a2eb20b35fe53ae1b90a3b4827edb9c688c64f3b540b69004aa44099fcd6694"),
+        ("tf-unpinned-disabled", field(#" enabled="NO""#), 1840, "5e7beaa8874e03e6b74819360bb03c1826044a030506187d88ec502f21285d82"),
         ("tf-secure", field(traits: #" secureTextEntry="YES""#), 1901, "9b2aa94db10b4f8d7023c905c4996472acac3cef6b5484a09143b631515fd834"),
         ("tf-autocap-sentences", field(traits: #" autocapitalizationType="sentences""#), 1855, "1091ac2dfbfc3b2a68abda1e4f36402f0ee2398d0001818fdaaa37943ce5afb7"),
         ("tf-adjusts-NO", field(#" adjustsFontSizeToFit="NO""#), 1802, "0d9a1f96c22cbfe0e1caef00d8487d4d1c24594ba57be1186e03d3717da646c5"),

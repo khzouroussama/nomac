@@ -68,6 +68,12 @@ Causes in this workstream's families (sums of a family's messages; a project can
 
 ## Just finished
 
+- Second survey batch: text fields' traits by every value (`tf-trait-*`), disabled text fields and their
+  tints, cells' view attributes (`cell-attr-*`, `cell-mode-*`), `propertyAccessControl` and `<animations/>`
+  ignored below the document. `tag="0"` on any view wrote `UITag` 0, a wrong nib, where Xcode writes
+  nothing; fixed. Corpus 456 identical and 14 equivalent (from 448 and 11), 0 different; 713 of 1,065
+  documents compile (from 692).
+
 - First survey batch: variant groups' localizations resolved as the build does, `nib:document=missing`,
   colors under B-281, unmatched `calibratedRGB`, system colors with components. Colors' routes found
   (docs/formats/nib.md); corpus 448 identical and 11 equivalent (from 446), 0 different, 692 of 1,065

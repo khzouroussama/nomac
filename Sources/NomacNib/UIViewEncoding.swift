@@ -250,7 +250,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         encoder.encode(.boolean(true), forKey: "UIDeepDrawRect")
         if flags.opaque { encoder.encode(.boolean(true), forKey: "UIOpaque") }
         if flags.hidden { encoder.encode(.boolean(true), forKey: "UIHidden") }
-        if let tag = flags.tag { encoder.encode(.integer(tag), forKey: "UITag") }
+        if let tag = flags.tag, tag != 0 { encoder.encode(.integer(tag), forKey: "UITag") }
         if flags.userInteractionDisabled { encoder.encode(.boolean(true), forKey: "UIUserInteractionDisabled") }
         if flags.multipleTouchEnabled { encoder.encode(.boolean(true), forKey: "UIMultipleTouchEnabled") }
         if flags.autoresizesSubviews { encoder.encode(.boolean(true), forKey: "UIAutoresizeSubviews") }

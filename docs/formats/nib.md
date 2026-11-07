@@ -66,6 +66,8 @@ Only inputs whose every element, attribute, value and option the experiments obs
   `--target-device` iphone, ipad, or both, the same nibs (`devices-*`). `--module` as above.
 - **Header.** `<document>` attributes `type`, `version` 3.0, `toolsVersion` (any: three values
   give the same nib), `systemVersion` (any: two), `targetRuntime`, `propertyAccessControl` none,
+  (below the document, on any element, `propertyAccessControl` changes nothing, nor does IB's empty
+  `<animations/>` anywhere: `*-access-*`, `*-animations`),
   `useAutolayout` YES, `useTraitCollections` YES or absent, `useSafeAreas` YES, `launchScreen`
   YES, `colorMatched` YES or absent (it changes colors: "UIColor"), `customObjectInstantitationMethod`
   direct (no change: `header-instantiation-direct`, `sb-instantiation-direct`). `<designables>`,
@@ -197,7 +199,7 @@ write `true` and `false`).
 | `UIDeepDrawRect` | true |
 | `UIOpaque` | true unless `opaque="NO"` |
 | `UIHidden` | true for `hidden="YES"` |
-| `UITag` | the tag |
+| `UITag` | the tag; 0 writes nothing (`view-tag-0`, `label-tag-0`) |
 | `UIUserInteractionDisabled` | true for `userInteractionEnabled="NO"` |
 | `UIMultipleTouchEnabled` | true for `multipleTouchEnabled="YES"` |
 | `UIAutoresizeSubviews` | true unless `autoresizesSubviews="NO"` |
@@ -717,7 +719,10 @@ the document's, one object with an equal title or restoration identifier (`sb-cv
 ## Table view cells
 
 A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClassSwapper` with
-`UIOriginalClassName` `UITableViewCell` for a custom class): a view's keys (no
+`UIOriginalClassName` `UITableViewCell` for a custom class): a view's keys, among them `tag` (0 writes
+nothing), `userInteractionEnabled`, `hidden`, `alpha`, `insetsLayoutMarginsFromSafeArea` and `contentMode`
+as on any view (`cell-attr-*`, `cell-mode-*`), and `focusStyle="custom"` as `UIFocusStyle` 1 after the
+separator inset (`cell-attr-combination`) (no
 `UIOpaque` for `opaque="NO"`: `cell-opaque-*`; no `UIAutoresizingMask` for an empty mask;
 `UIClearsContextBeforeDrawing` false for the cell's or its content view's
 `clearsContextBeforeDrawing="NO"`: `cell-clears-*`, `cell-content-clears-no`;
@@ -782,14 +787,20 @@ folder both `NSLocalizableString`s keyed `<id>.placeholder` and `<id>.text`), `U
 `UIAdjustsFontSizeToFit` true unless `adjustsFontSizeToFit="NO"`, `UIMinimumFontSize` (float, required),
 `UIClearButtonMode` (whileEditing 1, unlessEditing 2, always 3; never writes none: `tf-clear-*`),
 `UIClearButtonOffset` (data 07, doubles 3, 1), its input traits in this order: `UIAutocapitalizationType`
-(words 1, sentences 2), `UIAutocorrectionType` (no 1), `UISpellCheckingType` (no 1), `UIKeyboardType`
-(alphabet 1, numbersAndPunctuation 2, URL 3, numberPad 4, emailAddress 7), `UIReturnKeyType` (go 1, next
-4, search 6, done 9), `UIEnablesReturnKeyAutomatically` true, `UISecureTextEntry` true (which also writes
-`UIAutocorrectionType` 1 when not given), `UITextContentType` (the string: username, password, email),
-`UITextSmartInsertDeleteType`, `UITextSmartQuotesType` and `UITextSmartDashesType` (no 1), and for secure
-entry `UITextInlinePredictionType` 1 (`tf-traits-every`, `tf-secure`, `tf-return-*`, `tf-keyboard-*`,
-`tf-content-*`), then `UIDisableTextColorUpdateOnTraitCollectionChange` true, and for a rounded border
+(words 1, sentences 2, allCharacters 3), `UIAutocorrectionType` and `UISpellCheckingType` (no 1, yes 2),
+`UIKeyboardAppearance` (alert and dark 1, light 2), `UIKeyboardType` (alphabet 1, numbersAndPunctuation 2,
+URL 3, numberPad 4, phonePad 5, namePhonePad 6, emailAddress 7, decimalPad 8, twitter 9, webSearch 10),
+`UIReturnKeyType` (go 1, google 2, join 3, next 4, route 5, search 6, send 7, yahoo 8, done 9, emergencyCall
+10, continue 11), `UIEnablesReturnKeyAutomatically` true, `UISecureTextEntry` true (which also writes
+`UIAutocorrectionType` 1 when not given), `UITextContentType` (the string as written),
+`UITextSmartInsertDeleteType`, `UITextSmartQuotesType` and `UITextSmartDashesType` (no 1, yes 2), and for
+secure entry `UITextInlinePredictionType` 1; each trait's default writes nothing, as does the keyboard
+`asciiCapableNumberPad` (`tf-trait-*`: every value of the coverage survey's documents and UIKit's,
+`tf-traits-order*`, `tf-secure`), then `UIDisableTextColorUpdateOnTraitCollectionChange` true, and for a rounded border
 `UIRoundedRectBackgroundCornerRadius` 0 (double).
+
+A disabled text field writes `UIDisabled` true first (`tf-enabled-no`); a `tintColor` is a view's (`tf-tint`).
+Its `background` and `disabledBackground` images are refused (B-260).
 
 A `<switch>` (`sw-*`) is a `UISwitch`: a view's keys (its default hugging priority 750 writes
 none), `UISwitchEnabled` true, `UISwitchOn` true for `on="YES"`, `UISwitchOnTintColor` and

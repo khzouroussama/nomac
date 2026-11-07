@@ -45,6 +45,9 @@ enum XIBReader {
 
         func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?,
                     attributes: [String: String] = [:]) {
+            var attributes = attributes
+            // Below the document, `propertyAccessControl` changes nothing (`cell-attr-access-*`, `view-access-*`).
+            if !stack.isEmpty { attributes["propertyAccessControl"] = nil }
             let element = XIBElement(name: elementName, attributes: attributes)
             if let parent = stack.last {
                 parent.children.append(element)
@@ -60,6 +63,10 @@ enum XIBReader {
 
         func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
             stack.removeLast()
+            // IB's empty `<animations/>` changes nothing, wherever it is (`*-animations`, `sb-animations-view`).
+            if elementName == "animations", let parent = stack.last, parent.children.last?.children.isEmpty == true {
+                parent.children.removeLast()
+            }
         }
     }
 }

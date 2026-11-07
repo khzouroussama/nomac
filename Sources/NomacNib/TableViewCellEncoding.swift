@@ -22,6 +22,7 @@ struct CellContent {
     var indentationWidth: Float
     /// `separatorInset`'s top, left, bottom and right (`cell-separator-inset-*`).
     var separatorInset: [Double]?
+    var focusStyleCustom = false
     var backgroundColorSet: Bool
     let contentView: NibView
     var textLabel: NibView?
@@ -38,6 +39,7 @@ struct CellContent {
         encoder.encode(.float(indentationWidth), forKey: "UIIndentationWidth")
         if backgroundColorSet { encoder.encode(.boolean(true), forKey: "UITableCellBackgroundColorSet") }
         if let separatorInset { encoder.encode(.data(NibView.doubles(separatorInset)), forKey: "UISeparatorInset") }
+        if focusStyleCustom { encoder.encode(.integer(1), forKey: "UIFocusStyle") }
         try encoder.encode(systemBackgroundView, forKey: "UISystemBackgroundView")
         encoder.encode(.null, forKey: "UIContentConfigurationView")
         try encoder.encode(contentView, forKey: "UIContentView")
@@ -99,13 +101,13 @@ extension DocumentCompiler {
     /// the separator view IB adds, 8 points in from the left along the cell's bottom (`cell-*`).
     mutating func tableViewCell(_ element: XIBElement) throws -> NibView {
         try check(element, attributes: ["id", "contentMode", "selectionStyle", "indentationWidth", "indentationLevel", "reuseIdentifier", "rowHeight",
+                                        "hidden", "tag", "userInteractionEnabled", "alpha", "insetsLayoutMarginsFromSafeArea", "focusStyle",
                                         "accessoryType", "editingAccessoryType", "showsReorderControl", "style", "textLabel", "detailTextLabel", "clipsSubviews", "preservesSuperviewLayoutMargins", "restorationIdentifier", "opaque", "hidesAccessoryWhenEditing",
                                         "clearsContextBeforeDrawing", "layoutMarginsFollowReadableWidth",
                                         "customClass", "customModule", "customModuleProvider", "userLabel"],
                   children: ["rect", "autoresizingMask", "tableViewCellContentView", "viewLayoutGuide", "point", "connections", "color",
                              "edgeInsets", "directionalEdgeInsets", "inset", "constraints", "userDefinedRuntimeAttributes",
                              "accessibility"])
-        try value(element, "contentMode", in: ["scaleToFill"])
         let selectionStyles = ["none": 0, "blue": 1, "gray": 2, "default": 3]
         guard let selectionStyle = selectionStyles[element.attributes["selectionStyle"] ?? "default"] else {
             throw unsupported("selectionStyle=\"\(element.attributes["selectionStyle"] ?? "")\"")
@@ -148,6 +150,15 @@ extension DocumentCompiler {
         var flags = NibView.Flags()
         flags.clipsToBounds = try bool(element, "clipsSubviews", default: false)
         flags.opaque = try bool(element, "opaque", default: true)
+        flags.hidden = try bool(element, "hidden", default: false)
+        flags.tag = try element.attributes["tag"].map { try integer($0, "tag") }
+        flags.userInteractionDisabled = !(try bool(element, "userInteractionEnabled", default: true))
+        flags.alpha = try element.attributes["alpha"].flatMap { text in
+            guard let alpha = Float(text) else { throw unsupported("alpha=\"\(text)\"") }
+            return alpha == 1 ? nil : alpha
+        }
+        flags.contentMode = try mapped(element.attributes["contentMode"] ?? "scaleToFill", NibView.contentModes, "contentMode")
+        flags.insetsLayoutMarginsFromSafeArea = try bool(element, "insetsLayoutMarginsFromSafeArea", default: true)
         flags.clearsContextBeforeDrawing = try bool(element, "clearsContextBeforeDrawing", default: true)
         flags.layoutMarginsFollowReadableWidth = try bool(element, "layoutMarginsFollowReadableWidth", default: false)
         flags.contentStretch = try contentStretch(element)
@@ -198,6 +209,8 @@ extension DocumentCompiler {
                                       indentationWidth: Float(try number(element.attributes["indentationWidth"] ?? "10", "indentationWidth")),
                                       backgroundColorSet: backgroundColorSet, contentView: contentView)
         cellContent.separatorInset = separatorInset
+        cellContent.focusStyleCustom = element.attributes["focusStyle"] == "custom"
+        try value(element, "focusStyle", in: ["custom", "default"])
         try cellStyle(element, contentView: contentView, into: &cellContent)
         cell.kind = .cell(cellContent)
         for guide in element.children(named: "viewLayoutGuide") {

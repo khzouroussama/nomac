@@ -157,5 +157,29 @@ import Testing
         #expect(nib.count == 1744)
         #expect(VariationTests.digest(nib) == "6c24b63de3b8997b658600000a4f27e367d4b8b351351712c3b46266546d6cd1")
     }
+
+    /// `cell-attr-*`, `cell-mode-*`: a cell's view attributes, as Xcode 27.0 writes them.
+    @Test(arguments: [
+        ("cell-attr-combination", Self.cellXIB(#" tag="7" userInteractionEnabled="NO" hidden="YES" alpha="0.5" insetsLayoutMarginsFromSafeArea="NO" focusStyle="custom""#,
+                                               cellExtra: #"<color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>"# + "\n"
+                                                   + #"<inset key="separatorInset" minX="15" minY="0.0" maxX="0.0" maxY="0.0"/>"# + "\n"),
+         1772, "73d92afeced6bfee4ec97d48869d39e09fa40ef91f2a1c43454cdc7549048573"),
+        ("cell-attr-plain", Self.cellXIB(""), 1404, "2202b4055e54fde73015034c15a0171e76508710208c5809cb0478c0666b33e0"),
+    ])
+    func compilesACellsViewAttributesAsXcode(name: String, xib: String, size: Int, digest: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(nib.count == size, "\(name)")
+        #expect(VariationTests.digest(nib) == digest, "\(name)")
+    }
+
+    /// `cell-attr-tag-0`, `cell-attr-access-*`, `cell-animations`, `cell-content-animations`: what changes nothing.
+    @Test(arguments: [
+        Self.cellXIB(#" tag="0""#), Self.cellXIB(#" propertyAccessControl="all""#), Self.cellXIB(#" propertyAccessControl="localizable""#),
+        Self.cellXIB("", cellExtra: "<animations/>\n"), Self.cellXIB("", content: "<animations/>\n"),
+    ])
+    func ignoresWhatChangesNothing(xib: String) throws {
+        let nib = try XIBCompiler.compile(Data(xib.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(VariationTests.digest(nib) == "2202b4055e54fde73015034c15a0171e76508710208c5809cb0478c0666b33e0")
+    }
 }
 

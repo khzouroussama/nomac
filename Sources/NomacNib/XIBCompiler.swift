@@ -734,7 +734,7 @@ struct DocumentCompiler {
             view.label = label
         }
         if element.name == "textField" || element.name == "switch" {
-            let colors = element.name == "switch" ? ["backgroundColor", "onTintColor", "thumbTintColor"] : ["backgroundColor", "textColor"]
+            let colors = element.name == "switch" ? ["backgroundColor", "onTintColor", "thumbTintColor"] : ["backgroundColor", "textColor", "tintColor"]
             guard element.children(named: "color").allSatisfy({ colors.contains($0.attributes["key"] ?? "") }) else {
                 throw unsupported("colors of a \(element.name) other than its background")
             }

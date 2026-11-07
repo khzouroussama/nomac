@@ -9,23 +9,32 @@ struct TextFieldContent {
     static let borderStyles = ["none": 0, "line": 1, "roundedRect": 3]
     /// `UITextField.ViewMode` of the clear button, by the names documents use (`tf-clear-*`).
     static let clearButtonModes = ["never": 0, "whileEditing": 1, "unlessEditing": 2, "always": 3]
-    /// The `<textInputTraits>` observed, as their `UITextInputTraits` values, in the order ibtool
-    /// writes them, the content type after secure entry (`tf-traits-*`, `tf-keyboard-*`,
-    /// `tf-enables-return-key*`, `tf-return-*`, `tf-secure`, `tf-autocap-sentences`).
-    static let traits: [(attribute: String, key: String, values: [String: NibValue])] = [
-        ("autocapitalizationType", "UIAutocapitalizationType", ["words": .integer(1), "sentences": .integer(2)]),
-        ("autocorrectionType", "UIAutocorrectionType", ["no": .integer(1)]),
-        ("spellCheckingType", "UISpellCheckingType", ["no": .integer(1)]),
-        ("keyboardType", "UIKeyboardType", ["alphabet": .integer(1), "numbersAndPunctuation": .integer(2), "URL": .integer(3), "numberPad": .integer(4),
-                                            "emailAddress": .integer(7)]),
-        ("returnKeyType", "UIReturnKeyType", ["go": .integer(1), "next": .integer(4), "search": .integer(6), "done": .integer(9)]),
-        ("enablesReturnKeyAutomatically", "UIEnablesReturnKeyAutomatically", ["YES": .boolean(true)]),
-        ("secureTextEntry", "UISecureTextEntry", ["YES": .boolean(true)]),
+    /// The `<textInputTraits>`, as their `UITextInputTraits` values, in the order ibtool writes them,
+    /// the content type after secure entry; a value of nil writes nothing, as the default does
+    /// (`tf-trait-*`, every value of the survey's documents and UIKit's; `tf-traits-order*`).
+    static let traits: [(attribute: String, key: String, values: [String: NibValue?])] = [
+        ("autocapitalizationType", "UIAutocapitalizationType", ["none": nil, "words": .integer(1), "sentences": .integer(2), "allCharacters": .integer(3)]),
+        ("autocorrectionType", "UIAutocorrectionType", ["default": nil, "no": .integer(1), "yes": .integer(2)]),
+        ("spellCheckingType", "UISpellCheckingType", ["default": nil, "no": .integer(1), "yes": .integer(2)]),
+        ("keyboardAppearance", "UIKeyboardAppearance", ["default": nil, "alert": .integer(1), "dark": .integer(1), "light": .integer(2)]),
+        ("keyboardType", "UIKeyboardType", ["default": nil, "alphabet": .integer(1), "numbersAndPunctuation": .integer(2), "URL": .integer(3), "numberPad": .integer(4),
+                                            "phonePad": .integer(5), "namePhonePad": .integer(6), "emailAddress": .integer(7), "decimalPad": .integer(8),
+                                            "twitter": .integer(9), "webSearch": .integer(10), "asciiCapableNumberPad": nil]),
+        ("returnKeyType", "UIReturnKeyType", ["default": nil, "go": .integer(1), "google": .integer(2), "join": .integer(3), "next": .integer(4), "route": .integer(5),
+                                              "search": .integer(6), "send": .integer(7), "yahoo": .integer(8), "done": .integer(9), "emergencyCall": .integer(10),
+                                              "continue": .integer(11)]),
+        ("enablesReturnKeyAutomatically", "UIEnablesReturnKeyAutomatically", ["NO": nil, "YES": .boolean(true)]),
+        ("secureTextEntry", "UISecureTextEntry", ["NO": nil, "YES": .boolean(true)]),
     ]
     static let smartTraits = [("smartInsertDeleteType", "UITextSmartInsertDeleteType"), ("smartQuotesType", "UITextSmartQuotesType"),
                               ("smartDashesType", "UITextSmartDashesType")]
-    /// The content types observed (`tf-content-*`, `tf-traits-all`).
-    static let contentTypes: Set = ["username", "password", "email"]
+    static let smartTraitValues: [String: Int?] = ["default": nil, "no": 1, "yes": 2]
+    /// The content types observed, written as the document spells them (`tf-trait-textContentType-*`).
+    static let contentTypes: Set = ["password", "username", "email", "name", "one-time-code", "url", "tel", "new-password", "address-level2", "address-line1",
+                                    "address-line2", "address-level1", "postal-code", "cc-number", "location", "nickname", "given-name", "family-name",
+                                    "honorific-prefix", "additional-name", "honorific-suffix", "organization-title", "organization", "street-address",
+                                    "sublocality", "country-name", "tel-national", "tracking-number", "flight-number"]
+    var enabled = true
     var contentVerticalAlignment = 0
     var contentHorizontalAlignment: Int
     var adjustsFontForContentSizeCategory: Bool
@@ -41,11 +50,12 @@ struct TextFieldContent {
     var adjustsFontSizeToFit = true
     var traits: [(key: String, value: NibValue)]
     var textContentType: NibString?
-    var smartTraits: [String] = []
+    var smartTraits: [(key: String, value: Int)] = []
     /// Secure entry also writes the inline prediction type 1 (`tf-secure`).
     var secure = false
 
     func encode(to encoder: NibEncoder) throws {
+        if !enabled { encoder.encode(.boolean(true), forKey: "UIDisabled") }
         if contentVerticalAlignment != 0 {
             encoder.encode(.integer(contentVerticalAlignment), forKey: "UIContentVerticalAlignment")
             encoder.encode(.integer(contentVerticalAlignment), forKey: "UIContentVerticalAlignment2")
@@ -67,8 +77,8 @@ struct TextFieldContent {
             encoder.encode(trait.value, forKey: trait.key)
         }
         if let textContentType { try encoder.encode(textContentType, forKey: "UITextContentType") }
-        for key in smartTraits {
-            encoder.encode(.integer(1), forKey: key)
+        for trait in smartTraits {
+            encoder.encode(.integer(trait.value), forKey: trait.key)
         }
         if secure { encoder.encode(.integer(1), forKey: "UITextInlinePredictionType") }
         encoder.encode(.boolean(true), forKey: "UIDisableTextColorUpdateOnTraitCollectionChange")
@@ -95,7 +105,7 @@ final class NibRectValue: NibArchivable {
 extension DocumentCompiler {
     static let textFieldAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "text", "placeholder", "textAlignment",
                                       "minimumFontSize", "borderStyle", "adjustsFontForContentSizeCategory", "clearButtonMode",
-                                      "clearsOnBeginEditing", "adjustsFontSizeToFit"]
+                                      "clearsOnBeginEditing", "adjustsFontSizeToFit", "enabled"]
     static let switchAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "on"]
     /// `UIControl.Event` of the events observed, the `UIEventMask` of an action's connection
     /// (`act-field-all-events`, `act-control-*`).
@@ -130,19 +140,22 @@ extension DocumentCompiler {
         let traitElements = element.children(named: "textInputTraits")
         guard traitElements.count == 1, let traitElement = traitElements.first else { throw unsupported("a text field without one <textInputTraits>") }
         try check(traitElement, attributes: ["key", "textContentType"] + TextFieldContent.traits.map(\.attribute) + TextFieldContent.smartTraits.map(\.0), children: [])
-        var traits = try TextFieldContent.traits.compactMap { trait in
-            try traitElement.attributes[trait.attribute].map { name in
-                guard let value = trait.values[name] else { throw unsupported("\(trait.attribute)=\"\(name)\"") }
-                return (trait.key, value)
-            }
+        var traits: [(key: String, value: NibValue)] = []
+        for trait in TextFieldContent.traits {
+            guard let name = traitElement.attributes[trait.attribute] else { continue }
+            guard let value = trait.values[name] else { throw unsupported("\(trait.attribute)=\"\(name)\"") }
+            if let value { traits.append((trait.key, value)) }
         }
         let secure = traitElement.attributes["secureTextEntry"] == "YES"
-        if secure, !traits.contains(where: { $0.0 == "UIAutocorrectionType" }) {
-            traits.insert(("UIAutocorrectionType", .integer(1)), at: traits.firstIndex { $0.0 != "UIAutocapitalizationType" } ?? traits.count)
+        if secure, !traits.contains(where: { $0.key == "UIAutocorrectionType" }) {
+            traits.insert(("UIAutocorrectionType", .integer(1)), at: traits.firstIndex { $0.key != "UIAutocapitalizationType" } ?? traits.count)
         }
         try value(traitElement, "textContentType", in: TextFieldContent.contentTypes)
-        for (attribute, _) in TextFieldContent.smartTraits {
-            try value(traitElement, attribute, in: ["no"])
+        var smartTraits: [(key: String, value: Int)] = []
+        for (attribute, key) in TextFieldContent.smartTraits {
+            guard let name = traitElement.attributes[attribute] else { continue }
+            guard let value = TextFieldContent.smartTraitValues[name] else { throw unsupported("\(attribute)=\"\(name)\"") }
+            if let value { smartTraits.append((key, value)) }
         }
         let placeholders = element.children(named: "string")
         for string in placeholders {
@@ -168,7 +181,8 @@ extension DocumentCompiler {
         content.adjustsFontSizeToFit = try bool(element, "adjustsFontSizeToFit", default: true)
         content.contentVerticalAlignment = try mapped(attributes["contentVerticalAlignment"] ?? "center", ControlContent.verticalAlignments, "contentVerticalAlignment")
         content.textContentType = traitElement.attributes["textContentType"].map { string($0) }
-        content.smartTraits = TextFieldContent.smartTraits.filter { traitElement.attributes[$0.0] != nil }.map(\.1)
+        content.smartTraits = smartTraits
+        content.enabled = try bool(element, "enabled", default: true)
         content.secure = secure
         return content
     }
