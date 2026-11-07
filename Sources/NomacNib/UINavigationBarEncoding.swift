@@ -56,22 +56,32 @@ extension DocumentCompiler {
         appearance.tint = try element.child("color", key: "barTintColor").map { try color($0) }
         appearance.largeTitleAttributes = try textAttributes(element, key: "largeTitleTextAttributes")
         appearance.titleAttributes = try textAttributes(element, key: "titleTextAttributes")
+        appearance.shadowImage = try element.attributes["shadowImage"].map { try image($0, catalog: nil) }
         return appearance
     }
 
-    /// A bar's `<textAttributes>`: a dictionary of `NSColor` and `NSFont` in that order
-    /// (`bars-sbn-text-*`).
+    /// A bar's `<textAttributes>`: a dictionary of `NSColor`, `NSFont` and `NSShadow` in that order
+    /// (`bars-sbn-text-*`, `sb-nav-bar-title-*`).
     private mutating func textAttributes(_ element: XIBElement, key: String) throws -> NibDictionary? {
         guard let attributes = element.child("textAttributes", key: key) else { return nil }
-        try check(attributes, attributes: ["key"], children: ["color", "fontDescription"])
+        try check(attributes, attributes: ["key"], children: ["color", "fontDescription", "offsetWrapper"])
         guard !attributes.children.isEmpty else { throw unsupported("<textAttributes> without attributes") }
         let dictionary = NibDictionary()
         for child in attributes.children(named: "color") {
-            try value(child, "key", in: ["textColor"])
-            dictionary.entries.append((key: string("NSColor"), value: try color(child)))
+            try value(child, "key", in: ["textColor", "textShadowColor"])
+        }
+        if let text = attributes.child("color", key: "textColor") {
+            dictionary.entries.append((key: string("NSColor"), value: try color(text)))
         }
         if !attributes.children(named: "fontDescription").isEmpty {
             dictionary.entries.append((key: string("NSFont"), value: try font(attributes).font))
+        }
+        let shadowColor = attributes.child("color", key: "textShadowColor")
+        let offset = attributes.child("offsetWrapper", key: "textShadowOffset")
+        if shadowColor != nil || offset != nil {
+            dictionary.entries.append((key: string("NSShadow"), value: NibShadow(horizontal: try number(offset?.attributes["horizontal"] ?? "0", "horizontal"),
+                                                                                 vertical: try number(offset?.attributes["vertical"] ?? "0", "vertical"),
+                                                                                 color: try shadowColor.map { try color($0) })))
         }
         return dictionary
     }
@@ -82,6 +92,7 @@ extension DocumentCompiler {
 /// bar tint before `UIItems`, title attributes, the position and translucence (1, 2 for
 /// `translucent="NO"`) after them (`bars-sbn-combo`, `bars-tb-bar-combo`).
 struct BarAppearance {
+    var shadowImage: NibImage?
     var style: Int?
     var prefersLargeTitles = false
     var tint: NibArchivable?
@@ -96,8 +107,31 @@ struct BarAppearance {
     }
 
     func encodeTrailing(position: Int, to encoder: NibEncoder) throws {
+        if let shadowImage { try encoder.encode(shadowImage, forKey: "UIShadowImage") }
         if let titleAttributes { try encoder.encode(titleAttributes, forKey: "UITitleTextAttributes") }
         encoder.encode(.integer(position), forKey: "UIBarPosition")
         encoder.encode(.integer(translucent ? 1 : 2), forKey: "UIBarTranslucence")
+    }
+}
+
+/// A bar's title attributes' `NSShadow`: each offset other than zero, down negative, and its color or nil
+/// (`sb-nav-bar-title-*`).
+final class NibShadow: NibArchivable {
+    let horizontal: Double
+    let vertical: Double
+    let color: NibArchivable?
+
+    init(horizontal: Double, vertical: Double, color: NibArchivable?) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+        self.color = color
+    }
+
+    var className: String { "NSShadow" }
+
+    func encode(to encoder: NibEncoder) throws {
+        if horizontal != 0 { encoder.encode(.double(horizontal), forKey: "NSShadowHoriz") }
+        if vertical != 0 { encoder.encode(.double(-vertical), forKey: "NSShadowVert") }
+        if let color { try encoder.encode(color, forKey: "NSShadowColor") } else { encoder.encode(.null, forKey: "NSShadowColor") }
     }
 }

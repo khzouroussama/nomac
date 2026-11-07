@@ -99,10 +99,10 @@ final class NibSymbolConfiguration: NibArchivable {
 /// A configuration's title or subtitle: an `NSAttributedString` of the title with its font as
 /// attributes; an empty one has none (`bc-plain`, `bc-title-font`).
 final class NibConfigurationTitle: NibArchivable {
-    let string: NibString
+    let string: NibArchivable
     let attributes: NibDictionary?
 
-    init(string: NibString, attributes: NibDictionary?) {
+    init(string: NibArchivable, attributes: NibDictionary?) {
         self.string = string
         self.attributes = attributes
     }
@@ -116,32 +116,37 @@ final class NibConfigurationTitle: NibArchivable {
 }
 
 extension DocumentCompiler {
-    /// A button's `<buttonConfiguration>`: its style, title (localizable ones refused), title font,
+    /// A button's `<buttonConfiguration>`: its style, title and subtitle, title font,
     /// image, by name or as an `<imageReference>` of a system symbol with a scale, the preferred
     /// symbol configuration, placement, padding and base foreground color.
-    mutating func buttonConfiguration(_ element: XIBElement) throws -> NibButtonConfiguration {
-        try check(element, attributes: ["key", "style", "title", "image", "catalog", "imagePlacement", "imagePadding"], children: ["fontDescription", "color", "imageReference", "preferredSymbolConfiguration"])
+    mutating func buttonConfiguration(_ element: XIBElement, id: String?) throws -> NibButtonConfiguration {
+        try check(element, attributes: ["key", "style", "title", "subtitle", "image", "catalog", "imagePlacement", "imagePadding"], children: ["fontDescription", "color", "imageReference", "preferredSymbolConfiguration"])
         try value(element, "key", in: ["configuration"])
         guard let style = NibButtonConfiguration.styles[element.attributes["style"] ?? ""] else {
             throw unsupported("the button configuration style \(element.attributes["style"] ?? "none")")
         }
         let clear = try color(XIBElement(name: "color", attributes: ["cocoaTouchSystemColor": "clearColor"]))
-        let background = NibBackgroundConfiguration(backgroundColor: style.background.map { unnamedColor($0) } ?? clear, strokeColor: clear,
+        // Each configuration's own object (`bc-filled-two`, `bc-tinted-two`, `bc-gray-two`; the survey's KeePassium FirstSetupVC).
+        let background = NibBackgroundConfiguration(backgroundColor: style.background.map { NibColor(components: $0, name: nil) } ?? clear, strokeColor: clear,
                                                     insets: string("{0, 0, 0, 0}"), button: true)
         let text = element.attributes["title"] ?? ""
-        guard text.isEmpty || !localizable else { throw unsupported("a button configuration's title in a localized document") }
+        let subtitle = element.attributes["subtitle"] ?? ""
         let fonts = element.children(named: "fontDescription")
         for font in fonts { try value(font, "key", in: ["titleFontDescription"]) }
-        guard fonts.isEmpty || !text.isEmpty else { throw unsupported("a title font in a button configuration without a title") }
+        guard fonts.isEmpty || (!text.isEmpty && subtitle.isEmpty) else { throw unsupported("a title font in a button configuration without one title") }
         var attributes: NibDictionary?
-        if !text.isEmpty {
+        if !text.isEmpty || !subtitle.isEmpty {
             let font = try fonts.isEmpty ? nil : self.font(element).font
             let identity = font.map { "\(ObjectIdentifier($0))" } ?? ""
             attributes = titleAttributes[identity] ?? dictionary(font.map { [("NSFont", $0 as NibArchivable)] } ?? [])
             titleAttributes[identity] = attributes
         }
-        let configuration = NibButtonConfiguration(style: style.style, background: background, title: NibConfigurationTitle(string: string(text), attributes: attributes),
-                                                   subtitle: NibConfigurationTitle(string: string(""), attributes: nil))
+        // Localizable as `<id>.configuration.title` and `.subtitle` in `Base.lproj`; an empty one has no attributes (`bc-lproj-*`).
+        func title(_ value: String, _ property: String) -> NibConfigurationTitle {
+            value.isEmpty ? NibConfigurationTitle(string: string(""), attributes: nil)
+                : NibConfigurationTitle(string: self.text(value, id: id, property: "configuration.\(property)"), attributes: attributes)
+        }
+        let configuration = NibButtonConfiguration(style: style.style, background: background, title: title(text, "title"), subtitle: title(subtitle, "subtitle"))
         for color in element.children(named: "color") {
             try value(color, "key", in: ["baseForegroundColor"])
             configuration.baseForegroundColor = try self.color(color)

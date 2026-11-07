@@ -18,12 +18,14 @@ public enum StoryboardCompiler {
         guard (path as NSString).lastPathComponent != ".storyboard" else {
             throw NomacError("nomac does not compile a file named only .storyboard, which ibtool writes as a .storyboard.nib directory (BACKLOG B-266)", path: path)
         }
-        let deploymentTarget = try XIBCompiler.check(options, path: path)
-        let document = try XIBReader.read(data, path: path)
-        var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
-        compiler.document = document
-        let files = try compiler.compileStoryboard(document)
-        return (files, try compiler.documentWarnings())
+        return try onLargeStack {
+            let deploymentTarget = try XIBCompiler.check(options, path: path)
+            let document = try XIBReader.read(data, path: path)
+            var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
+            compiler.document = document
+            let files = try compiler.compileStoryboard(document)
+            return (files, try compiler.documentWarnings())
+        }
     }
 
     /// `<document>` attributes of a storyboard: a xib's, another type, and the initial controller.
@@ -1266,25 +1268,28 @@ extension DocumentCompiler {
     /// below its document frame's origin.
     mutating func navigationBar(_ navigation: XIBElement) throws -> NibNavigationBar {
         let bars = navigation.children(named: "navigationBar")
-        guard bars.count == 1, let barElement = bars.first, let rect = barElement.child("rect", key: "frame") else {
-            throw unsupportedScene("a navigation controller without one navigation bar of a frame")
+        guard bars.count == 1, let barElement = bars.first else {
+            throw unsupportedScene("a navigation controller without one navigation bar")
         }
         // `misplaced` changes nothing (`bars-sbn-misplaced`).
         try check(barElement, attributes: ["key", "contentMode", "largeTitles", "id", "insetsLayoutMarginsFromSafeArea", "opaque", "clipsSubviews", "multipleTouchEnabled",
-                                           "translucent", "barStyle", "misplaced", "clearsContextBeforeDrawing", "customClass", "customModule", "customModuleProvider"],
+                                           "translucent", "barStyle", "misplaced", "clearsContextBeforeDrawing", "shadowImage", "customClass", "customModule", "customModuleProvider"],
                   children: ["rect", "autoresizingMask", "userDefinedRuntimeAttributes", "color", "textAttributes"])
         try value(barElement, "contentMode", in: ["scaleToFill"])
-        try check(rect, attributes: ["key", "x", "y", "width", "height"], children: [])
+        // A bar without a frame is at the origin (`sb-nav-bar-frameless*`).
+        let rect = barElement.child("rect", key: "frame")
+        if let rect { try check(rect, attributes: ["key", "x", "y", "width", "height"], children: []) }
         for mask in barElement.children(named: "autoresizingMask") {
             try check(mask, attributes: ["key"], children: [])
         }
-        let bar = NibNavigationBar(center: (try number(rect.attributes["x"] ?? "0", "x"), try number(rect.attributes["y"] ?? "0", "y") + 27), hugging: string("{250, 250}"))
+        let bar = NibNavigationBar(center: (try number(rect?.attributes["x"] ?? "0", "x"), try number(rect?.attributes["y"] ?? "0", "y") + 27), hugging: string("{250, 250}"))
         bar.appearance = try barAppearance(barElement)
         bar.clearsContextBeforeDrawing = try bool(barElement, "clearsContextBeforeDrawing", default: true)
         bar.customClass = try customClass(barElement, original: "UINavigationBar")
         for color in barElement.children(named: "color") {
-            try value(color, "key", in: ["barTintColor", "tintColor"])
+            try value(color, "key", in: ["barTintColor", "tintColor", "backgroundColor"])
         }
+        bar.backgroundColor = try barElement.child("color", key: "backgroundColor").map { try color($0) }
         bar.multipleTouchEnabled = try bool(barElement, "multipleTouchEnabled", default: false)
         bar.clipsToBounds = try bool(barElement, "clipsSubviews", default: false)
         bar.insetsLayoutMarginsFromSafeArea = try bool(barElement, "insetsLayoutMarginsFromSafeArea", default: true)

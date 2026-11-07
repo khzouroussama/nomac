@@ -397,14 +397,12 @@ Next actions:
    `tools/classify.py <list>` groups them by first difference, `ddiff.py <document> 30` shows one. 28 survey and 5
    holdout documents still differ, all part A's: `Info.plist` order (B-266, 8), constraints (10) and colors (10). A
    xib's warning order changes from run to run and counts as equivalent (ADR 0254). The B-291 placeholders stay refused.
-2. Refusals, ranked by projects in `rank-final.txt` (all parts; 2,972 of 5,688 survey documents compile, 1,344 are
-   refused in this part). Largest by documents: `<view>` in `<tableView>` (47), `<webView>` (33), navigation bars'
-   `translucent` (32), `barStyle` (22) and colors (22), `<tableView>` in `<objects>` (32), a navigation controller's bar
-   without a frame (26), several unreached controllers (23), localized tab bar item titles (22), `<customObject>` in
-   `<objects>` (22), bar button items without a system item or title (20). Of the Xcode-27-ready projects, button
-   configurations' localized titles stop the most (8), then navigation bars' `translucent` and scenes without one
-   controller (5 each). Re-rank before starting anything, as part A lands the same fixes: `JOBS=3 TOP=400 python3
-   tools/rank_survey.py <current nomac> survey-docs survey-rank.json`.
+2. Refusals, ranked by the projects Xcode 27 accepts: `JOBS=3 TOP=60 python3 tools/rank_survey.py <current nomac> survey-docs
+   survey-rank.json`, of 64 such projects with a refused document (`live` in `survey-docs/projects.json`, no `build:*below*`
+   feature). Re-rank before starting anything: part A lands the same fixes, and did for bars while this list ran. Done:
+   localized button configurations, navigation bars' frames, shadows, shadow images and background. Next: scenes without one
+   controller (`hostingController`, `avPlayerViewController`, 5 projects), `hasAttributedTitle` (4), font configurations other than
+   a text style's (4), `<view>` in `<tableView>` (3, and 33 of all), `<connections>` in a standalone bar's items.
 3. B-291, several recognizers in a scene: the placeholders' numbers are not the sorted connections' first reach;
    `sb-gesture-three`, `-nested`, `-predict` and wikipedia's DescriptionEditViewController fit no walk tried (`gsum.py`).
 

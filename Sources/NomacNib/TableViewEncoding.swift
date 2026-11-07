@@ -32,7 +32,9 @@ struct TableContent {
     var allowsMultipleSelectionDuringEditing = false
     var insetsContentViewsToSafeArea = true
     var separatorColor: NibColor?
+    var sectionIndexColor: NibColor?
     var sectionIndexBackgroundColor: NibColor?
+    var sectionIndexTrackingBackgroundColor: NibColor?
     var separatorInset: [Double]?
     /// `scrollEnabled="NO"` (`table-scroll-disabled`).
     var scrollDisabled = false
@@ -101,7 +103,9 @@ struct TableContent {
             try encoder.encode(externals, forKey: "UITableViewCellPrototypeNibExternalObjects")
         }
         // After the prototype cells (`sb-table-separator-prototype`, `sb-table-prototype-*`; the holdout's SyncConflictAlert, the survey's Listr).
+        if let sectionIndexColor { try encoder.encode(sectionIndexColor, forKey: "UISectionIndexColor") }
         if let sectionIndexBackgroundColor { try encoder.encode(sectionIndexBackgroundColor, forKey: "UISectionIndexBackgroundColor") }
+        if let sectionIndexTrackingBackgroundColor { try encoder.encode(sectionIndexTrackingBackgroundColor, forKey: "UISectionIndexTrackingBackgroundColor") }
         if let separatorInset { encoder.encode(.data(NibView.doubles(separatorInset)), forKey: "UISeparatorInset") }
         encoder.encode(.integer(0), forKey: "UISeparatorInsetReference")
     }
@@ -257,7 +261,9 @@ extension DocumentCompiler {
         }
         var content = try tableAttributes(element, style: style)
         content.separatorColor = try element.child("color", key: "separatorColor").map { try color($0) }
+        content.sectionIndexColor = try element.child("color", key: "sectionIndexColor").map { try color($0) }
         content.sectionIndexBackgroundColor = try element.child("color", key: "sectionIndexBackgroundColor").map { try color($0) }
+        content.sectionIndexTrackingBackgroundColor = try element.child("color", key: "sectionIndexTrackingBackgroundColor").map { try color($0) }
         for inset in element.children(named: "inset") {
             try check(inset, attributes: ["key", "minX", "minY", "maxX", "maxY"], children: [])
             try value(inset, "key", in: ["separatorInset"])

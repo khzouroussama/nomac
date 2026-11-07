@@ -417,7 +417,8 @@ nor its font, whatever its `<state>`s and `<fontDescription>` (`bc-no-state`, `b
 The configuration writes `UIButtonConfigurationButtonStyle` (plain 0, gray 1, tinted 2, filled 3),
 `UIButtonConfigurationBackground` (a `UIBackgroundConfiguration` as a cell's, but `cornerRadius` 17,
 `strokeWidth` 1 and `strokeColor` customized, `defaultStyle` and `defaultStyle_v2` 0, its background
-color by style: the system `clearColor` for plain, else unnamed sRGB colors of full precision, gray
+color by style: the system `clearColor` for plain, else unnamed sRGB colors of full precision, each
+configuration's own object (`bc-filled-two`, `bc-gray-two`; the survey's KeePassium FirstSetupVC), gray
 120/255, 120/255, 128/255 at 0.16, tinted 0, 136/255, 1 at 0.18, filled the same opaque; its stroke
 the system `clearColor`), `UIButtonConfigurationCornerStyle`, `ButtonSize` and `MacIdiomStyle` 0,
 `BaseBackgroundColor` nil, `BaseForegroundColor` (`<color key="baseForegroundColor">`), `Image` (an
@@ -427,10 +428,10 @@ whose `UISymbolImageConfiguration` is a `UIImageSymbolConfiguration` of `UISymbo
 `UIImageSymbolConfiguration`, with `UIPointSize` for `configurationType="pointSize"`),
 `SymbolContentTransition` nil, `ShowsActivityIndicator` false, `Title` (an `NSAttributedString` of
 the title whose `NSAttributes` are `NSFont` the `titleFontDescription`'s font or nothing, one
-dictionary per font in the nib: `bc-two`; an empty title writes no attributes), `Subtitle` (an
-`NSAttributedString` of the empty string without attributes), `ImagePlacement` (leading 2,
-trailing 8), `ImagePadding` (float), `TitlePadding` 1 (float) and `TitleAlignment` 0. Localized
-titles are refused until observed.
+dictionary per font in the nib: `bc-two`; an empty title writes no attributes), `Subtitle` (the same
+for `subtitle`, on the same attributes; a title font beside one is refused), `ImagePlacement` (leading 2,
+trailing 8), `ImagePadding` (float), `TitlePadding` 1 (float) and `TitleAlignment` 0. In `Base.lproj` the
+strings are `NSLocalizableString`s keyed `<id>.configuration.title` and `.subtitle` (`bc-lproj-*`, `sb-bc-lproj-*`).
 
 ## UIStackView
 
@@ -695,9 +696,9 @@ none: `UISeparatorStyleIOS9AndLater` 0; singleLineEtched: all three 2: `table-se
 (doubles), `cellLayoutMarginsFollowReadableWidth` true with `layoutMarginsFollowReadableWidth` on the table
 (`table-readable*`, `sb-table-readable`), `UIAllowsSelection` false for `allowsSelection="NO"`, `UIAllowsSelectionDuringEditing`,
 `UIAllowsMultipleSelection`, `UIAllowsMultipleSelectionDuringEditing`, `UIInsetsContentViewsToSafeArea`
-(false for `contentViewInsetsToSafeArea="NO"`), `UISeparatorColor`, `UISectionIndexBackgroundColor`,
-the prototypes, `UISeparatorInset` (07, then top, left, bottom, right: `sb-table-separator-prototype`), and
-`UISeparatorInsetReference` 0.
+(false for `contentViewInsetsToSafeArea="NO"`), `UISeparatorColor`, the prototypes, `UISectionIndexColor`,
+`UISectionIndexBackgroundColor`, `UISectionIndexTrackingBackgroundColor` (`sb-table-prototype-*`), `UISeparatorInset`
+(07, then top, left, bottom, right: `sb-table-separator-prototype`), and `UISeparatorInsetReference` 0.
 Its own constraints are listed in all objects as a view's (the corpus's pocket-casts
 CategorySummaryViewController). A grouped or inset grouped table without a background color gets
 `systemGroupedBackgroundColor`; a plain one's background of white 1 named `whiteColor` or
@@ -1025,9 +1026,12 @@ Bars (`bars-tb-*`, `bars-nb-*`, `bars-sbn-*`). `barStyle` writes `UIBarStyle` (`
 `blackOpaque` 1, `blackTranslucent` 2), `translucent="NO"` makes `UIBarTranslucence` 2, and a
 navigation controller's bar then also writes `UIOpaque`. The keys of a bar, in order: `UIBarStyle`,
 `UIBarPrefersLargeTitles`, `UIBarLargeTitleTextAttributes`, `UIIsLocked` (a controller's bar),
-`UIBarTintColor`, `UIItems`, `UIDelegate` (a controller's bar), `UITitleTextAttributes`,
+`UIBarTintColor`, `UIItems`, `UIDelegate` (a controller's bar), `UIShadowImage`, `UITitleTextAttributes`,
 `UIBarPosition`, `UIBarTranslucence`, then a custom class's names. `<textAttributes>` is a dictionary
-of `NSColor`, then `NSFont`; shadows and empty `<textAttributes>` are refused.
+of `NSColor`, `NSFont`, then `NSShadow` (`NSShadowHoriz` and the vertical offset negated as `NSShadowVert`, each when
+not 0, and `NSShadowColor`, the `textShadowColor` or nil: `sb-nav-bar-title-*`); empty ones, which share the nib's empty
+dictionary, are refused. A controller's bar without a frame is at the origin (`sb-nav-bar-frameless*`), and its
+`backgroundColor` is a view's key (`sb-nav-bar-background`).
 
 Bar button items (`bars-tb-*`, `bars-ni-*`). The keys, in order: `UIEnabled` unless disabled,
 `UIIsSystemItem` and `UISystemItem`, `UIStyle`, `UITag`, `UIHidesSharedBG` (the two spaces),

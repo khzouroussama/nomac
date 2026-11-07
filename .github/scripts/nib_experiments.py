@@ -8658,6 +8658,117 @@ for excluded in range(5):
     EXPERIMENTS[f"mask-pairs-inner-{excluded}"] = mask_pairs_inner(excluded)
 
 
+# Round 146: a button configuration's texts in a localized document.
+def configured_button(attributes, children=""):
+    return constrained(button(children=BUTTON_STATE + (f'<buttonConfiguration key="configuration" {attributes}/>\n' if not children else f'<buttonConfiguration key="configuration" {attributes}>\n{children}</buttonConfiguration>\n')), "")
+
+
+for name, attributes in (("title", 'style="plain" title="Button"'), ("empty", 'style="plain" title=""'), ("subtitle", 'style="plain" subtitle="Sub"'),
+                         ("both", 'style="plain" title="Button" subtitle="Sub"'), ("filled", 'style="filled" title="Button"')):
+    EXPERIMENTS[f"bc-lproj-{name}"] = configured_button(attributes)
+    LPROJ_XIBS.add(f"bc-lproj-{name}")
+    EXPERIMENTS[f"bc-plain-{name}"] = configured_button(attributes)
+    STORYBOARDS[f"sb-bc-lproj-{name}"] = storyboard(scene(view_extra='                        <subviews>\n' + button(children=BUTTON_STATE + f'<buttonConfiguration key="configuration" {attributes}/>\n') + '                        </subviews>\n'))
+    LPROJ_STORYBOARDS.add(f"sb-bc-lproj-{name}")
+
+
+# Round 147: a navigation controller's bar: translucence, style and colors, one at a time.
+BAR_CONTROLLER = controller_scene(1)
+for name, attributes, children in (("translucent-no", ' translucent="NO"', ""), ("translucent-yes", ' translucent="YES"', ""), ("black", ' barStyle="black"', ""),
+                                   ("black-translucent-no", ' barStyle="black" translucent="NO"', ""), ("translucent-no-large", ' translucent="NO" largeTitles="YES"', ""),
+                                   ("translucent-no-insets", ' insetsLayoutMarginsFromSafeArea="NO" translucent="NO"', ""),
+                                   ("tint", "", '<color key="tintColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'),
+                                   ("bar-tint", "", '<color key="barTintColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'),
+                                   ("bar-tint-translucent-no", ' translucent="NO"', '<color key="barTintColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'),
+                                   ("title-attributes", "", '<textAttributes key="titleTextAttributes">\n<color key="textColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n</textAttributes>\n')):
+    document = storyboard(navigation_scene("vc1-aa-aaa", bar_attributes=attributes), BAR_CONTROLLER, initial="nvc-aa-aaa")
+    STORYBOARDS[f"sb-nav-bar-{name}"] = document.replace('<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', f'<autoresizingMask key="autoresizingMask"/>\n{children}                    </navigationBar>')
+RED = '<color key="{}" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'
+WHITE = '<color key="{}" white="1" alpha="1" colorSpace="calibratedWhite"/>\n'
+SYSTEM_FONT = '<fontDescription key="fontDescription" type="system" weight="light" pointSize="21"/>\n'
+STYLE_FONT = '<fontDescription key="fontDescription" style="UICTFontTextStyleHeadline"/>\n'
+NAMED_FONT = '<fontDescription key="fontDescription" name="Georgia" family="Georgia" pointSize="16"/>\n'
+OFFSET = '<offsetWrapper key="textShadowOffset" horizontal="1" vertical="2"/>\n'
+
+
+def text_attributes(body, key="titleTextAttributes"):
+    return f'<textAttributes key="{key}">\n{body}</textAttributes>\n'
+
+
+for name, attributes, children in (("background", "", RED.format("backgroundColor")), ("misplaced", ' misplaced="YES"', ""), ("opaque-no", ' opaque="NO"', ""),
+                                   ("custom-class", ' customClass="Bar"', ""), ("custom-class-module", ' customClass="Bar" customModule="T" customModuleProvider="target"', ""),
+                                   ("shadow-image", ' shadowImage="Logo"', ""), ("back-image", ' backIndicatorImage="Logo"', ""), ("back-mask", ' backIndicatorTransitionMaskImage="Logo"', ""),
+                                   ("black-large", ' barStyle="black" largeTitles="YES"', ""), ("all-colors", ' barStyle="black" translucent="NO"', RED.format("tintColor") + RED.format("barTintColor") + text_attributes(RED.format("textColor"))),
+                                   ("title-color-white", "", text_attributes(WHITE.format("textColor"))), ("title-font", "", text_attributes(SYSTEM_FONT)), ("title-font-style", "", text_attributes(STYLE_FONT)),
+                                   ("title-font-named", "", text_attributes(NAMED_FONT)), ("title-font-color", "", text_attributes(SYSTEM_FONT + RED.format("textColor"))),
+                                   ("title-shadow", "", text_attributes(RED.format("textShadowColor"))), ("title-color-shadow", "", text_attributes(RED.format("textColor") + WHITE.format("textShadowColor"))),
+                                   ("title-font-color-shadow", "", text_attributes(SYSTEM_FONT + RED.format("textColor") + WHITE.format("textShadowColor"))), ("title-offset", "", text_attributes(OFFSET)),
+                                   ("title-shadow-offset", "", text_attributes(RED.format("textShadowColor") + OFFSET)), ("large-color", "", text_attributes(RED.format("textColor"), "largeTitleTextAttributes")),
+                                   ("large-font", "", text_attributes(SYSTEM_FONT, "largeTitleTextAttributes")), ("title-and-large", "", text_attributes(RED.format("textColor")) + text_attributes(WHITE.format("textColor"), "largeTitleTextAttributes"))):
+    document = storyboard(navigation_scene("vc1-aa-aaa", bar_attributes=attributes), BAR_CONTROLLER, initial="nvc-aa-aaa")
+    STORYBOARDS[f"sb-nav-bar-{name}"] = document.replace('<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', f'<autoresizingMask key="autoresizingMask"/>\n{children}                    </navigationBar>')
+for name, attributes, children in (("large-bar-tint", "", RED.format("barTintColor") + text_attributes(RED.format("textColor"), "largeTitleTextAttributes")),
+                                   ("shadow-image-title", ' shadowImage="Logo"', text_attributes(RED.format("textColor"))), ("title-offset-zero", "", text_attributes('<offsetWrapper key="textShadowOffset" horizontal="0.0" vertical="0.0"/>\n')),
+                                   ("title-shadow-offset-zero", "", text_attributes(RED.format("textShadowColor") + '<offsetWrapper key="textShadowOffset" horizontal="0.0" vertical="0.0"/>\n')),
+                                   ("title-empty", "", text_attributes("")), ("custom-class-black", ' barStyle="black" customClass="Bar"', RED.format("barTintColor"))):
+    document = storyboard(navigation_scene("vc1-aa-aaa", bar_attributes=attributes), BAR_CONTROLLER, initial="nvc-aa-aaa")
+    STORYBOARDS[f"sb-nav-bar-{name}"] = document.replace('<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', f'<autoresizingMask key="autoresizingMask"/>\n{children}                    </navigationBar>')
+STORYBOARDS["sb-nav-bar-large-black-attributes"] = storyboard(navigation_scene("vc1-aa-aaa", bar_attributes=' barStyle="black" largeTitles="YES"'), BAR_CONTROLLER, initial="nvc-aa-aaa").replace(
+    '<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', '<autoresizingMask key="autoresizingMask"/>\n' + text_attributes(RED.format("textColor"), "largeTitleTextAttributes") + '                    </navigationBar>')
+STORYBOARDS["sb-nav-bar-title-offset-vertical"] = storyboard(navigation_scene("vc1-aa-aaa"), BAR_CONTROLLER, initial="nvc-aa-aaa").replace(
+    '<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', '<autoresizingMask key="autoresizingMask"/>\n' + text_attributes('<offsetWrapper key="textShadowOffset" horizontal="0.0" vertical="1"/>\n') + '                    </navigationBar>')
+STORYBOARDS["sb-nav-bar-title-offset-horizontal"] = storyboard(navigation_scene("vc1-aa-aaa"), BAR_CONTROLLER, initial="nvc-aa-aaa").replace(
+    '<autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>', '<autoresizingMask key="autoresizingMask"/>\n' + text_attributes('<offsetWrapper key="textShadowOffset" horizontal="1" vertical="0.0"/>\n') + '                    </navigationBar>')
+FRAME_LINE = '                        <rect key="frame" x="0.0" y="59" width="393" height="44"/>\n'
+for name, device, target in (("", True, "27.0"), ("-no-device", False, "27.0"), ("-at-15", True, "15.0"), ("-no-device-at-15", False, "15.0")):
+    document = storyboard(navigation_scene("vc1-aa-aaa"), BAR_CONTROLLER, initial="nvc-aa-aaa").replace(FRAME_LINE, "")
+    STORYBOARDS[f"sb-nav-bar-frameless{name}"] = document if device else re.sub(r'    <device [^>]*/>\n', "", document)
+    OPTIONS[f"sb-nav-bar-frameless{name}"] = {"deployment": target}
+for name, frame in (("zero", 'x="0.0" y="0.0" width="0.0" height="0.0"'), ("old", 'x="0.0" y="0.0" width="320" height="44"'), ("old-20", 'x="0.0" y="20" width="320" height="44"'), ("large", 'x="0.0" y="47" width="390" height="96"')):
+    STORYBOARDS[f"sb-nav-bar-rect-{name}"] = storyboard(navigation_scene("vc1-aa-aaa"), BAR_CONTROLLER, initial="nvc-aa-aaa").replace('x="0.0" y="59" width="393" height="44"', frame)
+
+
+# Round 148: standalone navigation bars' style and colors, and bar button items of an image.
+BLUE = '<color key="{}" red="0" green="0" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'
+for name, attributes, children in (("black", ' barStyle="black"', ""), ("black-translucent-no", ' barStyle="black" translucent="NO"', ""), ("bar-tint", "", RED.format("barTintColor")), ("tint", "", RED.format("tintColor")),
+                                   ("background", "", RED.format("backgroundColor")), ("title-color", "", text_attributes(RED.format("textColor"))), ("title-font", "", text_attributes(SYSTEM_FONT)),
+                                   ("title-font-color", "", text_attributes(SYSTEM_FONT + RED.format("textColor"))), ("title-shadow", "", text_attributes(RED.format("textColor") + WHITE.format("textShadowColor") + OFFSET)),
+                                   ("all", ' barStyle="black" translucent="NO"', RED.format("tintColor") + BLUE.format("barTintColor") + text_attributes(WHITE.format("textColor"))),
+                                   ("large-attributes", "", text_attributes(RED.format("textColor"), "largeTitleTextAttributes")), ("custom-class", ' customClass="Bar" customModule="T" customModuleProvider="target"', ""),
+                                   ("shadow-image", ' shadowImage="Logo"', ""), ("large-titles", ' largeTitles="YES"', ""), ("clears", ' clearsContextBeforeDrawing="NO"', ""), ("opaque-no", ' opaque="NO"', ""),
+                                   ("hugging", ' verticalHuggingPriority="1000"', "")):
+    bar = sub_nav_bar(attributes=attributes)
+    EXPERIMENTS[f"nav-bar-sub-style-{name}"] = constrained(bar.replace("                </navigationBar>", "".join(f"                    {line}\n" for line in children.splitlines()) + "                </navigationBar>"), "")
+for name, item, extra in (("image", 'image="Logo"', ""), ("image-done", 'image="Logo" style="done"', ""), ("image-system", 'image="plus" catalog="system"', ""), ("image-disabled", 'enabled="NO" image="Logo"', ""),
+                          ("image-label", 'image="Logo" userLabel="Thing"', ""), ("title-label", 'title="Item" userLabel="Thing"', ""), ("system-label", 'systemItem="add" userLabel="Thing"', ""),
+                          ("system-style", 'style="plain" systemItem="add"', ""), ("system-width", 'style="plain" systemItem="fixedSpace"', ""), ("system-width-value", 'width="42" style="plain" systemItem="fixedSpace"', ""),
+                          ("title-width", 'title="Item" width="42"', ""), ("image-width", 'image="Logo" width="42"', ""), ("title-color", 'title="Item"', RED.format("tintColor")), ("image-color", 'image="Logo"', RED.format("tintColor")),
+                          ("system-color", 'systemItem="add"', RED.format("tintColor")), ("empty-style", 'style="plain"', ""), ("no-attributes", "", ""), ("image-title-system", 'title="Item" image="plus" catalog="system"', ""),
+                          ("image-landscape", 'image="Logo" landscapeImagePhone="Logo"', ""), ("image-insets", 'image="Logo"', '<inset key="imageInsets" minX="1" minY="2" maxX="3" maxY="4"/>\n'), ("title-tag", 'tag="7" title="Item"', ""), ("flexible", 'style="plain" systemItem="flexibleSpace"', ""), ("flexible-no-style", 'systemItem="flexibleSpace"', ""),
+                          ("fixed-no-style", 'systemItem="fixedSpace"', ""), ("title-plain", 'style="plain" title="Item"', ""), ("title-done", 'style="done" title="Item"', ""), ("title-bordered", 'style="bordered" title="Item"', "")):
+    if not extra:
+        EXPERIMENTS[f"nav-bar-sub-item-{name}"] = constrained(sub_nav_bar(f'<navigationItem id="nvi-aa-aa1">\n    <barButtonItem key="rightBarButtonItem" {item} id="itm-aa-aaa"/>\n</navigationItem>'), "")
+    bar_element = (f'<barButtonItem key="rightBarButtonItem" {item} id="itm-aa-aaa"/>' if not extra else f'<barButtonItem key="rightBarButtonItem" {item} id="itm-aa-aaa">\n' + extra + '</barButtonItem>')
+    STORYBOARDS[f"sb-bar-kind-{name}"] = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=navigation_item("T", bar_element + "\n")), initial="nvc-aa-aaa")
+
+
+# Round 149: configurations' background colors across buttons, and a table's colors beside prototypes.
+def two_configured(first, second, sibling=""):
+    def one(identifier, x, attributes):
+        return button(children=BUTTON_STATE + f'<buttonConfiguration key="configuration" {attributes}/>\n').replace('id="bbb-bb-bb1"', f'id="{identifier}"').replace('x="10"', f'x="{x}"')
+    return constrained(one("bbb-bb-bb1", 10, first) + one("bbb-bb-bb2", 120, second) + sibling, "")
+
+
+for name, first, second in (("filled-two", 'style="filled"', 'style="filled"'), ("filled-two-titled", 'style="filled" title="A"', 'style="filled" title="B"'),
+                            ("tinted-two", 'style="tinted"', 'style="tinted"'), ("gray-two", 'style="gray"', 'style="gray"'), ("filled-gray", 'style="filled"', 'style="gray"'), ("plain-two", 'style="plain"', 'style="plain"')):
+    EXPERIMENTS[f"bc-{name}"] = two_configured(first, second)
+TABLE_COLOR = '<color key="{}" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n'
+for key in ("separatorColor", "sectionIndexColor", "sectionIndexBackgroundColor", "sectionIndexTrackingBackgroundColor"):
+    STORYBOARDS[f"sb-table-{key}"] = storyboard(tvc_scene(extra=TABLE_COLOR.format(key)), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-table-prototype-{key}"] = storyboard(tvc_scene(extra=TABLE_COLOR.format(key), body=prototypes(tvc_cell(1))), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-prototype-colors"] = storyboard(tvc_scene(extra=INSET_SEPARATOR + TABLE_COLOR.format("separatorColor") + TABLE_COLOR.format("sectionIndexColor") + TABLE_COLOR.format("sectionIndexBackgroundColor") + TABLE_COLOR.format("sectionIndexTrackingBackgroundColor"), body=prototypes(tvc_cell(1))), initial="tvc-aa-aaa")
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

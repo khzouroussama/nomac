@@ -198,6 +198,8 @@ final class NibNavigationBar: NibArchivable {
     weak var delegate: NibNavigationController?
     /// `clearsContextBeforeDrawing="NO"`, after its autoresizing mask (`bars-sbn-clears`).
     var clearsContextBeforeDrawing = true
+    /// A view's key (`sb-nav-bar-background`).
+    var backgroundColor: NibArchivable?
     /// Its style, tint, title attributes and translucence, with `UIOpaque` when `translucent="NO"` (`bars-sbn-*`).
     var appearance = BarAppearance()
     /// A custom class's names, last (`bars-sbn-class*`).
@@ -213,6 +215,7 @@ final class NibNavigationBar: NibArchivable {
     func encode(to encoder: NibEncoder) throws {
         encoder.encode(.data(NibView.doubles([0, 0, 0, 54])), forKey: "UIBounds")
         encoder.encode(.data(NibView.doubles([center.x, center.y])), forKey: "UICenter")
+        if let backgroundColor { try encoder.encode(backgroundColor, forKey: "UIBackgroundColor") }
         encoder.encode(.boolean(true), forKey: "UIDeepDrawRect")
         if !appearance.translucent { encoder.encode(.boolean(true), forKey: "UIOpaque") }
         if multipleTouchEnabled { encoder.encode(.boolean(true), forKey: "UIMultipleTouchEnabled") }

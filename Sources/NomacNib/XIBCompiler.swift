@@ -72,12 +72,14 @@ public enum XIBCompiler {
 
     /// The nib and ibtool's document warnings, `<path>:<global or id>: warning: <message>` lines.
     public static func compileReportingWarnings(_ data: Data, path: String, options: Options) throws -> (nib: Data, warnings: [String]) {
-        let deploymentTarget = try check(options, path: path)
-        let document = try XIBReader.read(data, path: path)
-        var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
-        compiler.document = document
-        let nib = try compiler.compile(document)
-        return (nib, try compiler.documentWarnings())
+        try onLargeStack {
+            let deploymentTarget = try check(options, path: path)
+            let document = try XIBReader.read(data, path: path)
+            var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
+            compiler.document = document
+            let nib = try compiler.compile(document)
+            return (nib, try compiler.documentWarnings())
+        }
     }
 
     /// Refuses the options the experiments have not observed, and returns the deployment target.
@@ -588,7 +590,7 @@ struct DocumentCompiler {
         let kindAttributes = imageView ? ["image", "catalog", "adjustsImageSizeForAccessibilityContentSizeCategory"] : isLabel ? Self.labelAttributes : isButton ? ControlContent.attributes + ButtonContent.attributes
             : isStack ? StackContent.attributes : isTable ? TableContent.attributes : isScroll ? ScrollContent.attributes
             : isCollection ? CollectionContent.attributes
-            : element.name == "navigationBar" ? ["translucent", "barStyle", "largeTitles"] : element.name == "toolbar" ? ["translucent", "barStyle"]
+            : element.name == "navigationBar" ? ["shadowImage", "translucent", "barStyle", "largeTitles"] : element.name == "toolbar" ? ["translucent", "barStyle"]
             : element.name == "searchBar" ? SearchBarContent.attributes
             : element.name == "wkWebView" ? WebViewContent.attributes : element.name == "mapView" ? MapContent.attributes
             : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate"]
@@ -667,7 +669,8 @@ struct DocumentCompiler {
                  ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _),
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
                  ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel, ("size", "titleShadowOffset") where isButton,
-                 ("color", "separatorColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
+                 ("color", "separatorColor") where isTable, ("color", "sectionIndexColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
+                 ("color", "sectionIndexTrackingBackgroundColor") where isTable,
                  ("keyboardLayoutGuide", "keyboard"),
                  ("variation", _), ("prototypes", nil), ("sections", nil), ("color", "tintColor"), ("state", _), ("inset", _), ("buttonConfiguration", "configuration"),
                  ("edgeInsets", "layoutMargins"), ("directionalEdgeInsets", "directionalLayoutMargins"), ("viewLayoutGuide", "contentLayoutGuide"),

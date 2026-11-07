@@ -205,7 +205,7 @@ extension DocumentCompiler {
         button.changesSelectionAsPrimaryAction = try bool(element, "changesSelectionAsPrimaryAction", default: false)
         let configurations = element.children(named: "buttonConfiguration")
         guard configurations.count <= 1 else { throw unsupported("a button with two configurations") }
-        button.configuration = try configurations.first.map { try buttonConfiguration($0) }
+        button.configuration = try configurations.first.map { try buttonConfiguration($0, id: element.attributes["id"]) }
         return button
     }
 
