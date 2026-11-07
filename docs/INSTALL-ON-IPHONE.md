@@ -81,8 +81,8 @@ Development, upload `development.csr`, download `development.cer`. Then:
 nomac signing identity development.cer --key development.key    # writes identity.pem
 ```
 
-This checks that the key is the certificate's, adds Apple's intermediate and root from apple.com
-(checked against their published digests; offline, pass them with `--chain`) and prints your team.
+This checks that the key is the certificate's, adds Apple's intermediate and root from www.apple.com
+(checked against SHA-256 digests built into nomac; offline, pass them with `--chain`) and prints your team.
 `development.key` and `identity.pem` are readable only by you: keep them out of any repository.
 The certificate lasts a year; a new one from the same `development.csr` works with the same key.
 

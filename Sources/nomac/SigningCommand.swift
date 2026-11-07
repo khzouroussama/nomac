@@ -55,8 +55,8 @@ struct SigningCommand: ParsableCommand {
             abstract: "Turn the certificate Apple issued into the identity file --keychain reads.",
             discussion: """
             Checks that the key is the certificate's and that it is in force, adds Apple's \
-            intermediate and root (downloaded from apple.com and checked against their published \
-            digests, or given with --chain) and writes them with the key to one file only you can \
+            intermediate and root (downloaded from www.apple.com and checked against SHA-256 digests \
+            built into nomac, or given with --chain) and writes them with the key to one file only you can \
             read. Prints the team and the identity's name.
             """
         )

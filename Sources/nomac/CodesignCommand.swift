@@ -23,6 +23,7 @@ struct CodesignCommand: ParsableCommand {
     var arguments: [String] = []
 
     func run() throws {
+        if arguments.contains("--help") { throw CleanExit.helpRequest(self) }
         if let paths = try CodesignArguments.displayedPaths(arguments) {
             for path in paths {
                 do {

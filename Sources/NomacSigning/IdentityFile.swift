@@ -7,8 +7,8 @@ import NomacCore
 /// intermediate and the root, the order of the identity that installed on an iPhone
 /// (docs/INSTALL-ON-IPHONE.md).
 public enum IdentityFile {
-    /// One of Apple's certificate authorities at its public address, with the SHA-256 of its
-    /// certificate as published on 2026-11-06, so a download is checked rather than trusted.
+    /// One of Apple's certificate authorities at its public address, with the SHA-256 of the
+    /// certificate there on 2026-11-06, built in so a download is checked rather than trusted.
     public struct Authority: Equatable, Sendable {
         public let name: String
         public let url: String
@@ -49,11 +49,11 @@ public enum IdentityFile {
         return [developerRelationsG3, appleRoot]
     }
 
-    /// `bytes` as the certificate of `authority`, or an error when they are not what Apple published.
+    /// `bytes` as the certificate of `authority`, or an error when their digest is not the built-in one.
     public static func verified(_ bytes: [UInt8], as authority: Authority) throws -> [UInt8] {
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         guard digest == authority.sha256 else {
-            throw NomacError("the certificate downloaded for \(authority.name) is not the one Apple published (SHA-256 \(digest))", notes: [
+            throw NomacError("the certificate downloaded for \(authority.name) is not the one nomac knows (SHA-256 \(digest))", notes: [
                 "download it from \(authority.url) yourself and pass it with --chain",
             ])
         }
