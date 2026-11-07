@@ -534,5 +534,12 @@
     "clear"
    ]
   }
- ]
+ ],
+ "verdicts": {
+  "jtrivedi/Mesh-Transform-Animation": {
+   "verdict": "nomac",
+   "class": "metal:shader (B-241)",
+   "xcode": "not run: nomac has no metal compiler, and nomac check reports it"
+  }
+ }
 }

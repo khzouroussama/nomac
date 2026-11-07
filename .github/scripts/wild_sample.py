@@ -110,6 +110,9 @@ TOOLCHAIN_WAIT = 7200
 PREFLIGHT_TIMEOUT = 1800
 OVER_BUDGET = "over the disk budget"
 APT_OPTIONS = ["-o", "Acquire::http::Timeout=20", "-o", "Acquire::Retries=5"]
+# Acquire::http::Timeout catches a stall. This only catches what that cannot: 300 s killed a slow
+# download that was progressing, every time, since a try starts over.
+APT_LIMIT = 2400
 APT_PACKAGES = ["ruby-full", "ruby-dev", "build-essential", "7zip", "xz-utils", "curl", "make", "git-lfs", "libyaml-dev", "libffi-dev", "zlib1g-dev",
                 "autoconf", "automake", "libtool", "pkg-config", "cmake", "jq"]
 NODE = "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-{}.tar.xz"
@@ -690,8 +693,8 @@ def tools(arguments):
             sources.write_text(re.sub(r"^URIs: .*$", f"URIs: {arguments.apt_mirror}", sources.read_text(), flags=re.MULTILINE))
         for lock in ("/var/lib/apt/lists/lock", "/var/lib/dpkg/lock-frontend", "/var/cache/apt/archives/lock"):
             Path(lock).unlink(missing_ok=True)
-        return (run(["apt-get", "update", "-qq", *APT_OPTIONS], 300) and run(["dpkg", "--configure", "-a"], 300)
-                and run(["apt-get", "install", "-y", "-qq", *APT_OPTIONS, *APT_PACKAGES], 900))
+        return (run(["apt-get", "update", "-qq", *APT_OPTIONS], APT_LIMIT) and run(["dpkg", "--configure", "-a"], APT_LIMIT)
+                and run(["apt-get", "install", "-y", "-qq", "--no-install-recommends", *APT_OPTIONS, *APT_PACKAGES], APT_LIMIT))
 
     for name, present, install in steps:
         for attempt in range(TOOL_ATTEMPTS):

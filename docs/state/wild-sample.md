@@ -108,10 +108,11 @@ In the container, as a normal user whose home is `/work/home`: nomac linked at `
 `wild_sample.py tools`, and copy the three scripts and the manifest to `/work/driver` as above. A file
 just edited on the Mac can read short through the bind mount, so check that the copy parses.
 
-If `ports.ubuntu.com` is too slow for apt's 20-second timeout, give `tools` a mirror:
-`--apt-mirror http://ftp.tu-chemnitz.de/pub/linux/ubuntu-ports/` answered in 2 seconds on 2026-11-07,
-when `ports.ubuntu.com` took 12 and apt had failed on it. It serves the same packages under Ubuntu's
-signatures. This run's container uses it.
+`tools --apt-mirror http://ftp.tu-chemnitz.de/pub/linux/ubuntu-ports/` gives apt a faster mirror: it
+answered in 2 seconds on 2026-11-07 when `ports.ubuntu.com` took 12. It serves the same packages
+under Ubuntu's signatures. This run's container uses it, and installed its packages by hand
+(`~/nomac-out/wild-sample/scratch/apt_then_tools.sh`, log `apt.log`) because the frozen driver's
+`tools` still has the 300-second limit on apt that killed each slow download, since fixed here.
 
 Use a subset fresh from `nomac sdk install`: on 2026-11-07 `/ref/xcode` held 10,048 files and a fresh
 subset 61,187. What `/ref/xcode` lacks is 42,014 files of the macOS platform, 7,492 of the watchOS
@@ -139,8 +140,8 @@ out (`EXCLUDED_DIRECTORIES`); passed to loader/coverage on 2026-11-07.
 
 ## Not covered
 
-No project had finished when this was written, so the driver has not yet carried a real project
-through `nomac archive` and `nomac export`; `results.log` shows whether it did. A drill with a stand-in
+When this was written one real project had gone from clone to `nomac archive`, which it failed on
+its Metal shader, and none had reached `nomac export`; `results.log` shows what came after. A drill with a stand-in
 for nomac and real clones from GitHub went through every other path: an IPA, a failed archive, a
 missing tool, a failed install, a clone that fails, no app, and the second round taking only the not
 measured. It left no run folder behind. A preflight that fails writes `STOPPED` and the next run
