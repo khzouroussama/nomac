@@ -48,6 +48,23 @@ Developer Disk Image's mount on a phone Xcode never prepared are untested agains
 
 ## Just finished
 
+- First-run review fixes (2026-11-07): identity files from a key without a final newline or with extra
+  certificates, a `--chain` file holding both certificates, a key with a passphrase, two profiles of one
+  name; pairing waits through usbmuxd leaving with the last device; a session counts as started only after
+  a request; AMFI's and the mount's replies read as the references read them; `XCTRunner.app` kept in the
+  SDK subset; TSS over plain HTTP off macOS, because a Linux trust store refuses gs.apple.com's private
+  root (the ECID then travels in the clear: the owner's call, see ADR 0403); `nomac test` fails when no
+  target ran; a result bundle says failed after a runner failure; `nomac codesign --help` answers. Testables
+  are named by identifier, and test plans read before the build.
+- A scheme's own test options in the `.xctestrun`, and schemes Xcode autocreates as format 2
+  (docs/formats/xctestrun.md "What a scheme sets on its tests", "A scheme Xcode autocreates").
+- Measured with no iPhone: Linux's usbmuxd states with a real Linux nomac (not installed, not running,
+  no device, stale socket, no permission) and the automatic-signing project. `build-for-testing` on Linux
+  gave the same `.xctestrun` values as Xcode for the base and coverage variants only: the
+  autocreated-plan, test-plan, coverage-libraries, coverage-package and plan-configurations variants were
+  interrupted by the CPU rule and are unconfirmed on Linux. Those Linux runs used the volume's stale
+  `/ref/xcode` (10,048 files against 61,187 from a fresh `nomac sdk install`), with `XCTRunner.app` copied
+  in by hand: confirm a whole-app failure on a fresh install before believing it.
 - `.xcresult`: `nomac test -resultBundlePath` writes a bundle `xcresulttool get test-results`, `get
   object --legacy` and `get content-availability` read, with failures and skips from XCTest's printed
   lines (docs/formats/xcresult.md; what it lacks, B-408). Tested with supplied results; no device run.
@@ -220,9 +237,10 @@ Xcode never saw lists no app service. From pymobiledevice3's `mobile_image_mount
 
 ## Next actions
 
-Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free. Everything left
-needs the phone, except B-408's address sanitizer. The sign-in route for free Apple IDs (B-004) is
-the owner's decision.
+Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free. The sign-in route
+for free Apple IDs (B-004) is the owner's decision. Without the phone, B-408 lists what is left: first
+the stop for a scheme's `enableThreadSanitizer`, Xcode's own build failing for a device, and the Linux
+`.xctestrun` variants above on a fresh SDK install.
 
 1. With the phone, when the owner allows: the first run on a Linux machine's USB (B-407); the UI tests with `nomac test`; the mixed project
    (failing, skipped, expected failure: status and output against Xcode's `test-mixed`).
