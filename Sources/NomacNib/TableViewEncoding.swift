@@ -26,6 +26,8 @@ struct TableContent {
     var bouncesZoom = true
     var estimatedSectionHeaderHeight: Float = 0
     var estimatedSectionFooterHeight: Float = 0
+    /// A table view following the readable width has its cells follow it too (`table-readable`).
+    var cellLayoutMarginsFollowReadableWidth = false
     var allowsMultipleSelection = false
     var allowsMultipleSelectionDuringEditing = false
     var insetsContentViewsToSafeArea = true
@@ -77,6 +79,7 @@ struct TableContent {
         encoder.encode(.float(estimatedSectionFooterHeight), forKey: "UIEstimatedSectionFooterHeight")
         encoder.encode(.double(0), forKey: "UIFillerRowHeight")
         encoder.encode(.double(-1), forKey: "UISectionHeaderTopPadding")
+        if cellLayoutMarginsFollowReadableWidth { encoder.encode(.boolean(true), forKey: "UICellLayoutMarginsFollowReadableWidth") }
         if !allowsSelection { encoder.encode(.boolean(false), forKey: "UIAllowsSelection") }
         if allowsSelectionDuringEditing { encoder.encode(.boolean(true), forKey: "UIAllowsSelectionDuringEditing") }
         if allowsMultipleSelection { encoder.encode(.boolean(true), forKey: "UIAllowsMultipleSelection") }
@@ -97,6 +100,7 @@ struct TableContent {
             try encoder.encode(nibs, forKey: "UITableViewCellPrototypeNibs")
             try encoder.encode(externals, forKey: "UITableViewCellPrototypeNibExternalObjects")
         }
+        // After the prototype cells (`sb-table-separator-prototype`, `sb-table-prototype-*`; the holdout's SyncConflictAlert, the survey's Listr).
         if let sectionIndexBackgroundColor { try encoder.encode(sectionIndexBackgroundColor, forKey: "UISectionIndexBackgroundColor") }
         if let separatorInset { encoder.encode(.data(NibView.doubles(separatorInset)), forKey: "UISeparatorInset") }
         encoder.encode(.integer(0), forKey: "UISeparatorInsetReference")
@@ -328,6 +332,11 @@ extension DocumentCompiler {
             guard let text = attributes[name] ?? fallback else { throw unsupported("a table view without \(name)") }
             return Float(try number(text, name))
         }
+        // An estimated height over 0 up to 1 is 2 (`table-estimated-*`).
+        func estimated(_ name: String, _ fallback: String? = nil) throws -> Float {
+            let value = try height(name, fallback)
+            return value > 0 && value <= 1 ? 2 : value
+        }
         var content = TableContent(style: style, separatorStyle: try mapped(attributes["separatorStyle"] ?? "default", TableContent.separatorStyles, "separatorStyle"),
                             alwaysBounceVertical: try bool(element, "alwaysBounceVertical", default: false),
                             keyboardDismissMode: try attributes["keyboardDismissMode"].map { try mapped($0, ["onDrag": 1, "interactive": 2], "keyboardDismissMode") },
@@ -335,14 +344,15 @@ extension DocumentCompiler {
                             allowsSelection: try bool(element, "allowsSelection", default: true),
                             allowsSelectionDuringEditing: try bool(element, "allowsSelectionDuringEditing", default: false),
                             rowHeight: try height("rowHeight"), sectionHeaderHeight: try height("sectionHeaderHeight"),
-                            sectionFooterHeight: try height("sectionFooterHeight"), estimatedRowHeight: try height("estimatedRowHeight", "0"))
+                            sectionFooterHeight: try height("sectionFooterHeight"), estimatedRowHeight: try estimated("estimatedRowHeight", "0"))
         content.bounces = try bool(element, "bounces", default: true)
         content.showsHorizontalScrollIndicator = try bool(element, "showsHorizontalScrollIndicator", default: true)
         content.delaysContentTouches = try bool(element, "delaysContentTouches", default: true)
         content.canCancelContentTouches = try bool(element, "canCancelContentTouches", default: true)
         content.bouncesZoom = try bool(element, "bouncesZoom", default: true)
-        content.estimatedSectionHeaderHeight = try height("estimatedSectionHeaderHeight", "0")
-        content.estimatedSectionFooterHeight = try height("estimatedSectionFooterHeight", "0")
+        content.estimatedSectionHeaderHeight = try estimated("estimatedSectionHeaderHeight", "0")
+        content.estimatedSectionFooterHeight = try estimated("estimatedSectionFooterHeight", "0")
+        content.cellLayoutMarginsFollowReadableWidth = try bool(element, "layoutMarginsFollowReadableWidth", default: false)
         content.allowsMultipleSelection = try bool(element, "allowsMultipleSelection", default: false)
         content.allowsMultipleSelectionDuringEditing = try bool(element, "allowsMultipleSelectionDuringEditing", default: false)
         content.insetsContentViewsToSafeArea = try bool(element, "contentViewInsetsToSafeArea", default: true)

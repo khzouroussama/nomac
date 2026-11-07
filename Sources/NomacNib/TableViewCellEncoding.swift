@@ -112,7 +112,8 @@ extension DocumentCompiler {
                              "edgeInsets", "directionalEdgeInsets", "inset", "constraints", "userDefinedRuntimeAttributes",
                              "accessibility"])
         let selectionStyles = ["none": 0, "blue": 1, "gray": 2, "default": 3]
-        guard let selectionStyle = selectionStyles[element.attributes["selectionStyle"] ?? "default"] else {
+        // A cell without the attribute is blue (`cell-selection-absent*`).
+        guard let selectionStyle = selectionStyles[element.attributes["selectionStyle"] ?? "blue"] else {
             throw unsupported("selectionStyle=\"\(element.attributes["selectionStyle"] ?? "")\"")
         }
         guard let id = element.attributes["id"], let rect = try element.child("rect", key: "frame") ?? cellFrameInset(element),

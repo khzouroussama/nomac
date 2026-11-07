@@ -85,7 +85,7 @@ extension DocumentCompiler {
                                                            ScrollContent.contentInsetAdjustmentBehaviors, "contentInsetAdjustmentBehavior")
         for guide in element.children(named: "viewLayoutGuide") {
             try check(guide, attributes: ["key", "id"], children: [])
-            try value(guide, "key", in: ["contentLayoutGuide", "frameLayoutGuide"])
+            try value(guide, "key", in: ["contentLayoutGuide", "frameLayoutGuide", "safeArea"])
         }
         return scroll
     }

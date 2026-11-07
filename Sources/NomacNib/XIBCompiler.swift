@@ -717,6 +717,7 @@ struct DocumentCompiler {
         view.isImageView = imageView
         view.adjustsImageSizeForAccessibility = try imageView && bool(element, "adjustsImageSizeForAccessibilityContentSizeCategory", default: false)
         view.tintColor = try tint(of: element)
+        Self.tintTextViews(of: view)
         view.restorationIdentifier = element.attributes["restorationIdentifier"].map { string($0) }
         if let margins = try layoutMargins(element) {
             view.layoutMargins = margins.margins
@@ -765,8 +766,9 @@ struct DocumentCompiler {
         }
         if isScroll {
             view.kind = .scroll(try scrollContent(element))
-            view.layoutGuidePlaceholders = element.children(named: "viewLayoutGuide").map { _ in NibSafeAreaGuide(identifier: string("")) }
-            for guide in element.children(named: "viewLayoutGuide") {
+            let scrollLayoutGuides = element.children(named: "viewLayoutGuide").filter { $0.attributes["key"] != "safeArea" }
+            view.layoutGuidePlaceholders = scrollLayoutGuides.map { _ in NibSafeAreaGuide(identifier: string("")) }
+            for guide in scrollLayoutGuides {
                 guard let key = guide.attributes["key"], ["contentLayoutGuide", "frameLayoutGuide"].contains(key), let guideID = guide.attributes["id"] else { continue }
                 scrollGuides[guideID] = (id, key == "contentLayoutGuide")
             }
@@ -842,7 +844,8 @@ struct DocumentCompiler {
             guard view.preferredSymbolConfiguration == nil || !view.adjustsImageSizeForAccessibility else {
                 throw unsupported("an image view's preferred symbol configuration with accessibility sizing")
             }
-            if view.preferredSymbolConfiguration != nil {
+            // Only with an image (`image-preferred-no-image`).
+            if view.preferredSymbolConfiguration != nil, view.image != nil {
                 view.flags.opaque = false
             }
         }
@@ -979,7 +982,8 @@ struct DocumentCompiler {
         content.enabled = try bool(element, "enabled", default: true)
         _ = try bool(element, "highlighted", default: false)
         content.adjustsLetterSpacingToFit = try bool(element, "adjustsLetterSpacingToFitWidth", default: false)
-        content.preferredMaxLayoutWidth = try attributes["preferredMaxLayoutWidth"].map { Float(try number($0, "preferredMaxLayoutWidth")) }
+        // A width of 0 is not written (`label-max-width-*`).
+        content.preferredMaxLayoutWidth = try attributes["preferredMaxLayoutWidth"].map { Float(try number($0, "preferredMaxLayoutWidth")) }.flatMap { $0 == 0 ? nil : $0 }
         content.adjustsFontSizeToFit = try bool(element, "adjustsFontSizeToFit", default: true)
         let factor = try attributes["minimumScaleFactor"].map { try number($0, "minimumScaleFactor") }
         let minimum = try attributes["minimumFontSize"].map { try number($0, "minimumFontSize") }
@@ -987,7 +991,7 @@ struct DocumentCompiler {
         // minimum over the font's size warns (`label-min-*`, `label-scale-*`).
         if factor != nil || minimum != nil, content.adjustsFontSizeToFit {
             let style = element.children(named: "fontDescription").first?.attributes["style"]
-            guard let size = font.pointSize ?? style.flatMap({ NibFont.textStyleSizes[$0] }) else {
+            guard let size = font.pointSize ?? style.flatMap({ NibFont.textStyleSizes[$0] }), size != 0 else {
                 throw unsupported("this minimum font size of a label")
             }
             (content.minimumFontSize, content.minimumScaleFactor) = Self.fontMinimum(factor: factor, minimum: minimum, size: size)
@@ -996,6 +1000,16 @@ struct DocumentCompiler {
             }
         }
         return content
+    }
+
+    /// A text view without a tint highlights in its superview's tint, the grandparent's not counting
+    /// (`text-view-tint-*`, `sb-text-view-tint-*`).
+    static func tintTextViews(of view: NibView) {
+        guard let tint = view.tintColor else { return }
+        for subview in view.subviews where subview.tintColor == nil {
+            guard case .textView(let content) = subview.kind, let index = content.highlightAttributes.entries.firstIndex(where: { ($0.0 as? NibString)?.value == "NSColor" }) else { continue }
+            content.highlightAttributes.entries[index].1 = tint
+        }
     }
 
     /// ibtool's warning about an element adjusting a font other than a text style's to the content
@@ -1025,7 +1039,9 @@ struct DocumentCompiler {
         let font: NibFont
         switch (attributes["type"], attributes["style"], attributes["name"]) {
         case (let type?, nil, nil):
-            guard Set(attributes.keys).isSubset(of: ["type", "pointSize", "weight"]), let size else { throw unsupported("this system font") }
+            guard Set(attributes.keys).isSubset(of: ["type", "pointSize", "weight"]), let given = size else { throw unsupported("this system font") }
+            // A system font of size 0 is of size 12, but for the italic one (`label-font-zero-*`).
+            let size = given == 0 && type != "italicSystem" ? 12 : given
             let weight = attributes["weight"] ?? "regular"
             switch (type, weight) {
             case ("boldSystem", "regular"), ("system", "bold"):

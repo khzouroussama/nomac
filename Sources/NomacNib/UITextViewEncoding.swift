@@ -109,7 +109,8 @@ final class NibParagraphStyle: NibArchivable {
 
     func encode(to encoder: NibEncoder) throws {
         if alignment != 0 { encoder.encode(.integer(alignment), forKey: "NSAlignment") }
-        if let lineBreakMode { encoder.encode(.integer(lineBreakMode), forKey: "NSLineBreakMode") }
+        // Word wrapping, 0, is not written (`al-break-*-label-word`).
+        if let lineBreakMode, lineBreakMode != 0 { encoder.encode(.integer(lineBreakMode), forKey: "NSLineBreakMode") }
         if let lineHeightMultiple { encoder.encode(.double(lineHeightMultiple), forKey: "NSLineHeightMultiple") }
         encoder.encode(.null, forKey: "NSTabStops")
         if lineBreakMode != nil { encoder.encode(.integer(65535), forKey: "NSLineBreakStrategy") }
@@ -158,7 +159,9 @@ extension DocumentCompiler {
                 throw unsupported("a text view's text of about 512 characters in another script than ASCII")
             }
             let long = counts[0] > 512
-            text = long && !localizable ? NibString.mutable(value) : self.text(value, id: attributes["id"], property: "text")
+            // A text view of a custom class keeps a plain text in `Base.lproj` too (`text-view-custom-lproj`).
+            let localized = localizable && attributes["customClass"] == nil
+            text = long && !localized ? NibString.mutable(value) : localized ? self.text(value, id: attributes["id"], property: "text") : string(value)
             // Text views of one font, color and alignment share their attributes and paragraph style
             // (`text-view-two-*`).
             let key = "\(ObjectIdentifier(font))-\(textColor.map { "\(ObjectIdentifier($0))" } ?? "")-\(paragraphAlignment)"

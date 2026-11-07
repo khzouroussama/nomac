@@ -181,7 +181,8 @@ extension DocumentCompiler {
             configuration = configuration ?? NibSymbolConfiguration()
             configuration?.hierarchicalColors = try palette.children.map { try color($0) }
         }
-        let image = NibImage(name: string(name), symbol: true, configuration: configuration)
+        // Without a catalog it names an image of the app, as a plain image does (`image-reference-asset*`).
+        let image = NibImage(name: string(name), symbol: reference.attributes["catalog"] != nil, configuration: configuration)
         image.variableValue = try reference.attributes["variableValue"].map { try number($0, "variableValue") }
         return image
     }

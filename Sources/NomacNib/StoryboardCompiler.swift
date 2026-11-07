@@ -1319,6 +1319,7 @@ extension DocumentCompiler {
         if let globalTint, view.tintColor == nil {
             guard element.name == "view" else { throw unsupportedScene("a storyboard's global tint with a \(element.name) as a scene's view") }
             view.tintColor = try color(globalTint)
+            Self.tintTextViews(of: view)
         }
         // A table or collection view controller's view may lack the guide in a document using safe
         // areas (`sb-tvc-safe-areas-*`, `sb-cvc-safe-areas-no-guide`).

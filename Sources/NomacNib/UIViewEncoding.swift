@@ -198,8 +198,9 @@ final class NibView: NibArchivable, NibObjectChildren {
     /// lists its content view, safe area and style labels by their keys' alphabetical order
     /// (`cell-style-*`), then its content view's other subviews, the content view only its
     /// constraints (`mask-cell-group`; the corpus's tofu storyboard, two static cells). An effect
-    /// view lists its content view and that view's subviews, the content view its constraints
-    /// (`effect-label-sibling-*`).
+    /// view lists its content view and that view's subviews, then its constraints, the content view
+    /// its own (`effect-label-sibling-*`, `effect-own-constraint*`). A table view lists its safe area
+    /// (`safe-sub-table`), a collection view its layout first (`collection-safe-area*`).
     var childObjects: [NibArchivable] {
         guard layoutGuide == nil else { return [] }
         switch kind {
@@ -210,14 +211,14 @@ final class NibView: NibArchivable, NibObjectChildren {
                 + constraints + movedOutConstraints
         case .cellContentView: return constraints + excludedSubviews
         case .cellSeparator, .systemBackground: return []
-        case .tableView(let table): return constraints + [table.refreshControl].compactMap { $0 }
+        case .tableView(let table): return (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + [table.refreshControl].compactMap { $0 }
         case .collectionCell(let cell):
             let safeArea = safeAreaPlaceholder.map { [$0] } ?? []
             return cell.legacy ? safeArea + cell.contentView.subviews + cell.contentView.constraints : [cell.contentView] + safeArea
         case .segmented: return constraints
-        case .effect(let effect): return constraints + [effect.contentView] + effect.contentView.subviews
+        case .effect(let effect): return [effect.contentView] + effect.contentView.subviews + constraints
         case .effectContentView: return constraints
-        case .collection(let collection): return (safeAreaPlaceholder.map { [$0] } ?? []) + [collection.layout] + constraints + subviews
+        case .collection(let collection): return [collection.layout] + (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + subviews
         case .segment: return []
         case .navigationBar(let items, _), .toolbar(let items, _): return (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + items.elements
         case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .webView, .map, .datePicker,
