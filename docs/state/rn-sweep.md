@@ -14,6 +14,10 @@ install.sh's packages, a soft limit of 1024 open files), the 45 apps that never 
 of round 2 again. A detached run that outlives any agent, with one builder and one installer until the
 owner says the load has dropped:
 
+- Not started until the volume's base is ready: `~/nomac-out/sweep/setup2-27.0.5.sh` (detached, log
+  `~/nomac-out/sweep/setup2.log`) installs the SDK on the Mac, copies it into the volume, runs `nomac toolchain
+  install`, and starts the run (`start.log`). If `run-27.0.5.log` does not exist and neither script runs,
+  run setup2 again.
 - Log: `~/nomac-out/sweep/run-27.0.5.log`. Results: `~/nomac-out/sweep/results`, round 2's in
   `~/nomac-out/sweep/results-round2-ad202e5b`.
 - It runs from a snapshot of the scripts and the manifest, `~/nomac-out/sweep/driver`, so that a rebase of
