@@ -417,6 +417,31 @@ schemes as in their own project; `user-schemes-references`: `SubUser`).
   change it, and the Mac's locale is English). Foundation's comparison with the `en` locale gives
   this order on macOS and Linux alike.
 
+### Where the user's settings put a scheme build
+
+The current user's `xcuserdata/<user>.xcuserdatad/WorkspaceSettings.xcsettings` of the opened
+workspace (of `<Name>.xcodeproj/project.xcworkspace` for a project opened alone) moves the build
+folders of `-scheme` runs. `-target` runs ignore it, and the shared copy in `xcshareddata` moves
+nothing (loader-experiments `workspace-locations-*`, `-shared-*`). `<folder>` is the usual
+`DerivedData/<Name>-<hash>`.
+
+| Keys | Products, intermediates | `MODULE_CACHE_DIR` and caches |
+|---|---|---|
+| `BuildLocationStyle` `UseTargetSettings` | each target's settings, as when a project assigns `SYMROOT`, for a workspace too (`-workspace`) | DerivedData |
+| `BuildLocationStyle` `CustomLocation`, `CustomBuildProductsPath`, `CustomBuildIntermediatesPath` | each path under its base, on its own: a missing one stays where it was (`-custom-products-only`) | DerivedData |
+| `CustomBuildLocationType` `RelativeToWorkspace` | base: the opened container's folder | |
+| `CustomBuildLocationType` `Absolute` | no base | |
+| `CustomBuildLocationType` `RelativeToDerivedData` or missing | base: `<folder>` at Xcode's default root, even when DerivedData is moved (`-derived-and-custom`) or given with `-derivedDataPath` | |
+| `DerivedDataLocationStyle` `WorkspaceRelativePath`, `DerivedDataCustomLocation` `DD` | `<container's folder>/DD/<Name>/Build/...`: the name as written, spaces kept, no hash (`Fuzz 2`) | `<container's folder>/DD` |
+| `DerivedDataLocationStyle` `AbsolutePath`, `DerivedDataCustomLocation` `/d` | `/d/<Name>-<hash>/Build/...` | `/d` |
+
+`SourcePackages` follows the DerivedData folder. Other values, and a style without its location,
+change nothing (`-unknown-style`, `-derived-no-location`). `-derivedDataPath` wins over
+`DerivedDataLocationStyle` but not over a custom build location or `UseTargetSettings`
+(`scheme-derived` of each case). 2 of the survey's 2,951 projects commit `UseTargetSettings` or
+`CustomLocation`, which count only for the account named in the path. A relative location with
+`..` in it is not observed.
+
 ## Failures
 
 `-showBuildSettings -scheme` fails, with nothing after the preamble on standard output, in three

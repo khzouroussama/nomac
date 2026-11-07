@@ -24,6 +24,43 @@ import NomacVerify
         #expect(custom.buildIntermediatesPath == "/dd/Build/Intermediates.noindex")
     }
 
+    /// loader-experiments `workspace-locations-*`, with `P.xcodeproj` in `/s`.
+    @Test func theUsersSettingsPlaceSchemeBuilds() {
+        let home = "/h", dd = "/h/Library/Developer/Xcode/DerivedData"
+        let folder = dd + "/P-" + DerivedData.folderHash("/s/P.xcodeproj")
+        func locations(_ values: [String: Any], customRoot: String? = nil, name: String = "P") -> BuildLocations {
+            DerivedData.locations(name: name, containerPath: "/s/\(name).xcodeproj", home: home, customRoot: customRoot, user: UserBuildLocations(values: values))
+        }
+        let custom = { (type: String) in ["BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": type,
+                                          "CustomBuildProductsPath": "Out/Products", "CustomBuildIntermediatesPath": "Out/Intermediates"] }
+        #expect(locations(["BuildLocationStyle": "UseAppPreferences"]).buildProductsPath == folder + "/Build/Products")
+        #expect(locations(["BuildLocationStyle": "Mystery", "DerivedDataLocationStyle": "Mystery"]).buildProductsPath == folder + "/Build/Products")
+        #expect(locations(custom("RelativeToWorkspace")).buildProductsPath == "/s/Out/Products")
+        #expect(locations(custom("RelativeToWorkspace")).pchPath == "/s/Out/Intermediates/PrecompiledHeaders")
+        #expect(locations(custom("RelativeToWorkspace")).derivedDataPath == dd)
+        #expect(locations(custom("RelativeToWorkspace"), customRoot: "/g").derivedDataPath == "/g")
+        #expect(locations(custom("RelativeToWorkspace"), customRoot: "/g").buildProductsPath == "/s/Out/Products")
+        #expect(locations(custom("RelativeToDerivedData")).buildIntermediatesPath == folder + "/Out/Intermediates")
+        #expect(locations(["BuildLocationStyle": "CustomLocation", "CustomBuildProductsPath": "Out/Products"]).buildProductsPath == folder + "/Out/Products")
+        #expect(locations(["BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "RelativeToWorkspace"]).buildProductsPath == folder + "/Build/Products")
+        var absolute = custom("Absolute")
+        absolute["CustomBuildProductsPath"] = "/o/Products"
+        #expect(locations(absolute).buildProductsPath == "/o/Products")
+        let relative = ["DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DD"]
+        #expect(locations(relative).derivedDataPath == "/s/DD")
+        #expect(locations(relative).buildProductsPath == "/s/DD/P/Build/Products")
+        #expect(locations(relative, name: "Fuzz 2").buildProductsPath == "/s/DD/Fuzz 2/Build/Products")
+        #expect(locations(relative, customRoot: "/g").buildProductsPath == "/g/Build/Products")
+        #expect(locations(["DerivedDataLocationStyle": "WorkspaceRelativePath"]).buildProductsPath == folder + "/Build/Products")
+        #expect(locations(["DerivedDataLocationStyle": "AbsolutePath", "DerivedDataCustomLocation": "/d"]).buildProductsPath
+                == "/d/P-" + DerivedData.folderHash("/s/P.xcodeproj") + "/Build/Products")
+        #expect(locations(relative.merging(custom("RelativeToDerivedData")) { $1 }).buildProductsPath == folder + "/Out/Products")
+        #expect(locations(relative.merging(custom("RelativeToDerivedData")) { $1 }).derivedDataPath == "/s/DD")
+        #expect(DerivedData.sourcePackagesPath(name: "Fuzz", containerPath: "/s/Fuzz.xcodeproj", home: home, customRoot: nil, user: UserBuildLocations(values: relative))
+                == "/s/DD/Fuzz/SourcePackages")
+        #expect(UserBuildLocations(values: ["BuildLocationStyle": "UseTargetSettings"]).usesTargetSettings)
+    }
+
     @Test func genericIOSDestination() throws {
         let destination = try DestinationSpecifier.parse("generic/platform=iOS")
         #expect(destination.targetArchitecture == "undefined_arch")

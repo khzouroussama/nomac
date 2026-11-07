@@ -44,7 +44,8 @@ public struct WorkspacePIF: Sendable {
                                 evaluatingSettings: Bool = true, skipsMacroValidation: Bool = false,
                                 buildToolPlugins: BuildToolPlugins? = nil) async throws -> WorkspacePIF {
         let sourcePackages = DerivedData.sourcePackagesPath(
-            name: workspace.name, containerPath: DerivedData.containerPath(of: workspace), home: home, customRoot: derivedDataPath)
+            name: workspace.name, containerPath: DerivedData.containerPath(of: workspace), home: home, customRoot: derivedDataPath,
+            user: UserBuildLocations(workspacePath: workspace.path, userName: HostIdentity.current().userName))
         var packages = try SwiftPackages(workspace: workspace, sourcePackagesDirectory: sourcePackages, developerDirectory: developerDirectory,
                                          skipsMacroValidation: skipsMacroValidation)
         packages.buildToolPlugins = buildToolPlugins

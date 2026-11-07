@@ -151,7 +151,8 @@ struct BuildOptions: ParsableArguments {
             selection = targets.isEmpty ? .defaultTarget : .targets(targets)
         }
         let locations = DerivedData.locations(name: loaded.name, containerPath: DerivedData.containerPath(of: loaded), home: host.homeDirectory,
-                                              customRoot: derivedDataPath.map(FileSystem.xcodebuildSpelling))
+                                              customRoot: derivedDataPath.map(FileSystem.xcodebuildSpelling),
+                                              user: UserBuildLocations(workspacePath: loaded.path, userName: host.userName))
         let quiet = self.quiet
         let pluginLog: @Sendable (String) -> Void = { text in
             if !quiet { FileHandle.standardOutput.write(Data(text.utf8)) }

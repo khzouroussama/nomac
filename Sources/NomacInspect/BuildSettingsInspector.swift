@@ -295,7 +295,8 @@ public final class BuildSettingsInspector {
                 configuration = configuration ?? (invocation.action == .buildForTesting ? scheme.testConfiguration : scheme.launchConfiguration)
             }
             let container = DerivedData.containerPath(of: workspace)
-            let arena = DerivedData.locations(name: workspace.name, containerPath: container, home: host.homeDirectory, customRoot: invocation.derivedDataPath)
+            let user = UserBuildLocations(workspacePath: workspace.path, userName: host.userName)
+            let arena = DerivedData.locations(name: workspace.name, containerPath: container, home: host.homeDirectory, customRoot: invocation.derivedDataPath, user: user)
             // A project opened alone that assigns SYMROOT builds products, intermediates and
             // precompiled headers in its own locations, its caches still under DerivedData
             // (XcodeProject.assignsSymroot; loader-experiments `symroot-project-*`: SYMROOT, OBJROOT
@@ -303,7 +304,7 @@ public final class BuildSettingsInspector {
             // DerivedData's, or -derivedDataPath's: `-derived`). Only the opened project's
             // assignments count, and they apply to the projects it references too
             // (`symroot-references-sub`, `-top`).
-            let ownLocations = workspace.isImplicit && workspace.projects.first?.assignsSymroot == true
+            let ownLocations = user.usesTargetSettings || (workspace.isImplicit && workspace.projects.first?.assignsSymroot == true)
             locations = ownLocations ? BuildLocations(derivedDataPath: arena.derivedDataPath, buildProductsPath: "", buildIntermediatesPath: "",
                                                       pchPath: "", indexPCHPath: "") : arena
             // A scheme that gathers code coverage makes xcodebuild synthesize these two settings

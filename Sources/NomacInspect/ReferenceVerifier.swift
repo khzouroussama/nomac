@@ -140,7 +140,8 @@ public struct ReferenceVerifier {
             return checks
         }
         let sourcePackages = DerivedData.sourcePackagesPath(
-            name: workspace.name, containerPath: DerivedData.containerPath(of: workspace), home: host.homeDirectory, customRoot: nil)
+            name: workspace.name, containerPath: DerivedData.containerPath(of: workspace), home: host.homeDirectory, customRoot: nil,
+            user: UserBuildLocations(workspacePath: workspace.path, userName: host.userName))
         return VerificationReport(app: app.id, xcodeBuild: referenceHost.xcodeBuild,
                                   checks: checks + envelopeChecks(checks, container: app.container, sourcePackages: sourcePackages))
     }

@@ -69,32 +69,95 @@ public enum DerivedData {
     /// Where Xcode checks out a workspace's remote Swift packages: `SourcePackages` in the
     /// workspace's folder (netnewswire: `DerivedData/NetNewsWire-<hash>/SourcePackages`), or in
     /// the `-derivedDataPath` folder.
-    public static func sourcePackagesPath(name: String, containerPath: String, home: String, customRoot: String?) -> String {
-        let folder = customRoot ?? workspaceFolder(name: name, containerPath: containerPath, home: home)
-        return folder + "/SourcePackages"
+    public static func sourcePackagesPath(name: String, containerPath: String, home: String, customRoot: String?,
+                                          user: UserBuildLocations? = nil) -> String {
+        folders(name: name, containerPath: containerPath, home: home, customRoot: customRoot, user: user).workspace + "/SourcePackages"
+    }
+
+    /// The DerivedData root and the workspace's folder in it: `-derivedDataPath`, or where the
+    /// user's settings put them (loader-experiments `workspace-locations-derived-*`: `DD` next to
+    /// the opened container, with a folder named as the workspace, spaces kept and no hash;
+    /// an absolute location keeps the usual folder name), or Xcode's default.
+    private static func folders(name: String, containerPath: String, home: String, customRoot: String?,
+                                user: UserBuildLocations?) -> (root: String, workspace: String) {
+        if let customRoot { return (customRoot, customRoot) }
+        if let location = user?.derivedDataCustomLocation {
+            switch user?.derivedDataLocationStyle {
+            case "WorkspaceRelativePath":
+                let root = (containerPath as NSString).deletingLastPathComponent + "/" + location
+                return (root, root + "/" + name.decomposed)
+            case "AbsolutePath":
+                return (location, location + "/" + folderName(name) + "-" + folderHash(containerPath.decomposed))
+            default:
+                break
+            }
+        }
+        return (defaultRoot(home: home), workspaceFolder(name: name, containerPath: containerPath, home: home))
     }
 
     /// The arena for a scheme build of the container at `containerPath` named `name`.
-    /// - Parameter customRoot: the `-derivedDataPath` argument, if given; it replaces the
-    ///   per-workspace folder, as it does for xcodebuild.
-    public static func locations(name: String, containerPath: String, home: String, customRoot: String?) -> BuildLocations {
-        let root: String
-        let workspaceFolder: String
-        if let customRoot {
-            root = customRoot
-            workspaceFolder = customRoot
-        } else {
-            root = defaultRoot(home: home)
-            workspaceFolder = Self.workspaceFolder(name: name, containerPath: containerPath, home: home)
+    /// - Parameters:
+    ///   - customRoot: the `-derivedDataPath` argument, if given; it replaces the per-workspace
+    ///     folder, as it does for xcodebuild.
+    ///   - user: the current user's settings for the workspace, if any. Paths of a custom build
+    ///     location replace the arena's whatever `customRoot` says, each on its own; relative to
+    ///     DerivedData means Xcode's default folder even when DerivedData is moved
+    ///     (loader-experiments `workspace-locations-custom-*`, `-derived-and-custom`).
+    public static func locations(name: String, containerPath: String, home: String, customRoot: String?,
+                                 user: UserBuildLocations? = nil) -> BuildLocations {
+        let folders = folders(name: name, containerPath: containerPath, home: home, customRoot: customRoot, user: user)
+        var products = folders.workspace + "/Build/Products"
+        var intermediates = folders.workspace + "/Build/Intermediates.noindex"
+        if let user, user.buildLocationStyle == "CustomLocation" {
+            let base: String
+            switch user.customBuildLocationType {
+            case "RelativeToWorkspace": base = (containerPath as NSString).deletingLastPathComponent + "/"
+            case "Absolute": base = ""
+            default: base = workspaceFolder(name: name, containerPath: containerPath, home: home) + "/"
+            }
+            if let path = user.customBuildProductsPath { products = base + path }
+            if let path = user.customBuildIntermediatesPath { intermediates = base + path }
         }
-        let intermediates = workspaceFolder + "/Build/Intermediates.noindex"
         return BuildLocations(
-            derivedDataPath: root,
-            buildProductsPath: workspaceFolder + "/Build/Products",
+            derivedDataPath: folders.root,
+            buildProductsPath: products,
             buildIntermediatesPath: intermediates,
             pchPath: intermediates + "/PrecompiledHeaders",
-            indexPCHPath: workspaceFolder + "/Index.noindex/PrecompiledHeaders")
+            indexPCHPath: folders.workspace + "/Index.noindex/PrecompiledHeaders")
     }
+}
+
+/// The keys of the current user's `WorkspaceSettings.xcsettings` that place a workspace's scheme
+/// builds. `-target` builds ignore them, and so does everyone when they are in the shared copy
+/// (loader-experiments `workspace-locations-*`, `-shared-*`; docs/formats/show-build-settings.md).
+public struct UserBuildLocations: Equatable, Sendable {
+    public var buildLocationStyle: String?
+    public var customBuildLocationType: String?
+    public var customBuildProductsPath: String?
+    public var customBuildIntermediatesPath: String?
+    public var derivedDataLocationStyle: String?
+    public var derivedDataCustomLocation: String?
+
+    public init(values: [String: Any]) {
+        buildLocationStyle = values["BuildLocationStyle"] as? String
+        customBuildLocationType = values["CustomBuildLocationType"] as? String
+        customBuildProductsPath = values["CustomBuildProductsPath"] as? String
+        customBuildIntermediatesPath = values["CustomBuildIntermediatesPath"] as? String
+        derivedDataLocationStyle = values["DerivedDataLocationStyle"] as? String
+        derivedDataCustomLocation = values["DerivedDataCustomLocation"] as? String
+    }
+
+    /// Reads `xcuserdata/<userName>.xcuserdatad/WorkspaceSettings.xcsettings` of the workspace at
+    /// `workspacePath` (`<Name>.xcodeproj/project.xcworkspace` for a project opened alone).
+    public init(workspacePath: String, userName: String) {
+        let data = FileSystem.contents(atPath: workspacePath + "/xcuserdata/\(userName).xcuserdatad/WorkspaceSettings.xcsettings")
+        let plist = data.flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) }
+        self.init(values: plist as? [String: Any] ?? [:])
+    }
+
+    /// Products and intermediates go where each target's settings say, as when a project assigns
+    /// `SYMROOT` (`workspace-locations-target-settings`, `-symroot`, `-workspace`).
+    public var usesTargetSettings: Bool { buildLocationStyle == "UseTargetSettings" }
 }
 
 /// `-destination` values nomac understands.
