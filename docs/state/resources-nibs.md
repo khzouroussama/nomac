@@ -392,13 +392,11 @@ B-261's storyboard features outside part A's list. Wrong nibs come before refusa
 Everything below lives in `~/nomac-out/wt-scratch/nibs-2` (outside the repository; none of it is committed):
 
 Next actions:
-1. Wrong nibs first. Xcode's own outputs for 5,297 documents of the survey are in `survey-obs`, the holdout's in
-   `holdout-obs`: `python3 $C survey-obs <nomac> corpus` (`$C` = `.github/scripts/nib_compare.py`) counts them. At
-   this commit 66 survey documents and 10 holdout documents still differ. `tools/classify.py survey-diffs.txt`
-   groups them by first difference, `ddiff.py <document> 30` shows one. Open: `Info.plist` order (part A's B-266),
-   constraints and colors (part A), estimated section heights, `UISeparatorInset`'s place,
-   `UICellLayoutMarginsFollowReadableWidth`, an all-objects order (vlc QueueView), the deprecation warnings of top
-   and bottom layout guides, 3 accessibility orders the walk does not fit (ish's Terminal).
+1. Wrong nibs: none left in this part. Xcode's own outputs for 5,297 documents of the survey are in `survey-obs`, the
+   holdout's in `holdout-obs`: `python3 $C survey-obs <nomac> corpus` (`$C` = `.github/scripts/nib_compare.py`) counts them,
+   `tools/classify.py <list>` groups them by first difference, `ddiff.py <document> 30` shows one. 28 survey and 5
+   holdout documents still differ, all part A's: `Info.plist` order (B-266, 8), constraints (10) and colors (10). A
+   xib's warning order changes from run to run and counts as equivalent (ADR 0254). The B-291 placeholders stay refused.
 2. Refusals, ranked by projects in `rank-final.txt` (all parts; 2,972 of 5,688 survey documents compile, 1,344 are
    refused in this part). Largest by documents: `<view>` in `<tableView>` (47), `<webView>` (33), navigation bars'
    `translucent` (32), `barStyle` (22) and colors (22), `<tableView>` in `<objects>` (32), a navigation controller's bar

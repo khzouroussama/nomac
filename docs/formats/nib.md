@@ -88,13 +88,10 @@ Only inputs whose every element, attribute, value and option the experiments obs
   Xcode 5's `<development version="5100" identifier="xcode"/>` (`development-xcode-5100`; a
   storyboard's retina6_72 scenes are 393 x 852 in either orientation, as retina3_5's:
   `sb-device-retina6_72*`), and
-  `<deployment identifier="iOS"/>`, with or without a `version` (major x 256 + minor x 16) from
-  2048 (8.0) to 6912 (27.0), IB's numbers between iOS 18 and 26 included: none changes a nib, and
-  below 5888 ibtool prints `<path>:global: warning: This file is set to build for a version older
-  than the deployment target. Functionality may be limited. [9]` under
-  `/* com.apple.ibtool.document.warnings */`, whatever `--minimum-deployment-target`
-  (`document-version-*`, `sb-document-version-*`, round 58; gomap's QuestBuilder at 5376). Before
-  8.0 ibtool writes nib bundles, as for a deployment target before 8.0 (B-263). None of these changes a xib's nib (`system-version-*`,
+  `<deployment identifier="iOS"/>`, with or without a `version` in binary-coded decimal (0x1220, 4640, is
+  iOS 12.2; survey documents hold 0x0300 to 0x1700) from 0x0800 to 0x1b00, which sizes and warns as
+  "Older documents" says (`document-version-*`, `sb-document-version-*`, round 58; gomap's QuestBuilder at 0x1500).
+  Before 8.0 ibtool writes nib bundles, as for a deployment target before 8.0 (B-263). None of these changes a xib's nib (`system-version-*`,
   `device-*`, `no-device`); a storyboard sizes its scenes by the device (below).
 - **Placeholders.** File's Owner (with or without a class and module) and First Responder (with
   or without `UIResponder`); the classes change nothing (`owner-*`, `no-first-responder-class`).
@@ -248,8 +245,8 @@ one placeholder per name for image views and buttons alike (`image-view-symbol`,
 with a `symbolScale` is a placeholder of its own whose `UISymbolImageConfiguration` is a
 `UIImageSymbolConfiguration` of that scale (as in "Button configurations"), and its
 `<preferredSymbolConfiguration key="preferredSymbolConfiguration">` another, written
-`UIPreferredSymbolConfiguration` after `UIImage`, with which the image view writes no `UIOpaque`
-(`image-view-symbol-reference*`, `image-view-symbol-preferred-*`). A `variableValue` is the
+`UIPreferredSymbolConfiguration` after `UIImage`, with which the image view writes no `UIOpaque`, when it has an
+image (`image-view-symbol-reference*`, `image-view-symbol-preferred-*`, `image-preferred-*-no-image`). A `variableValue` is the
 placeholder's `UIImageVariableValue` (double) after `UISystemSymbolResourceName`; `renderingMode="hierarchical"`
 with its `<hierarchicalColors>` puts `UIHierarchicalColors` (an array of the colors) in the symbol
 configuration, after any scale, then `UIDerivativeHierarchicalColors` false,
@@ -285,7 +282,8 @@ nearest quarter point; for a text style its size at the default content size: Bo
 `UILineBreakMode` (wordWrap 0, characterWrap 1, clip 2, headTruncation 3, middleTruncation 5;
 tailTruncation 4 is not written), `UITextAlignment` always (left 0, center 1, right 2, justified 3,
 natural 4; left when absent), `UIEnabled` false, `UIMinimumScaleFactor` float (or minimumFontSize
-over the point size), `UIAdjustsLetterSpacingToFit` true, `UIPreferredMaxLayoutWidth` float,
+over the point size), `UIAdjustsLetterSpacingToFit` true, `UIPreferredMaxLayoutWidth` float (none for 0:
+`label-max-width-*`),
 `UIDisableUpdateTextColorOnTraitCollectionChange` (true when the document gives the text color or
 has no text color element: `label-text-absent`, React Native's launch screen). Equal fonts and
 colors are one object (`label-two`). With `adjustsFontSizeToFit="NO"` neither `minimumFontSize` nor
@@ -308,7 +306,9 @@ light 8, regular and medium 0, semibold, heavy and black 2; bold (`boldSystem` o
 is a mutable dictionary of the emphasized usage, `NSCTFontUIUsageOverrideAttribute`
 `CTFontBoldUsage` and the size, traits 2; `italicSystem` is `.SFUI-RegularItalic` with
 `NSCTFontTraitsAttribute` {`NSCTFontSymbolicTrait` 1}, `CTFontObliqueUsage`, traits 1;
-`.AppleSystemUIFont` is the regular system font. Text styles have point size 0 and the
+`.AppleSystemUIFont` is the regular system font. A system font of `pointSize="0"` is of 12 points but for
+`italicSystem`, which stays 0 (`label-font-zero-*`, `button-font-zero-*`; a label's minimum font size beside it is
+refused). Text styles have point size 0 and the
 `NSSize` and name of `NibFont.textStyles` (Body 14, Headline semibold 14, Title0 31...). A style
 ibtool does not know (`UICTFontTextStyleSubheadline`, or a made-up one: `label-style-subheadline`,
 `label-style-made-up`) is a font of `UIFontName` and `NSName` nil, a descriptor of attributes nil
@@ -362,7 +362,7 @@ order, the color and font the label's objects, `NSOriginalFont` dropped (`al-gom
 color `textColor` (`catalog="System"`) is opaque black, unnamed (`al-system-15-text-color`). The
 paragraph style is an `NSMutableParagraphStyle` of `NSAlignment` (AppKit's values, none for left),
 `NSLineBreakMode` the label's own (tail truncation without one, whatever the paragraph's:
-`al-gomap-label`), `NSLineHeightMultiple` (double) when given, `NSTabStops` nil and
+`al-gomap-label`; word wrapping, 0, is not written: `al-break-*-label-word`), `NSLineHeightMultiple` (double) when given, `NSTabStops` nil and
 `NSLineBreakStrategy` 65535; `baseWritingDirection="natural"` and `tighteningFactorForTruncation="0.0"`
 write nothing. An empty `<attributedString/>` writes the empty string, the system font of 17 points
 with descriptor options 0, alignment 4 and an attributed string without attributes (`al-empty`).
@@ -690,11 +690,14 @@ plain, 1 grouped), the separator style (default: `UISeparatorStyle` and `UISepar
 none: `UISeparatorStyleIOS9AndLater` 0; singleLineEtched: all three 2: `table-separator-*`),
 `UIPrefetchingEnabled`, `UIRowHeight`, `UISectionHeaderHeight`, `UISectionFooterHeight`,
 `UIEstimatedRowHeight` (floats; 0 without `estimatedRowHeight`), `UIEstimatedSectionHeaderHeight` and
-`UIEstimatedSectionFooterHeight` (0 without them), `UIFillerRowHeight` 0 and `UISectionHeaderTopPadding` -1
-(doubles), `UIAllowsSelection` false for `allowsSelection="NO"`, `UIAllowsSelectionDuringEditing`,
+`UIEstimatedSectionFooterHeight` (0 without them; an estimate over 0 up to 1 is written as 2:
+`table-estimated-*`), `UIFillerRowHeight` 0 and `UISectionHeaderTopPadding` -1
+(doubles), `cellLayoutMarginsFollowReadableWidth` true with `layoutMarginsFollowReadableWidth` on the table
+(`table-readable*`, `sb-table-readable`), `UIAllowsSelection` false for `allowsSelection="NO"`, `UIAllowsSelectionDuringEditing`,
 `UIAllowsMultipleSelection`, `UIAllowsMultipleSelectionDuringEditing`, `UIInsetsContentViewsToSafeArea`
 (false for `contentViewInsetsToSafeArea="NO"`), `UISeparatorColor`, `UISectionIndexBackgroundColor`,
-`UISeparatorInset` (07, then top, left, bottom, right), the prototypes, and `UISeparatorInsetReference` 0.
+the prototypes, `UISeparatorInset` (07, then top, left, bottom, right: `sb-table-separator-prototype`), and
+`UISeparatorInsetReference` 0.
 Its own constraints are listed in all objects as a view's (the corpus's pocket-casts
 CategorySummaryViewController). A grouped or inset grouped table without a background color gets
 `systemGroupedBackgroundColor`; a plain one's background of white 1 named `whiteColor` or
@@ -771,7 +774,8 @@ in a storyboard's prototype cell, whose nested nib keeps it: `cell-a11y*`, round
 before `UIViewInsetsLayoutMarginsFromSafeArea`: the corpus's netnewswire settings cells), then
 `UIReuseIdentifier`, `UIShowsReorderControl` true for `showsReorderControl`,
 `UITableViewCellStyle` (Value1 1, Subtitle 3; Default writes none), `UIIndentationLevel`,
-`UISelectionStyle` (none 0, blue 1, gray 2; the default writes none), `UIAccessoryType` and
+`UISelectionStyle` (none 0, blue 1, gray 2; the default writes none, and a cell without the attribute is
+blue: `cell-selection-absent*`), `UIAccessoryType` and
 `UIEditingAccessoryType` (disclosureIndicator 1, checkmark 3), `UIIndentationWidth` (float),
 `UITableCellBackgroundColorSet` with a background color, `UISeparatorInset` (data 07, doubles top,
 left, bottom, right of `<inset key="separatorInset">`'s minY, minX, maxY, maxX:
@@ -907,7 +911,8 @@ indicators, 250 x 750 for progress views; segmented controls, page controls and 
 
 ## Visual effect views
 
-A `<visualEffectView>` is a `UIVisualEffectView` (`effect-*`, round 38): a view's keys with
+A `<visualEffectView>` is a `UIVisualEffectView` (`effect-*`, round 38), listing in all objects its content view,
+that view's subviews, then its own constraints (`effect-own-constraint*`): a view's keys with
 `UIShouldNotAdaptToMaterials` true after `UIAutoresizingMask` and no `UISubviews`, then
 `UIVisualEffectViewEffect`, `UIVisualEffectViewGroupName` nil and `UIVisualEffectViewContentView`.
 The effect is a `UIBlurEffect`: `UIBlurEffectMaterialStyle`, `UIBlurEffectAutomaticStyle` and
@@ -931,7 +936,9 @@ material 96% black, over a dark material 96% white.
 
 ## Collection views
 
-A `<collectionView>` of a xib without prototypes (`dataMode="none"`; `collection-*`, round 45) is a
+A collection view lists in all objects its layout, then its safe area, constraints and subviews (`collection-safe-area*`;
+the survey's woocommerce ProductImagesHeaderTableViewCell). A `<collectionView>` of a xib without prototypes
+(`dataMode="none"`; `collection-*`, round 45) is a
 `UICollectionView`: a view's and a scroll view's keys (as in "UIScrollView"), then
 `UICollectionLayout`, `UIAllowsUserInitiatedMultipleSelection` true and
 `UICollectionViewPrefetchingEnabled` (false for `prefetchingEnabled="NO"`). A white gray background
@@ -974,7 +981,8 @@ its own keys (`sb-section-footer-no-sizes`).
 
 A `<textView>` is a `UITextView` (`text-view-*`, round 51): a view's and a scroll view's keys (as in
 "UIScrollView"), then, with a text (`text` attribute or `<string key="text">`), `UIText` (an
-`NSLocalizableString` in a document of `Base.lproj`, `text-view-lproj`) and
+`NSLocalizableString` in a document of `Base.lproj`, `text-view-lproj`, a plain string for a custom class:
+`text-view-custom-lproj`) and
 `UIAttributedText`, an `NSAttributedString` of the plain string (past 512 characters both are
 `NSMutableString`s, two objects, whatever the form, the plain one localizable as any in an `.lproj`
 folder; labels' texts stay `NSString`s: `text-view-length-*`, `label-length-*`, round 46;
@@ -993,8 +1001,9 @@ with `adjustsFontForContentSizeCategory="YES"`, `text-view-adjusts*`), `UITextCo
 true, `UITextContentType` (the string, `url`), `UITextSmartInsertDeleteType`,
 `UITextSmartQuotesType` and `UITextSmartDashesType` (no 1) (`text-view-all-flags`,
 `text-view-traits-*`); a missing `<textInputTraits>` is an empty one. Last come
-`UITextHighlightAttributes` (an `NSDictionary` of `NSColor` the system `systemBlueColor` and
-`NSTextHighlightOutlineColor` the system `secondarySystemFillColor`) and
+`UITextHighlightAttributes` (an `NSDictionary` of `NSColor` the view's tint, else its direct superview's, a
+storyboard's global tint for a scene's root view, not a grandparent's, else the system `systemBlueColor`:
+`text-view-tint-*`, `sb-text-view-tint-*`; and `NSTextHighlightOutlineColor` the system `secondarySystemFillColor`) and
 `UITextAllowsNumberPadPopover` true, then a custom class's names. A text view that does not scroll
 writes no `UIClipsToBounds` even with `clipsSubviews="YES"` (`text-view-scrollEnabled-NO`, a scroll
 view's does), and a white gray background is the system `systemBackgroundColor` as in "Collection
@@ -1148,7 +1157,10 @@ compared byte by byte (`10` before `4`, `100` between `10` and `11`), those of o
 document's order. This fits every nib with pairs on several objects: 153 of the corpus and the
 experiments, 48 of the holdout not seen when the rule was found, and `udra-order-root-many-*`,
 `udra-order-owner-many-*`, `udra-order-owner-root-many-*`, `udra-order-many-97` to `-120` and
-`-1100-every-37`, recorded to test it (round 117, B-290).
+`-1100-every-37`, recorded to test it (round 117, B-290). What the default size class's masks exclude from a view,
+constraints or subviews, is counted after what the view lists and what the excluded subviews list, so later
+objects of the list take lower numbers; other size classes' masks count for nothing (`mask-pairs-*`, round 143;
+organicmaps' LocationServicesDisabledAlert, mapsme's MWMMapDownloadDialog, PixPic's PostViewCell).
 Accessibility configurations follow the walk of "Connections" (`a11y-order-many-*`, `a11y-walk-*`, `sb-a11y-walk-*`). Values: `number`
 an `NSNumber` (`<integer>` `NS.intval`, `<real>` `NS.dblval`, 4 as 4.0), `boolean` the integers 1
 and 0, `string` a string (plain in an `.lproj` folder too: `udra-lproj`), `color` a `UIColor`,
@@ -1389,6 +1401,25 @@ from 5000 (`header-development-*`), `promptedForUpgradeToXcode5`, a `<simulatedM
 - Devices ibtool knows besides those of "Inputs nomac compiles": `ipad10_9rounded` (820 x 1180), `iPad13_0rounded`
   (1032 x 1376), `ipad7_9` (744 x 1133). `ipad12_9`, `ipad10_5` and `ipad11_0` are as no device
   (`header-device-*`, `sb-header-device-*`).
+
+A document's `<deployment version>` stands for the target in what follows, whatever `--minimum-deployment-target`
+(rounds 139 and 141, each version at 27.0, 17.0 and 15.0):
+
+- Before iOS 17, its objects take the sizes of old documents, with or without a device (`docversion-*`,
+  `sb-docversion-*`), as without one a target before 17 does.
+- Before the smaller of the target and iOS 17, ibtool prints `<path>:global: warning: This file is set to build
+  for a version older than the deployment target. Functionality may be limited. [9]`, entered first in the warnings'
+  table (`sb-segue-*-docversion-*`).
+- From iOS 11.0, a storyboard's constraint to a scene's layout guide warns as with a target from 11.0, beside the
+  warning above (`sb-warn-guide-docversion-*`).
+- A safe area needs iOS 9.0, under which ibtool fails with `Safe Area Layout Guide before iOS 9.0 [12]`. Up to 11.0,
+  a xib drops an unpinned guide from all objects, a storyboard keeps it, and a constraint to it makes a nib bundle
+  (`docbundle-safe-*`, `docbundle-safe-cell-*`, `docbundle-safe-subview-*`, `docbundle-safe-pinned-*`, `sb-docbundle-safe-*`).
+- A named color needs iOS 11.0, under which ibtool fails with `Named colors do not work prior to iOS 11.0. [12]`, and
+  makes a nib bundle up to 13.0 (`docbundle-named-*`, `sb-docbundle-named-*`). Whether the document has the
+  capability changes nothing.
+
+nomac refuses what fails or makes a bundle there (B-263).
 
 Only `Base.lproj` makes a document's texts localizable; in `en.lproj`, `fr.lproj`, `zh-Hans.lproj` or
 `English.lproj` they are plain strings (`lproj-folder-*`, `sb-lproj-folder-*`). A view without a frame writes
