@@ -24,7 +24,8 @@ the Mac falls under 15 GB free, the run writes why to <root>/STOPPED and ends, k
 progress, and no run starts while that file exists.
 
 In the shares only what says nothing about nomac or the project is not measured: what the network
-cut, a tool this machine lacks, and the run's own stop for disk. `report` prints how many, why, and
+cut, an archive that timed out or failed on the network while cloning packages, a tool this machine
+lacks, and the run's own stop for disk. `report` prints how many, why, and
 the bounds that leaves. Every other failure counts as stopped until a verdict by hand moves it,
 labelled by what is known ("stopped at install, cause not read"), since `pod install` failing could
 be nomac's launchers and a share that is too low is better than one too high.
@@ -63,6 +64,7 @@ import collections
 import concurrent.futures
 import contextlib
 import datetime
+import gzip
 import hashlib
 import json
 import os
@@ -120,6 +122,9 @@ ERROR = re.compile(r"(^|\s)(error|fatal error):\s|^\s*\*\* [A-Z ]+ FAILED \*\*|^
 NETWORK = re.compile(r"Could not resolve host|Temporary failure|Empty reply from server|early EOF|RPC failed|TLS handshake|SSL_ERROR|SSL connection|"
                      r"gnutls_handshake|Connection (reset|refused|timed out)|Failed to connect|Operation timed out|ETIMEDOUT|ECONNRESET|EAI_AGAIN|"
                      r"Network is unreachable|The requested URL returned error: 5\d\d|HTTP/2 stream|Failed to open TCP connection|Net::OpenTimeout")
+BUILD_STARTED = "ComputeTargetDependencyGraph"
+PACKAGES_CUT = re.compile(r"hung up unexpectedly|unexpected disconnect|transfer closed|GnuTLS|TLS connection|unable to access")
+NOT_THE_NETWORK = re.compile(r"returned error: 4\d\d|Repository not found|could not read Username|terminal prompts disabled")
 # Build scripts of projects nobody here reviewed run on the Mac only with these, and without the network once dependencies are resolved.
 SECRETS = [".ssh", ".aws", ".gnupg", ".config", ".netrc", ".npmrc", ".gem/credentials", ".claude", ".t3", ".docker", ".kube", "Library/Keychains",
            "Library/Application Support/Claude", "Library/MobileDevice", "nomac-out/private"]
@@ -780,9 +785,40 @@ def xcode(arguments):
 # Verdicts and the report
 
 
+def has_remote_packages(root, result):
+    try:
+        features = json.loads((Path(root) / "results" / result["id"] / "check.json").read_text())["features"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return any(feature["id"].startswith(("pbxproj:XCRemoteSwiftPackageReference", "package:resolved")) for feature in features)
+
+
+def read_archive_log(root, result):
+    """An archive that ended before its build began, in a project with remote packages, was still
+    cloning them, which is the network and not the project. nomac's output reaches a file in blocks, so
+    a build that began and then wrote under one block before it hung would read the same; a project
+    with no remote packages has nothing to clone, and its hang stays a stop."""
+    reason = result.get("notMeasured")
+    if result.get("stopped") != "archive" or (reason and reason != "archive timed out"):
+        return
+    try:
+        text = gzip.open(Path(root) / "results" / result["id"] / "archive.log.gz", "rt", errors="replace").read()
+    except OSError:
+        return
+    if BUILD_STARTED in text or not has_remote_packages(root, result):
+        return
+    if reason:
+        result["notMeasured"] = "archive: timed out before the build began, cloning packages"
+    elif PACKAGES_CUT.search(text) and not NOT_THE_NETWORK.search(text):
+        result["notMeasured"] = "archive: packages cut by the network"
+
+
 def attempts_of(root):
     found = [json.loads(path.read_text()) for path in sorted((Path(root) / "results").glob("*.json"))]
-    return [result for result in found if "finished" in result]
+    attempts = [result for result in found if "finished" in result]
+    for result in attempts:
+        read_archive_log(root, result)
+    return attempts
 
 
 def cut_short(result):
@@ -874,7 +910,7 @@ def report(arguments):
         print(share_line(f"{frame}: IPA", ipa, len(members)))
         unmeasured = [result for result in attempts if frame in result["frames"] and result["repository"] not in measured and not result.get("noApp")]
         print(f"  no app to archive: {sum(bool(result.get('noApp')) and frame in result['frames'] for result in attempts)}")
-        print(f"  not measured: {len(unmeasured)} {dict(collections.Counter(result['notMeasured'].split(':')[0] for result in unmeasured))}")
+        print(f"  not measured: {len(unmeasured)} {dict(collections.Counter(result['notMeasured'] for result in unmeasured))}")
         if unmeasured:
             print(f"  bounds if the not measured all fail or all pass: {ipa} to {ipa + len(unmeasured)} of {len(members) + len(unmeasured)}")
         stopped = [result for result in members if not result["ipa"]]

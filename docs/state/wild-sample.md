@@ -57,16 +57,22 @@ Then:
 Read these with the numbers:
 
 - Only what says nothing about nomac or the project is not measured: what the network cut (an
-  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`), a tool the test machine
-  lacks (`this machine has no <tool>`), and a project the run's own stop for disk ended. Those count
+  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`), an archive of a project
+  with remote packages that timed out or failed on the network before its build began, since it was
+  still cloning them, a tool the test machine lacks (`this machine has no <tool>`), and a project the
+  run's own stop for disk ended. Those count
   in no share, and `report` prints how many, why, and the worst-case bounds they leave. Every other
   failure counts as stopped until a verdict by hand moves it, so a share here errs low: `pod install`
   failing could be nomac's links. Labels say what is known: `stopped at install, cause not read`,
   `stopped at clone, cause not read`, `stopped at archive, timed out`. The driver takes failed installs
   and clones again in later rounds.
-- `report`, not `results.log`, says what counts. The run started at 03:52 is older than the tool rule,
-  so its `results.log` says `stopped at install, this machine has no <tool>` for projects that
-  `report` counts as not measured.
+- `report`, not `results.log`, says what counts. The run started at 03:52 is older than the tool and
+  package rules, so its `results.log` says `stopped at install, this machine has no <tool>` and
+  `stopped at archive, timed out` for projects that `report` counts as not measured. It takes a timed
+  out archive again in later rounds, but not one that failed on packages, which needs `run <owner/name>`.
+- `ComputeTargetDependencyGraph` in `archive.log` marks the build's start. nomac's output reaches a
+  file in blocks, so a build that began and wrote under one block before hanging would read as still
+  cloning, which is unlikely in an hour. A hang before the build with no remote packages stays a stop.
 - `immich-app/immich` needs Flutter and `flutter` is not installed, so it stays not measured.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded
@@ -83,7 +89,7 @@ leftover checkouts first. After a stop for disk, free the space and delete `STOP
 
 ```sh
 docker start nomac-wild-run
-docker exec nomac-wild-run bash -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf'
+docker exec nomac-wild-run bash -c 'printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf'
 docker exec -d nomac-wild-run bash -c 'python3 -I /work/driver/.github/scripts/wild_sample.py tools >> /out/tools.log 2>&1'
 docker exec -d -u builder -e HOME=/work/home -e PATH=/work/home/.local/bin:/usr/local/bin:/usr/bin:/bin -w /work \
     nomac-wild-run bash -c 'python3 -I /work/driver/.github/scripts/wild_sample.py run --root /out >> /out/run.log 2>&1'
@@ -96,15 +102,17 @@ When the results are read, free the disk: `docker rm -f nomac-wild-run`, `docker
 then `~/nomac-out/wild-sample/xcode` and `~/nomac-out/wild-sample/scratch`, keeping `results`.
 
 A restart gives the container Docker's resolver back, hence the second line. On 2026-11-07 that
-resolver failed after 10 s for github.com, rubygems.org and nodejs.org while 1.1.1.1 answered in under
-1 s, so this container uses 1.1.1.1. TCP to github.com still timed out at times, and clones took
-minutes: the network, not the load, sets how long this run takes.
+resolver failed after 10 s for github.com, rubygems.org and nodejs.org, and 8.8.8.8 answered at times
+when 1.1.1.1 and the router did not. The cause was the local link: 25% packet loss from the Mac to its
+own router over Wi-Fi, measured by the integrator, with a direct-IP connection to GitHub timing out,
+so nothing in the container can fix it. Clones took minutes, and the network, not the load, sets how
+long this run takes.
 
 ## How to rerun from nothing
 
 ```sh
 wild_sample.py pick --survey ~/nomac-out/survey-20261106   # the seeded sample, corpus/wild-sample.json
-docker run -d --name nomac-wild-run --dns 1.1.1.1 --cpus 8 --ulimit nofile=65536:65536 -v nomac-wild:/work \
+docker run -d --name nomac-wild-run --dns 8.8.8.8 --dns 1.1.1.1 --cpus 8 --ulimit nofile=65536:65536 -v nomac-wild:/work \
     -v nomac-build:/ref:ro -v <worktree>:/src-host:ro -v ~/nomac-out/wild-sample:/out \
     nomac-linux:6.4.1-noble sleep infinity
 ```
