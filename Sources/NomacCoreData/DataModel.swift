@@ -3,6 +3,7 @@ import Foundation
 import FoundationXML
 #endif
 import NomacCore
+import NomacPlist
 
 /// A Core Data model version as its `contents` file describes it (`.xcdatamodel/contents`). Only
 /// what momc's outputs were observed for is read; anything else is refused with the BACKLOG item
@@ -12,12 +13,24 @@ public struct DataModel: Sendable {
     public var fetchRequests: [FetchRequest]
     /// The Xcode major version of `minimumToolsVersion`, nil for `Automatic`.
     public var minimumToolsVersion: Int?
+    /// `lastSavedToolsVersion` read as an integer (`9525.2` is 9525), 0 without one.
+    public var lastSavedToolsVersion = 0
     /// `sourceLanguage`: the language of generated classes.
     public var sourceLanguage: String?
+    /// `userDefinedModelVersionIdentifier`, empty without one.
+    public var versionIdentifier = ""
+
+    /// `Automatic` in a file last saved by a build from 2 to 11116 acts as an old Xcode; 0, 1 and
+    /// 11117 on do not (coredata-experiments `tools-automatic-*`, found by bisection).
+    private var isAutomaticFromOldTools: Bool { minimumToolsVersion == nil && (2...11116).contains(lastSavedToolsVersion) }
 
     /// Xcode 8.0 or older gives indexed attributes fetch indexes of their own name and no entity
     /// (coredata-experiments `indexed-tools-*`).
-    public var hasLegacyIndexes: Bool { (minimumToolsVersion ?? .max) < 9 }
+    public var hasLegacyIndexes: Bool { minimumToolsVersion.map { $0 < 9 } ?? isAutomaticFromOldTools }
+
+    /// Xcode 10.0 or older marks entities and properties without a `syncable` attribute as not
+    /// syncable in their user info; `syncable="NO"` is not marked (coredata-experiments `syncable-*`).
+    public var marksUnsyncable: Bool { minimumToolsVersion.map { $0 <= 10 } ?? isAutomaticFromOldTools }
 
     /// Each entity's attributes by name, then its relationships by name: the order of momc's
     /// archives and warnings (coredata-experiments `relationships-order`, `sort-order`).
@@ -41,6 +54,18 @@ public struct DataModel: Sendable {
         return model
     }
 
+    /// Each entity's subentities in the order of their dictionary in the `.mom`: filled in the order
+    /// of a copy of a dictionary of every entity with a parent, then copied (302 of 302 such
+    /// dictionaries of several keys, `coredata_survey.py`).
+    func subentityNames() throws -> [String: [String]] {
+        let parents = Dictionary(entities.compactMap { entity in entity.parentName.map { (entity.name, $0) } }, uniquingKeysWith: { first, _ in first })
+        var filled: [String: [String]] = [:]
+        for name in try FoundationHashTable.inserting(entities.filter { $0.parentName != nil }.map(\.name)).copied().keys {
+            filled[parents[name]!, default: []].append(name)
+        }
+        return try filled.mapValues { try FoundationHashTable.inserting($0).copied().keys }
+    }
+
     public struct Entity: Sendable {
         public var name: String
         public var className: String?
@@ -55,7 +80,8 @@ public struct DataModel: Sendable {
         public var fetchIndexes: [FetchIndex]
         public var compoundIndexes: [[String]]
         public var userInfo: [(String, String)]
-        public var isSyncable: Bool
+        /// Whether the file has a `syncable` attribute, whatever its value.
+        public var hasSyncable: Bool
     }
 
     public enum Property: Sendable {
@@ -87,6 +113,27 @@ public struct DataModel: Sendable {
             case .relationship(let relationship): relationship.renamingIdentifier
             }
         }
+
+        public var versionHashModifier: String? {
+            switch self {
+            case .attribute(let attribute): attribute.versionHashModifier
+            case .relationship(let relationship): relationship.versionHashModifier
+            }
+        }
+
+        public var isIndexedBySpotlight: Bool {
+            switch self {
+            case .attribute(let attribute): attribute.isIndexedBySpotlight
+            case .relationship(let relationship): relationship.isIndexedBySpotlight
+            }
+        }
+
+        public var isStoredInTruth: Bool {
+            switch self {
+            case .attribute(let attribute): attribute.isStoredInTruth
+            case .relationship(let relationship): relationship.isStoredInTruth
+            }
+        }
     }
 
     public struct Attribute: Sendable {
@@ -105,7 +152,12 @@ public struct DataModel: Sendable {
         public var renamingIdentifier: String?
         public var allowsExternalBinaryDataStorage: Bool
         public var userInfo: [(String, String)]
-        public var isSyncable: Bool
+        public var hasSyncable: Bool
+        public var isIndexedBySpotlight = false
+        public var isStoredInTruth = false
+        public var allowsCloudEncryption = false
+        public var versionHashModifier: String?
+        public var regularExpression: String?
     }
 
     public struct Relationship: Sendable {
@@ -120,7 +172,16 @@ public struct DataModel: Sendable {
         public var destination: String
         public var inverseName: String?
         public var renamingIdentifier: String?
-        public var isSyncable: Bool
+        public var hasSyncable: Bool
+        public var isIndexed = false
+        public var isIndexedBySpotlight = false
+        public var isStoredInTruth = false
+        public var versionHashModifier: String?
+        public var userInfo: [(String, String)] = []
+
+        /// Whether it is its own inverse, which version hashes treat as no inverse
+        /// (coredata-experiments `own-inverse`).
+        func isOwnInverse(in entity: String) -> Bool { inverseName == name && destination == entity }
     }
 
     public struct FetchIndex: Sendable {
@@ -207,10 +268,9 @@ extension DataModel {
 
     init(_ root: ModelElement, path: String) throws {
         try root.check(Self.modelAttributes, path: path)
-        if let identifier = root["userDefinedModelVersionIdentifier"], !identifier.isEmpty {
-            throw ModelElement.unobserved("a userDefinedModelVersionIdentifier", path: path)
-        }
+        versionIdentifier = root["userDefinedModelVersionIdentifier"] ?? ""
         minimumToolsVersion = try Self.majorVersion(root["minimumToolsVersion"] ?? "Automatic", path: path)
+        lastSavedToolsVersion = root["lastSavedToolsVersion"].map(ModelElement.integerValue) ?? 0
         sourceLanguage = root["sourceLanguage"]
         entities = []
         fetchRequests = []
@@ -227,6 +287,29 @@ extension DataModel {
                 throw ModelElement.unobserved("<\(child.name)>", path: path)
             }
         }
+        droppingUnresolvedInverses()
+    }
+
+    /// An `inverseName` that names no relationship of the destination or its parents counts as
+    /// none: not archived, not hashed (coredata-experiments `inverse-missing`, `inverse-attribute`).
+    private mutating func droppingUnresolvedInverses() {
+        let byName = Dictionary(entities.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        func isRelationship(_ name: String, of entityName: String) -> Bool {
+            var entity = byName[entityName]
+            while let current = entity {
+                if let property = current.properties.first(where: { $0.name == name }) { return !property.isAttribute }
+                entity = current.parentName.flatMap { byName[$0] }
+            }
+            return false
+        }
+        for index in entities.indices {
+            entities[index].properties = entities[index].properties.map { property in
+                guard case .relationship(var relationship) = property, let inverse = relationship.inverseName,
+                      !isRelationship(inverse, of: relationship.destination) else { return property }
+                relationship.inverseName = nil
+                return .relationship(relationship)
+            }
+        }
     }
 
     static func majorVersion(_ minimumToolsVersion: String, path: String) throws -> Int? {
@@ -240,7 +323,7 @@ extension DataModel {
 
     static let modelAttributes: Set<String> = [
         "type", "documentVersion", "lastSavedToolsVersion", "systemVersion", "minimumToolsVersion", "sourceLanguage",
-        "userDefinedModelVersionIdentifier", "usedWithCloudKit", "iOSVersion", "macOSVersion",
+        "userDefinedModelVersionIdentifier", "usedWithCloudKit", "usedWithSwiftData", "name", "iOSVersion", "macOSVersion",
     ]
 }
 
@@ -250,7 +333,12 @@ extension DataModel.Entity {
     /// fetch indexes (wikipedia's Cache: byDateIndex, then compoundIndex). Whether they mix with
     /// fetch index elements, and the names of further compound indexes, are not observed.
     func indexes(legacy: Bool) throws -> [(name: String, elements: [(property: String, ascending: Bool)])] {
-        let indexed = properties.compactMap { if case .attribute(let a) = $0, a.isIndexed { a } else { nil } }
+        let indexed = properties.compactMap { property -> String? in
+            switch property {
+            case .attribute(let attribute): attribute.isIndexed ? attribute.name : nil
+            case .relationship(let relationship): relationship.isIndexed ? relationship.name : nil
+            }
+        }
         if !fetchIndexes.isEmpty, !indexed.isEmpty || !compoundIndexes.isEmpty {
             throw NomacError("entity \(name) mixes fetch indexes with indexed attributes or compound indexes, which is not observed yet (BACKLOG B-257)")
         }
@@ -260,7 +348,7 @@ extension DataModel.Entity {
         if legacy, !compoundIndexes.isEmpty {
             throw NomacError("entity \(name) has compound indexes and an old minimumToolsVersion, which is not observed yet (BACKLOG B-257)")
         }
-        return indexed.map { (legacy ? $0.name : "by" + $0.name.prefix(1).uppercased() + $0.name.dropFirst() + "Index", [($0.name, true)]) }
+        return indexed.map { (legacy ? $0 : "by" + $0.prefix(1).uppercased() + $0.dropFirst() + "Index", [($0, true)]) }
             + compoundIndexes.map { ("compoundIndex", $0.map { ($0, true) }) }
             + fetchIndexes.map { ($0.name, $0.elements) }
     }
@@ -282,7 +370,7 @@ extension DataModel.Entity {
         } else {
             codeGeneration = nil
         }
-        isSyncable = element.flag("syncable")
+        hasSyncable = element["syncable"] != nil
         properties = []
         uniquenessConstraints = []
         fetchIndexes = []
@@ -317,7 +405,9 @@ extension DataModel.Attribute {
     init(_ element: ModelElement, path: String) throws {
         try element.check(["name", "optional", "transient", "attributeType", "defaultValueString", "defaultDateTimeInterval",
                            "usesScalarValueType", "minValueString", "maxValueString", "indexed", "valueTransformerName",
-                           "customClassName", "elementID", "allowsExternalBinaryDataStorage", "syncable"],
+                           "customClassName", "elementID", "allowsExternalBinaryDataStorage", "syncable",
+                           "spotlightIndexingEnabled", "storedInTruthFile", "allowsCloudEncryption", "versionHashModifier",
+                           "regularExpressionString"],
                           path: path)
         name = try element.required("name", path: path)
         let typeName = try element.required("attributeType", path: path)
@@ -337,7 +427,12 @@ extension DataModel.Attribute {
         customClassName = element["customClassName"]
         renamingIdentifier = element["elementID"]
         allowsExternalBinaryDataStorage = element.flag("allowsExternalBinaryDataStorage")
-        isSyncable = element.flag("syncable")
+        hasSyncable = element["syncable"] != nil
+        isIndexedBySpotlight = element.flag("spotlightIndexingEnabled")
+        isStoredInTruth = element.flag("storedInTruthFile")
+        allowsCloudEncryption = element.flag("allowsCloudEncryption")
+        versionHashModifier = element["versionHashModifier"]
+        regularExpression = element["regularExpressionString"]
         userInfo = []
         for child in element.children {
             guard child.name == "userInfo" else {
@@ -351,10 +446,14 @@ extension DataModel.Attribute {
 extension DataModel.Relationship {
     init(_ element: ModelElement, path: String) throws {
         try element.check(["name", "optional", "transient", "toMany", "ordered", "minCount", "maxCount", "deletionRule",
-                           "destinationEntity", "inverseName", "inverseEntity", "elementID", "syncable"],
+                           "destinationEntity", "inverseName", "inverseEntity", "elementID", "syncable", "indexed",
+                           "spotlightIndexingEnabled", "storedInTruthFile", "versionHashModifier"],
                           path: path)
-        guard element.children.isEmpty else {
-            throw ModelElement.unobserved("<\(element.children[0].name)> in a relationship", path: path)
+        for child in element.children {
+            guard child.name == "userInfo" else {
+                throw ModelElement.unobserved("<\(child.name)> in a relationship", path: path)
+            }
+            userInfo = try child.userInfo(path: path)
         }
         name = try element.required("name", path: path)
         isOptional = element.flag("optional")
@@ -371,7 +470,11 @@ extension DataModel.Relationship {
         destination = try element.required("destinationEntity", path: path)
         inverseName = element["inverseName"]
         renamingIdentifier = element["elementID"]
-        isSyncable = element.flag("syncable")
+        hasSyncable = element["syncable"] != nil
+        isIndexed = element.flag("indexed")
+        isIndexedBySpotlight = element.flag("spotlightIndexingEnabled")
+        isStoredInTruth = element.flag("storedInTruthFile")
+        versionHashModifier = element["versionHashModifier"]
     }
 }
 
@@ -413,6 +516,16 @@ final class ModelElement {
             throw NomacError("<\(name)> without \(attribute) in \(path)", path: path)
         }
         return value
+    }
+
+    /// `NSString.integerValue`: leading blanks, a sign and the digits that follow; 0 without digits
+    /// (`"0.0"` for an Integer 16 in EmployeeDirectory, `"YES"` for an Integer 32 in moonlight).
+    static func integerValue(_ text: String) -> Int {
+        var rest = Substring(text).drop { $0 == " " || $0 == "\t" }
+        let negative = rest.first == "-"
+        if rest.first == "-" || rest.first == "+" { rest = rest.dropFirst() }
+        let magnitude = Int(rest.prefix { $0.isASCII && $0.isNumber }) ?? 0
+        return negative ? -magnitude : magnitude
     }
 
     func integer(_ attribute: String, path: String) throws -> Int? {

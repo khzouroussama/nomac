@@ -296,18 +296,4 @@ import NomacCore
         #expect(digests["Model.momd/Model.omo"] == omo)
     }
 
-    /// Fetch indexes under a `minimumToolsVersion` before Xcode 9.0 are not observed in an `.omo`
-    /// (BACKLOG B-256).
-    @Test func refusesLegacyIndexes() {
-        #expect {
-            _ = try compile("refused-legacy-indexes", """
-                    <entity name="Item" representedClassName="Item" syncable="YES">
-                        <attribute name="a" optional="YES" attributeType="String" indexed="YES"/>
-                    </entity>
-
-                """, tools: "Xcode 8.0")
-        } throws: { error in
-            "\(error)".contains("B-256") && "\(error)".contains("fetch indexes")
-        }
-    }
 }

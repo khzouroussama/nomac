@@ -136,14 +136,14 @@ enum XDModel {
                         name: propertyName, type: type, isOptional: optional, isTransient: transient, defaultValue: nil,
                         defaultDateTimeInterval: nil, usesScalarValueType: nil, minimum: nil, maximum: nil, isIndexed: false, valueTransformerName: nil,
                         customClassName: nil, renamingIdentifier: nil,
-                        allowsExternalBinaryDataStorage: flag(fields["XD_PAttK_allowsExternalBinaryDataStorage"]), userInfo: [], isSyncable: true)))
+                        allowsExternalBinaryDataStorage: flag(fields["XD_PAttK_allowsExternalBinaryDataStorage"]), userInfo: [], hasSyncable: true)))
                 case "XDPMRelationship":
                     let maxCount = integer(fields["XD_PRK_maxCount"])
                     properties.append(.relationship(DataModel.Relationship(
                         name: propertyName, isOptional: optional, isTransient: transient, isToMany: maxCount != 1,
                         isOrdered: flag(fields["XD_PRK_ordered"]), minCount: integer(fields["XD_PRK_minCount"]), maxCount: maxCount,
                         deleteRule: .nullify, destination: name(fields["XD_PRK_destination"]) ?? "",
-                        inverseName: name(fields["XD_PRK_inverseRelationship"]), renamingIdentifier: nil, isSyncable: true)))
+                        inverseName: name(fields["XD_PRK_inverseRelationship"]), renamingIdentifier: nil, hasSyncable: true)))
                 default:
                     throw unobserved("property class \(archive.className(property.value) ?? "?")")
                 }
@@ -155,7 +155,7 @@ enum XDModel {
             entities.append(DataModel.Entity(
                 name: entityName, className: nil, parentName: parents.first.flatMap { archive.string($0, "_name") },
                 isAbstract: flag(values["XD_PSK_isAbstract"]), versionHashModifier: modifier, renamingIdentifier: nil, codeGeneration: nil,
-                properties: properties, uniquenessConstraints: [], fetchIndexes: [], compoundIndexes: [], userInfo: [], isSyncable: true))
+                properties: properties, uniquenessConstraints: [], fetchIndexes: [], compoundIndexes: [], userInfo: [], hasSyncable: true))
         }
         return DataModel(entities: entities, fetchRequests: [], minimumToolsVersion: nil, sourceLanguage: nil)
     }

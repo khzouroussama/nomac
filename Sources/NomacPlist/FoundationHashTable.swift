@@ -12,8 +12,9 @@ public struct FoundationHashTable: Sendable {
     /// B-259.
     static let bucketCounts = [3, 7, 13, 23, 41, 71, 127, 191, 251, 383]
     static let held = [3, 7, 12, 20, 33, 53, 86, 119, 156, 199]
-    /// The capacities a copy is sized by; 53 keys are copied into 127 buckets (`threshold-71-53`).
-    public static let copyCapacities = [3, 6, 11, 19, 32, 52, 85]
+    /// The capacities a copy is sized by; 53 keys are copied into 127 buckets (`threshold-71-53`),
+    /// 86 and up into 191 (the survey's entities of more than 85 properties, coredata_survey.py).
+    public static let copyCapacities = [3, 6, 11, 19, 32, 52, 85, 118, 155, 198]
 
     private var buckets: [String?] = []
     private var count = 0

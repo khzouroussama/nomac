@@ -43,6 +43,7 @@ final class KeyedArchiver {
         case int64(Int)
         case double(Double)
         case uids([Int])
+        case bytes([UInt8])
     }
 
     private enum Slot {
@@ -71,7 +72,7 @@ final class KeyedArchiver {
     private static let sharedClassNames: Set<String> = [
         "NSDictionary", "NSMutableDictionary", "NSMutableArray", "NSPredicate", "NSComparisonPredicate", "NSExpression",
         "NSConstantValueExpression", "NSSelfExpression", "NSFunctionExpression", "NSKeyPathExpression",
-        "NSKeyPathSpecifierExpression",
+        "NSKeyPathSpecifierExpression", "NSPredicateOperator", "NSStringPredicateOperator", "NSMatchingPredicateOperator",
     ]
 
     func encode(_ item: ArchivedItem?, forKey key: String) throws {
@@ -111,6 +112,10 @@ final class KeyedArchiver {
         frames[frames.count - 1].append((key, .double(value)))
     }
 
+    func encodeBytes(_ bytes: [UInt8], forKey key: String) {
+        frames[frames.count - 1].append((key, .bytes(bytes)))
+    }
+
     /// The `NS.keys` and `NS.objects` of collections: an array of references.
     func encodeArray(_ items: [ArchivedItem], forKey key: String) throws {
         var uids: [Int] = []
@@ -122,8 +127,12 @@ final class KeyedArchiver {
 
     /// The archive of `root`, as `archivedDataWithRootObject:` writes it.
     static func archive(_ root: KeyedArchivable) throws -> [UInt8] {
+        try archive(item: .object(root))
+    }
+
+    static func archive(item root: ArchivedItem) throws -> [UInt8] {
         let archiver = KeyedArchiver()
-        let top = try archiver.reference(.object(root))
+        let top = try archiver.reference(root)
         if archiver.slots.contains(where: { if case .reserved = $0 { true } else { false } }) {
             throw NomacError("a conditionally encoded object of the model is never encoded (BACKLOG B-257)")
         }
@@ -244,6 +253,7 @@ final class KeyedArchiver {
         case .int64(let integer): .integer(integer, shared: "int64")
         case .double(let double): .double(double, shared: true)
         case .uids(let uids): .array(uids.map { .uid($0) })
+        case .bytes(let bytes): .data(bytes)
         }
     }
 

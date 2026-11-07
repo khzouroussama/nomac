@@ -2,8 +2,10 @@
 
 Observed with Xcode 27.0 (27A266a) on macOS 27.0.1: `.github/scripts/coredata_experiments.py`
 (self-written models compiled with the command lines below; `build` records them from a build;
-`version-hashes` reads Core Data's public `versionHash` and `versionChecksum`) and the 34 models of
-the corpus checkouts. `nomac momc` (`NomacCoreData`, ADR 0270) writes what this file describes;
+`version-hashes` reads Core Data's public `versionHash` and `versionChecksum`), the 34 models of
+the corpus checkouts, and the 365 models of the coverage survey's repositories
+(`.github/scripts/coredata_survey.py`: momc's outputs against nomac's, outside the repository).
+`nomac momc` (`NomacCoreData`, ADR 0270) writes what this file describes;
 `.github/scripts/coredata_compare.py` compares it with momc's outputs.
 
 ## Tasks
@@ -50,9 +52,10 @@ one per line, and writes nothing (135 observed models, `dry-runs`): for each ent
 `class`, `<Class>+CoreDataProperties` for `category`, `<Class>` being `representedClassName` without
 its module (`.Mid` → `Mid`, `Other.Beta` → `Beta`, `codegen-order`); then `<input name>+CoreDataModel`
 (moonlight's `Limelight.xcdatamodeld` gives `Limelight+CoreDataModel`, not its version's name).
-Each is `.swift` when the model's `sourceLanguage` is Swift, `.h` then `.m` when Objective-C. A
-model without such entities prints nothing. A versioned model uses its current version; which one
-it uses without one is not settled (`versioned-no-current` uses its first listed version,
+Each is `.swift` when the model's `sourceLanguage` is Swift or missing (`no-language`), `.h` then
+`.m` when Objective-C. A model without such entities prints nothing. A versioned model uses its
+current version, or its only version without one (`versioned-one-no-current`); which of several it
+uses without one is not settled (`versioned-no-current` uses its first listed version,
 `versioned-empty-current` another), so nomac refuses that case (B-258).
 
 The files (`momc --action generate`, 133 observed models of both languages, `coredata_compare.py`)
@@ -60,14 +63,16 @@ start with the same comment: `//`, `//  <file name>`, `//  ` (two spaces), `//`,
 <the user's full name> on <M/d/yy>.`, `//`, `//  This file was automatically generated and should
 not be edited.`, `//`. Properties come attributes first, then relationships, each in file order
 (`relationships-order`); scalars only for attributes with `usesScalarValueType="YES"`. A class of
-another module (`Other.Mod`) is named without it.
+another module (`Other.Mod`) or of the current one (`.Mod`, `class-in-module`) is named without it.
 
 Swift (`type-*`, `to-many`, `ordered`, `inheritance`, `codegen-order`, `relationships-order`):
 
 - Every file continues `public import Foundation`, `public import CoreData`; the properties file
-  then has `import <Module>` for a relationship to a class of another module, or an empty line.
+  then has `import <Module>` for a relationship to a class of another module or a transformable's
+  `UIKit.UIColor` (`transformable-module`), or an empty line.
 - `+CoreDataClass.swift`: `public typealias <C>CoreDataClassSet = NSSet`, `@objc(<C>)` (an empty
-  line for a class of another module), `public class <C>: <parent class or NSManagedObject> {}`.
+  line for a class with a module, the current one's `.C` too), `public class <C>: <parent class or
+  NSManagedObject> {}`.
 - `+CoreDataProperties.swift`: `public typealias <C>CoreDataPropertiesSet = NSSet`, an extension
   with `fetchRequest()` and one `@NSManaged nonisolated public var` per property (`Int16`, `Int32`,
   `Int64`, `Double`, `Float`, `Bool` scalars, otherwise optional `NSNumber`, `NSDecimalNumber`,
@@ -75,8 +80,11 @@ Swift (`type-*`, `to-many`, `ordered`, `inheritance`, `codegen-order`, `relation
   destination class, `NSSet` or `NSOrderedSet`); then a `// MARK: Generated accessors for <r>`
   extension per to-many relationship (insert, remove and replace methods first when ordered); then
   `extension <C> : Identifiable {}` for entities without a parent.
-- `<input>+CoreDataModel.swift`: `<input>FoundationFrameworkSet` and
-  `<input>CoreDataFrameworkManagedObject` typealiases.
+- `<input>+CoreDataModel.swift`: `<letters>FoundationFrameworkSet` and
+  `<letters>CoreDataFrameworkManagedObject` typealiases, `<letters>` being the input's name without
+  anything but its ASCII letters (`lil_wallet` is `lilwallet`, `Technex18` is `Technex`, `12` is
+  empty: `model-names`, 3 survey models). Class names keep their digits and underscores. Input
+  names of other characters are refused (`Äb` gave `Ab`, one observation).
 
 Objective-C (moonlight, `objc-*`):
 
@@ -96,17 +104,17 @@ Objective-C (moonlight, `objc-*`):
   category) under its full `representedClassName` (`Other.Beta+CoreDataClass.h`), in byte order.
 
 nomac refuses what was not observed (B-258): another `--swift-version` than 5.0 (Swift Build passes
-5.0 for both languages), numeric attributes without `usesScalarValueType`, scalar dates, a class of
-the current module (`.Name`) with `class` generation, parents of another module, Objective-C
-categories that need `@class`, relationships to classes of several modules, and classes whose
-names differ only by case (on a Mac's case-insensitive volume their files overwrite each other,
+5.0 for both languages), numeric attributes without `usesScalarValueType`, scalar dates, parents of
+another module, Objective-C categories that need `@class`, relationships to classes of several
+modules, and classes whose names differ only by case (on a Mac's case-insensitive volume their files overwrite each other,
 `version-strings`).
 
 ## Standard error
 
-momc compiles the versions in the order of a Foundation table of their paths
+momc compiles the versions in the order of a copy of a Foundation table of their paths
 (`<input>/<version>.xcdatamodel`, docs/formats/foundation-collections.md), filled in the order the
-directory lists them: on a Mac's default APFS volume, by the 22-bit CRC-32C of the case-folded,
+directory lists them (`versions-*`; the copy shows at 7, 12 and 20 versions, which it moves to a
+larger table, 8 survey models): on a Mac's default APFS volume, by the 22-bit CRC-32C of the case-folded,
 decomposed name in UTF-32, then by the name's length (Apple File System Reference; all 15 observed
 listings). For each version it prints, in that order:
 
@@ -122,8 +130,10 @@ order (`sort-order`), properties in momc's order ("`.mom`: order"):
 | `abstract entity E has no children [1]` | an abstract entity no entity names as parent |
 | `E.a is using a nil or insecure value transformer. Please switch to NSSecureUnarchiveFromDataTransformerName or a custom NSValueTransformer subclass of NSSecureUnarchiveFromDataTransformer [2]` | a transformable attribute without `valueTransformerName`, transient or not |
 | `Setting the No Action Delete Rule on E.r may result in relationships to deleted objects [7]` | `deletionRule="No Action"`, before the inverse warning |
-| `E.r should have an inverse [2]` | a to-one relationship without `inverseName` |
-| `E.r does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]` | a to-many relationship without `inverseName` |
+| `E.r should have an inverse [2]` | a to-one relationship whose `inverseName` is missing or does not name a relationship of the destination (`inverse-missing`, `inverse-attribute`) |
+| `E.r does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]` | a to-many relationship likewise |
+| `The inverse relationship for E.r does not reciprocate an inverse relationship [2]` | the inverse names another relationship, or none (`inverse-without`; artsy's `Image.artist`) |
+| `E.a is set to be stored using a Spotlight external record file, which is deprecated. Use Core Spotlight integration instead. [5]` | `storedInTruthFile="YES"`, transient or not, before its other warnings (`property-flags-*`) |
 | `<input>:: warning: Missing current version declaration [0]` | an `.xcdatamodeld` of several versions without a current one, last |
 
 Across versions each message is printed once, with the path of the last version that has it, in the
@@ -143,11 +153,14 @@ then checked on every entity of the 174 corpus and experiment `.mom` files loade
 length; integers are 32-bit little-endian.
 
 - **Property**: `own = SHA256(name, flags, 00, versionHashModifier)`, flags 1 for optional and 2 for
-  transient.
+  transient (`modifier-attribute`, `modifier-relationship`).
   - Attribute: `SHA256(own, attributeType, 01 if allowsExternalBinaryDataStorage, 01 if
     preservesValueInHistoryOnDeletion)`.
   - Relationship: `SHA256(own, destination entity's name, inverse relationship's name, maxCount,
-    minCount, 01 00 if ordered)`.
+    minCount, 01 00 if ordered)`. A relationship that is its own inverse hashes as one without an
+    inverse (`own-inverse`; two entities' relationships of one name are not: `same-name-inverse`),
+    and so does one whose `inverseName` names no relationship of the destination or its parents,
+    which the `.mom` archives as no inverse either (`inverse-missing`, `inverse-attribute`).
   - Not inputs: `isIndexed`, `isIndexedBySpotlight`, `renamingIdentifier`, `userInfo`,
     `valueTransformerName`, `defaultValue`, `allowsCloudEncryption`, validation predicates, the
     value class name, the delete rule.
@@ -227,10 +240,10 @@ Recorded with an `NSCoder` subclass given to each object's `encode(with:)` on ev
 
 | Class | Encoded, in order |
 |---|---|
-| `NSManagedObjectModel` | `NSEntities`, `NSFetchRequestTemplates`, `NSVersionIdentifiers` (`{""}`), then momc's two keys |
+| `NSManagedObjectModel` | `NSEntities`, `NSFetchRequestTemplates`, `NSVersionIdentifiers` (`{userDefinedModelVersionIdentifier}`, `{""}` without one: `version-identifier`), then momc's two keys |
 | `NSEntityDescription` | `NSEntityName`, `NSClassNameForEntity`, [`NSIsAbstract`], `NSManagedObjectModel` (conditional), `NSSuperentity` (conditional), `NSSubentities`, `NSProperties`, `NSUserInfo`, `NSVersionHashModifier`, `NSRenamingIdentifier` (`elementID` or the name), [`NSUniqueTuples`], [`NSFetchIndexDescriptions`, `NSCompoundIndexes`] |
-| `NSAttributeDescription` | [`NSIsOptional`], [`NSIsTransient`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSValidationPredicates`, `NSValidationWarnings`], [`NSUserInfo`], `_P`, `NSAttributeType`, `NSAttributeValueClassName`, `NSDefaultValue`, `NSValueTransformerName`, `NSFlagsKey` |
-| `NSRelationshipDescription` | [`NSIsOptional`], [`NSIsOrdered`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), `_P`, `NSMaxCount`, `NSMinCount`, `NSDeleteRule`, `NSDestinationEntity` (conditional), `_NSDestinationEntityName`, `NSInverseRelationship` (conditional), `_NSInverseRelationshipName` |
+| `NSAttributeDescription` | [`NSIsOptional`], [`NSIsTransient`], [`NSIndexedBySpotlight`], [`NSIsStoredInTruth`], [`NSAllowsCloudEncryption`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSValidationPredicates`, `NSValidationWarnings`], [`NSUserInfo`], [`NSVersionHashModifier`], `_P`, `NSAttributeType`, `NSAttributeValueClassName`, `NSDefaultValue`, `NSValueTransformerName`, `NSFlagsKey` |
+| `NSRelationshipDescription` | [`NSIsOptional`], [`NSIsTransient`], [`NSIndexedBySpotlight`], [`NSIsStoredInTruth`], [`NSIsOrdered`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSUserInfo`], [`NSVersionHashModifier`], `_P`, `NSMaxCount`, `NSMinCount`, `NSDeleteRule`, `NSDestinationEntity` (conditional), `_NSDestinationEntityName`, `NSInverseRelationship` (conditional), `_NSInverseRelationshipName` |
 | `NSFetchIndexDescription` | `NSIndexName`, `NSIndexElements` (an `NSArray`), `NSEntity`, `NSPartialIndexPredicate` (nil) |
 | `NSFetchIndexElementDescription` | `NSPropertyName`, `NSFetchIndexElementType` (0, 64-bit), `NSFetchIndexDescription`, `NSAscending` |
 | `NSFetchRequest` (a model's `<fetchRequest name entity/>`) | `NSValuesToGroupBy`, `NSHavingPredicate`, `NSFetchOffset`, `NSValuesToFetch`, `NSEntity` (conditional), `NSPredicate`, `NSSortDescriptors`, `NSFetchLimit`, `NSBatchSize`, `NSRelationshipKeyPathsForPrefetching`, `NSResultType`, `NSAllocationType`, `NSHasFetchRequestFlags` (true), `NSFetchRequestFlags` (30) |
@@ -248,21 +261,29 @@ Values:
 
 - `NSEntities`, `NSSubentities`, `NSProperties` and `NSFetchRequestTemplates` are
   `NSMutableDictionary`s; entities in the order of a dictionary copied twice from momc's order,
-  properties (own ones only) once. `NSUserInfo` is one empty `NSDictionary` shared by every entity,
-  or an `NSDictionary` of the file's entries.
+  properties (own ones only) once. An entity's `NSSubentities` is a copy of a dictionary filled in
+  the iteration order of a copy of a dictionary of every entity that has a parent (302 of 302
+  dictionaries of several keys in the survey's models, whose order shows only where names collide:
+  `subentities-8` and `subentities-9` order Egg, Food and Quest differently). `NSUserInfo` is one
+  empty `NSDictionary` shared by every entity, or an `NSDictionary` of the file's entries.
 - `NSClassNameForEntity`: `representedClassName`, `--module` prepended when it starts with `.`
-  (`.ImageAttachment` → `T.ImageAttachment`), nil for `NSManagedObject` (`omo-default-class`);
-  `customClassName` is kept as written (`.`).
+  (`.ImageAttachment` → `T.ImageAttachment`, a new string for each entity: two entities of one
+  class archive it twice), nil for `NSManagedObject` or without `representedClassName` (`no-class`,
+  `omo-default-class`); `customClassName` is kept as written (`.`).
 - `NSAttributeValueClassName`: `customClassName`, or by type `NSNumber` (integers, Double, Float,
-  Boolean), `NSDecimalNumber`, `NSString`, `NSDate`, `NSData`, `NSUUID`, `NSURL`, nil for
-  Transformable.
+  Boolean), `NSString`, `NSDate`, `NSData`, `NSUUID`, `NSURL`, nil for Transformable, and
+  `NSDecimalNumber`, a new string for each attribute (`decimal-several`).
 - `NSDefaultValue`: `defaultValueString` read as `NSString.integerValue` for integers (`0.0` and
-  `YES` are 0), `YES`/`NO`/`1`/`0` for Boolean, a float or double, a string;
-  `defaultDateTimeInterval` floored to a whole minute as an `NSDate` (`NS.time`; 1030 and 1000.7
-  give 960, -59 gives -60: `omo-date-defaults`), one object per value.
-- `_P`: attributes `0x81`, `+2` optional, `+8` transient, `+0x30` without validation, `+0x40` without
-  user info (`0xF1` for a plain required attribute); relationships `0xF1`, `+2` optional, `+0x400`
-  ordered. `NSFlagsKey`: 4 with `allowsExternalBinaryDataStorage`, else 0.
+  `YES` are 0), `YES`/`NO`/`1`/`0` for Boolean, a float or double, a string, an `NSDecimalNumber` for
+  Decimal ("`NSDecimalNumber`" below); `defaultDateTimeInterval` floored to a whole minute as an
+  `NSDate` (`NS.time`; 1030 and 1000.7 give 960, -59 gives -60: `omo-date-defaults`), one object per
+  value. momc drops the `defaultValueString` of URI, UUID, Binary and Transformable attributes
+  (`default-ignored`).
+- `_P`: `1` always, `2` optional, `8` transient, `0x30` without validation, `0x40` without user info,
+  `0x80` without a version hash modifier, `0x100` indexed by Spotlight, `0x200` stored in truth,
+  `0x400` ordered, `0x800` cloud encryption (attributes only; `0xF1` for a plain required property).
+  A transient property keeps neither Spotlight nor truth, in its keys or its flags
+  (`property-flags-*`). `NSFlagsKey`: 4 with `allowsExternalBinaryDataStorage`, else 0.
 - `elementID` on an entity, attribute or relationship is its `NSRenamingIdentifier` as written,
   an empty one included; it is no version hash input (`renaming-entity`, `renaming-relationship`,
   `renaming-empty`, `renaming-all`).
@@ -270,21 +291,40 @@ Values:
   minimum first (`>=`, operator and variant 3; `<=`, 1), and of warning codes (numbers: 1620 too
   small, 1610 too large; strings: 1670, 1660). Numbers compare `SELF` (one `NSSelfExpression` per
   model) with a 64-bit constant; strings compare a new `NSKeyPathExpression` (`valueForKey:`,
-  `SELF`, `[length]`) per predicate.
-- Fetch indexes: indexed attributes in momc's order (`by<Name>Index`), then the older
-  `<compoundIndexes>` (`compoundIndex`), or the file's `<fetchIndex>` elements. With
-  `minimumToolsVersion` Xcode 8.0 or older, an indexed attribute's index is named after the
-  attribute and has no entity (`indexed-tools-*`; 9.0, 14.0 and Automatic name it `by<Name>Index`).
+  `SELF`, `[length]`) per predicate. A String's `regularExpressionString` follows them: `SELF`
+  against a constant string with an `NSMatchingPredicateOperator` (`NSOperatorType` 6, `NSModifier`
+  0, `NSFlags` 0), warning code 1680 (`regular-expression`).
+- Fetch indexes: indexed attributes and relationships in momc's order (`by<Name>Index`,
+  `relationship-indexed`), then the older `<compoundIndexes>` (`compoundIndex`), or the file's
+  `<fetchIndex>` elements. With `minimumToolsVersion` Xcode 8.0 or older, an indexed attribute's
+  index is named after the attribute and has no entity (`indexed-tools-*`; 9.0 and later name it
+  `by<Name>Index`).
   `NSCompoundIndexes` lists the property names of every index of several elements that are all
   attributes (wikipedia: an index with a to-one or to-many relationship is left out).
-- With `minimumToolsVersion` Xcode 4.1 to 9.0, an attribute without `syncable="YES"` has the user
-  info `com.apple.syncservices.Syncable = NO`; 14.0 and Automatic add nothing.
+- With `minimumToolsVersion` Xcode 10.0 or older, an entity, attribute or relationship without a
+  `syncable` attribute has the user info `com.apple.syncservices.Syncable = NO` after the file's
+  entries; `syncable="NO"` adds nothing, nor does 11.0 and later (`syncable-*`).
+- `minimumToolsVersion="Automatic"` in a file whose `lastSavedToolsVersion`, read as an integer,
+  is from 2 to 11116 acts as an old Xcode for the last two items; 0, 1, 11117 and later, a missing
+  or unreadable value do not (`tools-automatic-*`, found by bisection; 9525.2 reads as 9525).
+
+### `NSDecimalNumber`
+
+A Decimal's default archives as `NSDecimalNumberPlaceholder` (`$classes` `NSDecimalNumberPlaceholder`,
+`NSDecimalNumber`, `NSNumber`, `NSValue`, `NSObject`), encoding `NS.exponent`, `NS.length`,
+`NS.negative`, `NS.compact` (true unless zero or NaN), `NS.mantissa.bo` (1) and `NS.mantissa` (16
+bytes of little-endian 16-bit units, `NS.length` used), each attribute's its own object.
+`NSDecimalNumber(string:)` reads the text: blanks, a sign, digits, a point, digits and an exponent,
+what follows ignored (`12abc` is 12, `1,5` is 1, `1.2.3` is 1.2); no digits is the one shared NaN
+(`abc`, ``, `NaN`: negative, exponent 0, length 0). Trailing zeros go to the exponent (`1.50` is 15
+with exponent -1, `100` is 1 with exponent 2); zero keeps the fraction's length as its exponent
+(`0.00` is -2) unless negative (`-0.0` is 0). `decimal-defaults` covers these; nomac refuses what
+would need rounding, more than 38 digits or exponents outside ±38, and zero with an exponent.
 
 Not observed yet, refused by nomac (BACKLOG B-257): configurations, fetched properties, fetch
-requests with predicates or limits, property version
-hash modifiers, transient relationships, user info on relationships or with validation, default
-values of other types, validation of other types, models of several compound indexes, copied
-tables of more than 85 keys (B-259).
+requests with predicates or limits, derived attributes, validation of types other than numbers and
+strings, regular expressions on other types, `defaultValueString` of a Date, models of several
+compound indexes.
 
 ## Mapping models
 
@@ -357,8 +397,7 @@ nothing, and mapc prints nothing on success.
 What momc writes for a current version, mapped from the `omo-*` experiments (one input varied at a
 time, `omo-n1-*` and `omo-ord-*` for the SQL names) and the corpus's 22 models with one. nomac writes
 it (`OptimizedModel`) with each SQL column-name list sorted by UTF-8 name, the one order not
-explained, which ADR 0230 shows equivalent; it refuses fetch indexes and attributes that are not syncable under a `minimumToolsVersion` before Xcode 9.0
-and defaults of other types than integers, Boolean, String, Double, Float and Date (B-256).
+explained, which ADR 0230 shows equivalent; it refuses transient relationships (B-256).
 
 - **Conventions**: integers are big-endian (u16, u32, u64); u64 fields are 8-aligned from the start
   of the file. Sections end with a separator, `0xDEADBEEF` written little-endian twice, unaligned.
@@ -369,16 +408,20 @@ and defaults of other types than integers, Boolean, String, Double, Float and Da
   E (entities), F (fetch request templates) and S (the SQL model, to the end). The header
   holds each section's offset and entry count, and the numbers of entities, properties,
   attributes and relationships.
-- **U**: `""`, entities' renaming identifiers (`elementID` or the name), version hash modifiers,
-  string defaults, transformer names, properties' renaming identifiers (UTF-16LE,
-  length-prefixed). **C**: `""`, fetch request names,
-  `PF_DEFAULT_CONFIGURATION_NAME`, entity, class, property and value-class names, and SQL column
-  names (`_pk`, `_ent`, `_opt`, attributes, `_Z<NAME>` for to-one foreign keys), these in the
-  iteration order of an immutable copy of a Foundation dictionary of the entity's columns
-  (docs/formats/foundation-collections.md "Immutable copies"; seven columns are copied from 13
-  buckets into 13). **B**: a keyed
-  archive of `""`, then the entity and property version hashes ("Version hashes" above) and
-  user-info archives.
+- **U**: `""`, entities' renaming identifiers (`elementID` or the name) and version hash
+  modifiers, then per property its version hash modifier, renaming identifier, transformer name
+  and string default (`modifier-strings`; UTF-16LE, length-prefixed). **C**: `""`, fetch request
+  names, `PF_DEFAULT_CONFIGURATION_NAME`, entity, class, property and value-class names, a Decimal
+  default's description, and SQL column names, these in the iteration order of an immutable copy
+  of a Foundation dictionary of the entity's columns (docs/formats/foundation-collections.md
+  "Immutable copies"; seven columns are copied from 13 buckets into 13). That dictionary is filled
+  with `_ent`, `_pk`, `_opt`, then from the root entity down each entity's attributes, to-one
+  relationships (`_Z<KEY>`, `_Z<number>_<KEY>` for a destination with subentities, the name) and
+  to-many relationships, each by UTF-8 name, plain before ordered, then the hidden to-ones and the
+  order keys (766 of 766 entities of the survey's models). **B**: a keyed archive of the model's
+  version identifier (`version-identifier`; the string is `""` without one), then the entity and
+  property version hashes ("Version hashes" above) and, per property, its user-info archive and a
+  regular expression's archives.
 - **K**: per lookup table (entities by name, fetch requests, then per entity its properties,
   subentities, attributes, relationships), the keys' C indexes in slot order and a dispatch tree on
   the key's length and then, among keys of one length, the first byte position with the most
@@ -406,9 +449,20 @@ and defaults of other types than integers, Boolean, String, Double, Float and Da
   (`omo-renaming`, `omo-renaming-cases`: empty, shared and alignment-shifted identifiers).
   A relationship record holds its `maxCount` as written (5 for a to-many of at most 5, 0 when
   unbounded), its `minCount` and its delete rule (`omo-rel-rules`); flag `0x100` marks an ordered
-  one (`omo-rel-ordered`).
-  An entity's fetch indexes (indexed attributes as `by<Name>Index`, then the compound index, then
-  `<fetchIndex>` elements, as in the `.mom`) follow its U name and three zero words: their count,
+  one (`omo-rel-ordered`), and the word after the optionals block is the B index of its user info
+  (`omo-relationship-user-info`).
+  A property's flag word gains `0x20` for Spotlight and `0x40` for truth, and so does its entity's
+  flag word unless the property is transient (`omo-property-flags-*`); cloud encryption adds `0x8000` there and
+  `0x40` to the attribute's last word. The word after the flags is the U index of its version hash
+  modifier (`omo-modifier-*`). A Decimal default is 1 and the C index of its description
+  (`NSDecimalNumber`'s: `NaN`, `0`, or positional, `1e3` is `1000`, `1E-2` is `0.01`:
+  `omo-decimal-defaults`). `syncable` marks enter the user-info archives as in the `.mom`. A
+  regular expression's block is two zero u64s, the words 0 and 1, the B index of its predicate's
+  archive as a u64, the words 0, 0, 0, 0, 0 and 1, and the u64s 1 and the B index of an archive of
+  the number 1680; bounds stay in the optionals block (`omo-regular-expression`).
+  An entity's fetch indexes (indexed properties as `by<Name>Index`, or named after the property
+  under an old `minimumToolsVersion`, then the compound index, then `<fetchIndex>` elements, as in
+  the `.mom`) follow its U name and three zero words: their count,
   then per index the u64s name (C), 0, element count and, per element, property name (C), 0,
   ascending (1) or descending (0), 0. Index names and their properties' names enter C after the
   entity's class name (`omo-fi-class`), and header words 21 and 22 count the model's indexes and
@@ -425,26 +479,30 @@ and defaults of other types than integers, Boolean, String, Double, Float and Da
   templates, then one aligned u64 per template (its index) when there are any, then 1 and
   `PF_DEFAULT_CONFIGURATION_NAME`.
 - **S**: per entity, the C indexes of its SQL column names, in the iteration order of a hash table.
-  Besides `_ent`, `_pk`, `_opt`, attributes, to-many names and to-one `_Z<NAME>` and name, a
+  Besides `_ent`, `_pk`, `_opt`, attributes, to-many names and to-one `_Z<KEY>` and name, a
   destination gets, for each to-many without an inverse, a hidden to-one named the source's
   entity number and the relationship's name (`1bs`, `_Z1BS`: `omo-rel-no-inverse`), and the
-  to-one side of an ordered to-many its order key `_Z_FOK_<NAME>` (`_Z_FOK_A`, `_Z_FOK_1BS`:
+  to-one side of an ordered to-many its order key `_Z_FOK_<KEY>` (`_Z_FOK_A`, `_Z_FOK_1BS`:
   `omo-rel-ordered`, `omo-ordered`). Many-to-many relationships with inverses add nothing
   (`omo-rel-many-to-many`, `omo-rel-ordered-many-to-many`).
   That table is not Foundation's (see B-256 for what it is and is not).
+  `<KEY>` is the upper-case name, followed by 1, 2, ... for later to-ones of one upper-case name in
+  one family, in entity number order (`sibling-keys-*`: `_ZUSER1`, `_Z4_USER1`, `_Z_FOK_USER1`).
+  An entity's number counts roots by UTF-8 name, each followed by its subentities by name, depth
+  first (68 of 68 `_Z<number>_` columns of the survey's models).
 
 Every observed `.omo` of a model nomac compiles is identical, or equivalent once column-name lists
-and families are sorted and lookup tables compared by their keys (`coredata_compare.py`, ADR
-0230 to 0232); nomac refuses none of the corpus's current versions.
+and families are sorted and lookup tables compared by their keys (`coredata_compare.py`,
+`coredata_survey.py`, ADR 0230 to 0232); nomac refuses none of the corpus's current versions.
 
-**Inheritance**: a superentity gets a subentities lookup table (its direct subentities) after
-its properties table; an entity's members are, per group, the inherited properties first (the
+**Inheritance**: a superentity gets a subentities lookup table (its direct subentities, by UTF-8
+name, unlike the `.mom`: 27 of 27 lists of several) after its properties table; an entity's members are, per group, the inherited properties first (the
 root's first), then its own, each entity's by UTF-8 name, and a property record's index is its
 position there. An entity record's fields after its name are the superentity (one word 0, or
 `0x01000000` and its index), the root entity's index (its own without a superentity), the
 subentities (one word 0, or `0x01000000`, the K index of their table, their count and each one's
 index as a u64), then the K index of its first table. A subentity's lists before the ranges are
-packed on 4-byte boundaries: 2n zero words and one more, then per member either 0 and its record
+n aligned zero u64s, then packed on 4-byte boundaries, per member, either 0 and its record
 (own) or 1, padding to 8 bytes when needed, its record, its index here and 7 zero words
 (inherited, attribute or relationship), then padding to 8 bytes. The tail's count of the entity's
 family (itself and all its subentities) is written twice, before the list of their indexes, whose

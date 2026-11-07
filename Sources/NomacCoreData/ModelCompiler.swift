@@ -35,10 +35,11 @@ public enum ModelCompiler {
     public static func generatedFiles(_ input: String, destination: String) throws -> [String] {
         let (model, name) = try generatingModel(input)
         let extensions: [String]
-        switch model.sourceLanguage {
+        // No sourceLanguage generates Swift (coredata-experiments `no-language`).
+        switch model.sourceLanguage ?? "Swift" {
         case "Swift": extensions = ["swift"]
         case "Objective-C": extensions = ["h", "m"]
-        default: throw NomacError("\(input): code generation for sourceLanguage \(model.sourceLanguage ?? "(none)") is not observed yet (BACKLOG B-258)", path: input)
+        default: throw NomacError("\(input): code generation for sourceLanguage \(model.sourceLanguage ?? "") is not observed yet (BACKLOG B-258)", path: input)
         }
         var files: [String] = []
         for entity in model.entities {
@@ -68,6 +69,8 @@ public enum ModelCompiler {
             if let current = try currentVersion(input), let index = versions.firstIndex(of: current + ".xcdatamodel") {
                 return (models[index], name)
             }
+            // The only version (`versioned-one-no-current`).
+            if models.count == 1 { return (models[0], name) }
             if models.allSatisfy({ $0.entities.allSatisfy { $0.codeGeneration == nil } }) {
                 return (DataModel(entities: [], fetchRequests: [], minimumToolsVersion: nil, sourceLanguage: "Swift"), name)
             }
@@ -81,10 +84,11 @@ public enum ModelCompiler {
         let bundle = ((input as NSString).lastPathComponent as NSString).deletingPathExtension + ".momd"
         let entries = try FileManager.default.contentsOfDirectory(atPath: input)
         let versionFiles = APFSDirectoryOrder.sorted(entries).filter { ($0 as NSString).pathExtension == "xcdatamodel" }
-        // momc compiles the versions in the order of a table of their paths, filled in the order
-        // the directory lists them (the notes of every observed .xcdatamodeld).
+        // momc compiles the versions in the order of a copy of a table of their paths, filled in
+        // the order the directory lists them (the notes of every observed .xcdatamodeld; the copy
+        // shows at 7, 12 and 20 versions, which it moves to a larger table).
         let paths = versionFiles.map { (input as NSString).appendingPathComponent($0) }
-        let order = try FoundationHashTable.inserting(paths).keys.map { ($0 as NSString).lastPathComponent }
+        let order = try FoundationHashTable.inserting(paths).copied().keys.map { ($0 as NSString).lastPathComponent }
         var files: [(path: String, contents: [UInt8])] = []
         var versions: [VersionInfo.Version] = []
         var notes: [String] = []
@@ -113,7 +117,6 @@ public enum ModelCompiler {
             files.append(("\(bundle)/\(current).omo", try OptimizedModel.data(models[current]!, module: module, path: path)))
         }
         files.append(("\(bundle)/VersionInfo.plist", try VersionInfo.data(versions, current: current)))
-        warnings = ModelWarnings.merged(warnings)
         // Only models of several versions warn (DogWalk's one version does not, versioned-no-current's do).
         if current == nil, versions.count > 1 {
             warnings.append("\(input):: warning: Missing current version declaration [0]")

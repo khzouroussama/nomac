@@ -15,6 +15,9 @@ enum ModelWarnings {
             for property in entity.properties {
                 let qualified = "\(entity.name).\(property.name)"
                 let prefix = "\(location):\(qualified): warning: "
+                if property.isStoredInTruth {
+                    warnings.append(prefix + "\(qualified) is set to be stored using a Spotlight external record file, which is deprecated. Use Core Spotlight integration instead. [5]")
+                }
                 switch property {
                 case .attribute(let attribute):
                     if transformers, attribute.type == .transformable, attribute.valueTransformerName == nil {
@@ -25,7 +28,10 @@ enum ModelWarnings {
                     if relationship.deleteRule == .noAction {
                         warnings.append(prefix + "Setting the No Action Delete Rule on \(qualified) may result in relationships to deleted objects [7]")
                     }
-                    if relationship.inverseName == nil {
+                    let inverse = inverse(of: relationship, in: model)
+                    if let inverse, inverse.inverseName != relationship.name {
+                        warnings.append(prefix + "The inverse relationship for \(qualified) does not reciprocate an inverse relationship [2]")
+                    } else if inverse == nil {
                         warnings.append(prefix + (relationship.isToMany
                             ? "\(qualified) does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]"
                             : "\(qualified) should have an inverse [2]"))
@@ -36,17 +42,17 @@ enum ModelWarnings {
         return warnings
     }
 
-    /// Warnings of several versions: each message once, from the last version that has it, in the
-    /// order of those last versions (mastodon's ten versions).
-    static func merged(_ warnings: [String]) -> [String] {
-        var seen: Set<Substring> = []
-        var kept: [String] = []
-        for warning in warnings.reversed() {
-            let message = warning[warning.range(of: ": warning: ")!.upperBound...]
-            if seen.insert(message).inserted {
-                kept.append(warning)
+    /// The relationship `inverseName` names on the destination or its parents.
+    private static func inverse(of relationship: DataModel.Relationship, in model: DataModel) -> DataModel.Relationship? {
+        guard let name = relationship.inverseName else { return nil }
+        var entity = model.entities.first { $0.name == relationship.destination }
+        while let current = entity {
+            if let property = current.properties.first(where: { $0.name == name }) {
+                if case .relationship(let inverse) = property { return inverse }
+                return nil
             }
+            entity = current.parentName.flatMap { parent in model.entities.first { $0.name == parent } }
         }
-        return kept.reversed()
+        return nil
     }
 }

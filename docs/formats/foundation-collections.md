@@ -41,9 +41,11 @@ counted.
 
 ## Immutable copies
 
-A copy takes the bucket count whose Core Foundation capacity (3, 6, 11, 19, 32, 52, 85) fits its keys;
-when that is the source's count the copy keeps the source's layout, otherwise its keys are inserted
-in the source's iteration order. Twelve keys thus fill 13 buckets, then are copied into 23.
+A copy takes the bucket count whose Core Foundation capacity (3, 6, 11, 19, 32, 52, 85, 118, 155, 198)
+fits its keys; when that is the source's count the copy keeps the source's layout, otherwise its keys
+are inserted in the source's iteration order. Twelve keys thus fill 13 buckets, then are copied into
+23. Capacities past 85 are observed on the survey's models (`coredata_survey.py`): entities of more
+than 85 properties.
 
 ## What uses which
 
@@ -53,6 +55,10 @@ in the source's iteration order. Twelve keys thus fill 13 buckets, then are copi
 - `.mom` entities dictionaries: the same twice: a copy of a mutable dictionary built in the
   iteration order of a copy of a mutable dictionary built in file order (174 of 174; one copy
   explains only 34 of the 64 corpus ones).
+- `.mom` subentities dictionaries: a copy of a mutable dictionary built in the iteration order of a
+  copy of a mutable dictionary of every entity that has a parent (302 of 302 of several keys).
+- The versions of an `.xcdatamodeld`: a copy of a mutable table of their paths, filled in the order
+  the directory lists them.
 - NIB key tables: a mutable dictionary, keys inserted when first encoded, `UINibEncoderEmptyKey`
   at its first use but uncounted until the archive is finished, not copied (every observed xib and
   storyboard nib, 16 to 199 keys: docs/formats/nib.md "Encoding").

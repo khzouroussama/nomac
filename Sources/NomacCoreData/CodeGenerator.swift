@@ -26,11 +26,11 @@ public enum CodeGenerator {
         let (model, name) = try ModelCompiler.generatingModel(input)
         let generator = Generator(model: model, input: input)
         let files: [(name: String, body: String)]
-        switch model.sourceLanguage {
+        switch model.sourceLanguage ?? "Swift" {
         case "Swift": files = try generator.swift(name)
         case "Objective-C": files = try generator.objectiveC(name)
         default:
-            throw NomacError("\(input): code generation for sourceLanguage \(model.sourceLanguage ?? "(none)") is not observed yet (BACKLOG B-258)", path: input)
+            throw NomacError("\(input): code generation for sourceLanguage \(model.sourceLanguage ?? "") is not observed yet (BACKLOG B-258)", path: input)
         }
         // On a Mac's case-insensitive volume such files overwrite each other (version-strings).
         guard Set(files.map { $0.name.lowercased() }).count == files.count else {
@@ -73,12 +73,9 @@ private struct Generator {
             guard let generation = entity.codeGeneration else { continue }
             let className = try self.className(entity)
             if generation == .class {
-                // A class of another module gets no @objc name (codegen-order's Other.Beta).
-                let represented = entity.className ?? ""
-                if represented.hasPrefix(".") {
-                    throw NomacError("\(input): code generation for the class \(represented) of the current module is not observed yet (BACKLOG B-258)", path: input)
-                }
-                let objcName = represented.contains(".") ? "" : "@objc(\(className))"
+                // A class with a module, the current one's `.Name` too, gets no @objc name
+                // (codegen-order's Other.Beta, the survey's `.Account`).
+                let objcName = entity.className?.contains(".") == true ? "" : "@objc(\(className))"
                 let parent = try parentClassName(entity) ?? "NSManagedObject"
                 files.append(("\(className)+CoreDataClass.swift", swiftImports() + """
 
@@ -94,10 +91,16 @@ private struct Generator {
             files.append(("\(className)+CoreDataProperties.swift", try swiftProperties(entity, className)))
         }
         guard !files.isEmpty else { return [] }
+        // The input's name keeps only its letters: `lil_wallet` is `lilwallet`, `Technex18` is
+        // `Technex` (coredata-experiments `model-names`).
+        guard name.allSatisfy(\.isASCII) else {
+            throw NomacError("\(input): code generation for a model name of other characters than ASCII is not observed yet (BACKLOG B-258)", path: input)
+        }
+        let letters = name.filter(\.isLetter)
         files.append(("\(name)+CoreDataModel.swift", swiftImports() + """
 
-            public typealias \(name)FoundationFrameworkSet = NSSet
-            public typealias \(name)CoreDataFrameworkManagedObject = NSManagedObject
+            public typealias \(letters)FoundationFrameworkSet = NSSet
+            public typealias \(letters)CoreDataFrameworkManagedObject = NSManagedObject
 
 
 
@@ -115,15 +118,16 @@ private struct Generator {
         var modules: Set<String> = []
         for attribute in attributes(entity) {
             declarations.append("    @NSManaged nonisolated public var \(attribute.name): \(try swiftType(attribute, entity))")
+            // `UIKit.UIColor` is imported as a relationship's module is (the survey's iCloudCoreDataStarter).
+            if attribute.type == .transformable, let dot = attribute.customClassName?.firstIndex(of: "."), dot != attribute.customClassName?.startIndex {
+                modules.insert(String(attribute.customClassName![..<dot]))
+            }
         }
         for relationship in relationships(entity) {
             let destination = try self.destination(relationship, entity)
             let target = try self.className(destination)
             // A destination of another module is imported (relationships-order's Other.Mod).
-            if let represented = destination.className, let dot = represented.firstIndex(of: ".") {
-                guard dot != represented.startIndex else {
-                    throw NomacError("\(input): code generation for a relationship to the class \(represented) of the current module is not observed yet (BACKLOG B-258)", path: input)
-                }
+            if let represented = destination.className, let dot = represented.firstIndex(of: "."), dot != represented.startIndex {
                 modules.insert(String(represented[..<dot]))
             }
             guard relationship.isToMany else {
@@ -203,7 +207,7 @@ private struct Generator {
         case .binary: return "Data?"
         case .uuid: return "UUID?"
         case .uri: return "URL?"
-        case .transformable: return try transformableClass(attribute, entity) + "?"
+        case .transformable: return (attribute.customClassName?.split(separator: ".").last.map(String.init) ?? "NSObject") + "?"
         case .undefined:
             throw NomacError("attribute \(entity.name).\(attribute.name): code generation for an undefined type is not observed yet (BACKLOG B-258)", path: input)
         }
@@ -419,7 +423,7 @@ private struct Generator {
 
     private func parentClassName(_ entity: DataModel.Entity) throws -> String? {
         guard let parent = entity.parentName.flatMap({ entities[$0] }) else { return nil }
-        if parent.className?.contains(".") == true {
+        if parent.className?.contains(".") == true, parent.className?.hasPrefix(".") != true {
             throw NomacError("\(input): code generation for a subclass of \(parent.className!) is not observed yet (BACKLOG B-258)", path: input)
         }
         return try className(parent)

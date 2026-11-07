@@ -211,21 +211,21 @@ import Testing
         .attribute(DataModel.Attribute(name: name, type: type, isOptional: optional, isTransient: transient, defaultValue: nil,
                                        defaultDateTimeInterval: nil, usesScalarValueType: nil, minimum: nil, maximum: nil,
                                        isIndexed: false, valueTransformerName: nil, customClassName: nil, renamingIdentifier: nil,
-                                       allowsExternalBinaryDataStorage: false, userInfo: [], isSyncable: true))
+                                       allowsExternalBinaryDataStorage: false, userInfo: [], hasSyncable: true))
     }
 
     static func relationship(_ name: String = "", destination: String = "", inverse: String? = nil, min: Int = 0, max: Int = 0,
                              ordered: Bool = false) -> DataModel.Property {
         .relationship(DataModel.Relationship(name: name, isOptional: false, isTransient: false, isToMany: max != 1, isOrdered: ordered,
                                              minCount: min, maxCount: max, deleteRule: .nullify, destination: destination,
-                                             inverseName: inverse, renamingIdentifier: nil, isSyncable: true))
+                                             inverseName: inverse, renamingIdentifier: nil, hasSyncable: true))
     }
 
     static func entity(_ name: String, _ properties: [DataModel.Property], parent: String? = nil,
                        uniqueness: [[String]] = []) -> DataModel.Entity {
         DataModel.Entity(name: name, className: name, parentName: parent, isAbstract: false, versionHashModifier: nil,
                          renamingIdentifier: nil, codeGeneration: nil, properties: properties, uniquenessConstraints: uniqueness,
-                         fetchIndexes: [], compoundIndexes: [], userInfo: [], isSyncable: true)
+                         fetchIndexes: [], compoundIndexes: [], userInfo: [], hasSyncable: true)
     }
 
     static func model(_ entities: [DataModel.Entity]) -> DataModel {

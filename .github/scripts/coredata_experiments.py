@@ -162,6 +162,105 @@ EXPERIMENTS.update({f"objc-{name}": EXPERIMENTS[name].replace('sourceLanguage="S
                                  "relationships-several", "relationships-order", *[n for n in EXPERIMENTS if n.startswith("type-")]]})
 
 
+# Features the coverage survey's models use (coredata_survey.py, BACKLOG B-257), one at a time.
+_ONE = '<relationship name="{0}" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="{1}"{2}/>'
+
+
+def _to_one(name, destination, extra=""):
+    return _ONE.format(name, destination, f" {extra}" if extra else "")
+
+
+def _tools(text, last=None, minimum=None):
+    if last:
+        text = text.replace('lastSavedToolsVersion="1"', f'lastSavedToolsVersion="{last}"')
+    if minimum:
+        text = text.replace('minimumToolsVersion="Automatic"', f'minimumToolsVersion="{minimum}"')
+    return text
+
+
+def _sub(name, parent, *members):
+    return entity(name, *members, attributes=f'parentEntity="{parent}" syncable="YES"', codegen=None)
+
+
+_DECIMALS = ["0", "0.0", "0.00", "00", "1", "1.5", "1.50", "10", "100", "1000", "-1", "-1.5", "1e3", "1E-2", ".5", "5.", "abc", "", " 1", "1 ", "+1",
+             "65535", "65536", "4294967296", "123456789012345678901234567890", "0.1", "0.001", "-0", "-0.0", "NaN", "1,5", "12abc", "1.2.3", "0.000001"]
+_LEGACY = model(entity("Item", attribute("a", "String", 'optional="YES" indexed="YES"'), _to_one("o", "Other"), codegen=None, attributes=""),
+                entity("Other", codegen=None, attributes=""))
+_RECIPROCAL_B = entity("B", _to_one("a", "A"), codegen=None)
+EXPERIMENTS.update({
+    "no-class": model('    <entity name="Item" syncable="YES">\n        <attribute name="a" optional="YES" attributeType="String"/>\n    </entity>\n',
+                      '    <entity name="Sub" parentEntity="Item" syncable="YES"/>\n'),
+    "no-language": EXPERIMENTS["one-date"].replace(' sourceLanguage="Swift"', ""),
+    "version-identifier": EXPERIMENTS["one-date"].replace('userDefinedModelVersionIdentifier=""', 'userDefinedModelVersionIdentifier="2.9"'),
+    "model-attributes": EXPERIMENTS["one-date"].replace('<model ', '<model name="Test1.xcdatamodel" usedWithSwiftData="YES" '),
+    "decimal-defaults": model(entity("Item", *[attribute(f"a{i:02}", "Decimal", f'optional="YES" defaultValueString="{value}" usesScalarValueType="NO"')
+                                               for i, value in enumerate(_DECIMALS)], codegen=None)),
+    "decimal-several": model(entity("A", typed("Decimal", "a"), typed("Decimal", "b"), codegen=None), entity("B", typed("Decimal", "a"), codegen=None)),
+    "default-ignored": model(entity("Item", attribute("u", "URI", 'optional="YES" defaultValueString="https://x.y"'),
+                                    attribute("i", "UUID", 'optional="YES" defaultValueString="F6CDB0E3-3A6B-4B5C-9D4E-1F2A3B4C5D6E"'),
+                                    attribute("b", "Binary", 'optional="YES" defaultValueString="abc"'),
+                                    attribute("t", "Transformable", 'optional="YES" valueTransformerName="V" defaultValueString="0"'), codegen=None)),
+    "tools-automatic-11116": _tools(_LEGACY, last="11116"),
+    "tools-automatic-11117": _tools(_LEGACY, last="11117"),
+    "tools-automatic-2": _tools(_LEGACY, last="2"),
+    "tools-automatic-fraction": _tools(_LEGACY, last="9525.2"),
+    "syncable-xcode-10": _tools(_LEGACY, minimum="Xcode 10.0"),
+    "syncable-xcode-11": _tools(_LEGACY, minimum="Xcode 11.0"),
+    "syncable-no": _tools(_LEGACY, last="5064").replace('indexed="YES"', 'indexed="YES" syncable="NO"').replace('destinationEntity="Other"', 'destinationEntity="Other" syncable="NO"'),
+    "syncable-user-info": _tools(model(entity("Item", '<attribute name="a" optional="YES" attributeType="String"><userInfo><entry key="k" value="v"/></userInfo></attribute>',
+                                              '<userInfo><entry key="e" value="f"/></userInfo>', codegen=None, attributes="")), last="5064"),
+    "property-flags-attribute": model(entity("Item", attribute("a", "String", 'optional="YES" spotlightIndexingEnabled="YES"'),
+                                             attribute("b", "String", 'optional="YES" storedInTruthFile="YES"'),
+                                             attribute("c", "String", 'optional="YES" allowsCloudEncryption="YES"'),
+                                             attribute("d", "String", 'optional="YES" spotlightIndexingEnabled="YES" storedInTruthFile="YES" allowsCloudEncryption="YES"'), codegen=None)),
+    "property-flags-relationship": model(entity("Item", _to_one("a", "Other", 'spotlightIndexingEnabled="YES"'), _to_one("b", "Other", 'storedInTruthFile="YES"'),
+                                                '<relationship name="c" optional="YES" toMany="YES" ordered="YES" deletionRule="Nullify" destinationEntity="Other" spotlightIndexingEnabled="YES"/>', codegen=None),
+                                         entity("Other", codegen=None)),
+    "property-flags-transient": model(entity("Item", attribute("a", "String", 'optional="YES" transient="YES" spotlightIndexingEnabled="YES" storedInTruthFile="YES" allowsCloudEncryption="YES"'), codegen=None)),
+    "regular-expression": model(entity("Item", attribute("a", "String", 'optional="YES" regularExpressionString="x+"'),
+                                       attribute("b", "String", 'optional="YES" regularExpressionString="y+"'),
+                                       attribute("c", "String", 'optional="YES" regularExpressionString="z+" minValueString="1"'),
+                                       attribute("d", "String", 'optional="YES" regularExpressionString="x+" elementID="old"'),
+                                       '<attribute name="e" optional="YES" attributeType="String" regularExpressionString="q+" elementID="old2" minValueString="3"><userInfo><entry key="k" value="v"/></userInfo></attribute>',
+                                       attribute("f", "String"), codegen=None)),
+    "user-info-validation": model(entity("Item", '<attribute name="a" optional="YES" attributeType="String" minValueString="1" maxValueString="2"><userInfo><entry key="k" value="v"/></userInfo></attribute>', codegen=None)),
+    "modifier-attribute": model(entity("Item", attribute("a", "String", 'optional="YES" versionHashModifier="3"'), codegen=None)),
+    "modifier-relationship": model(entity("Item", _to_one("o", "Other", 'versionHashModifier="3"'), codegen=None), entity("Other", codegen=None)),
+    "modifier-strings": model(entity("Item", attribute("a", "String", 'optional="YES" versionHashModifier="vhm" elementID="old" defaultValueString="def" valueTransformerName="tr"'), codegen=None)),
+    "relationship-user-info": model(entity("Item", '<relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"><userInfo><entry key="k" value="v"/></userInfo></relationship>', codegen=None), entity("Other", codegen=None)),
+    "relationship-indexed": model(entity("Item", _to_one("o", "Other", 'indexed="YES"'), codegen=None), entity("Other", codegen=None)),
+    "own-inverse": model(entity("Item", _to_one("s", "Item", 'inverseName="s" inverseEntity="Item"'), codegen=None)),
+    "same-name-inverse": model(entity("A", _to_one("x", "B", 'inverseName="x" inverseEntity="B"'), codegen=None), entity("B", _to_one("x", "A", 'inverseName="x" inverseEntity="A"'), codegen=None)),
+    "inverse-without": model(entity("A", _to_one("b", "B", 'inverseName="a" inverseEntity="B"'), codegen=None), _RECIPROCAL_B),
+    "inverse-missing": model(entity("A", _to_one("b", "B", 'inverseName="zzz" inverseEntity="B"'), codegen=None), entity("B", codegen=None)),
+    "inverse-attribute": model(entity("A", _to_one("b", "B", 'inverseName="n" inverseEntity="B"'), codegen=None), entity("B", typed("String", "n"), codegen=None)),
+    "inverse-inherited": model(entity("A", _to_one("s", "Sub", 'inverseName="a" inverseEntity="Base"'), codegen=None),
+                               entity("Base", _to_one("a", "A", 'inverseName="s" inverseEntity="A"'), codegen=None), _sub("Sub", "Base")),
+    # Three subentities whose names collide in small tables: the larger model orders them by another table.
+    "subentities-8": model(entity("Item", codegen=None), _sub("BuyableItem", "Item"), _sub("Egg", "BuyableItem"), _sub("Food", "BuyableItem"), _sub("Quest", "BuyableItem"),
+                           entity("MetaReward", codegen=None), _sub("InAppReward", "MetaReward"), _sub("Reward", "MetaReward")),
+    "subentities-9": model(entity("Item", codegen=None), _sub("BuyableItem", "Item"), _sub("Egg", "BuyableItem"), _sub("Food", "BuyableItem"), _sub("Quest", "BuyableItem"),
+                           _sub("HatchingPotion", "Item"), entity("MetaReward", codegen=None), _sub("InAppReward", "MetaReward"), _sub("Reward", "MetaReward")),
+    "sibling-keys-two": model(entity("Base", codegen=None), _sub("A", "Base", _to_one("user", "U")), _sub("B", "Base", _to_one("user", "U")), entity("U", codegen=None)),
+    "sibling-keys-three": model(entity("Base", codegen=None), _sub("A", "Base"), _sub("A1", "A", _to_one("user", "U")), _sub("B", "Base", _to_one("user", "U")),
+                                _sub("C", "Base"), _sub("C1", "C", _to_one("user", "U")), entity("U", codegen=None)),
+    "sibling-keys-case": model(entity("Base", codegen=None), _sub("A", "Base", _to_one("user", "U")), _sub("B", "Base", _to_one("USER", "U")), entity("U", codegen=None)),
+    "sibling-keys-destination": model(entity("Base", codegen=None), _sub("A", "Base", _to_one("user", "U")), _sub("B", "Base", _to_one("user", "U")), entity("U", codegen=None), _sub("U2", "U")),
+    "sibling-keys-ordered": model(entity("Base", codegen=None), _sub("A", "Base", _to_one("user", "U", 'inverseName="as" inverseEntity="U"')), _sub("B", "Base", _to_one("user", "U", 'inverseName="bs" inverseEntity="U"')),
+                                  entity("U", '<relationship name="as" optional="YES" toMany="YES" ordered="YES" deletionRule="Nullify" destinationEntity="A" inverseName="user" inverseEntity="A"/>',
+                                         '<relationship name="bs" optional="YES" toMany="YES" ordered="YES" deletionRule="Nullify" destinationEntity="B" inverseName="user" inverseEntity="B"/>', codegen=None)),
+    "class-in-module": model('    <entity name="Item" representedClassName=".Item" syncable="YES" codeGenerationType="class">\n        <attribute name="a" optional="YES" attributeType="String"/>\n    </entity>\n'),
+    "transformable-module": model(entity("Item", attribute("c", "Transformable", 'optional="YES" valueTransformerName="V" customClassName="UIKit.UIColor"'))),
+    "two-classes-in-module": model('    <entity name="A" representedClassName=".Same" syncable="YES"/>\n', '    <entity name="B" representedClassName=".Same" syncable="YES"/>\n'),
+})
+SURVEY_MODELS = ["no-class", "version-identifier", "model-attributes", "decimal-defaults", "decimal-several", "default-ignored", "tools-automatic-11116",
+                 "tools-automatic-11117", "tools-automatic-2", "tools-automatic-fraction", "syncable-xcode-10", "syncable-xcode-11", "syncable-no", "syncable-user-info",
+                 "property-flags-attribute", "property-flags-relationship", "property-flags-transient", "regular-expression", "user-info-validation", "modifier-attribute",
+                 "modifier-relationship", "modifier-strings", "relationship-user-info", "relationship-indexed", "own-inverse", "same-name-inverse", "inverse-without",
+                 "inverse-missing", "inverse-attribute", "inverse-inherited", "subentities-8", "subentities-9", "sibling-keys-two", "sibling-keys-three", "sibling-keys-case",
+                 "sibling-keys-destination", "sibling-keys-ordered"]
+
+
 def threshold_names(n, seed):
     """n distinct lowercase names, the same on every run for (n, seed)."""
     rng = random.Random(f"{n}-{seed}")
@@ -203,6 +302,14 @@ VERSIONED["version-shared-names"] = {"Model": model(*[entity(n, attribute("t", "
 NO_CURRENT_VERSION = {"versioned-no-current": None, "warn-transformer-no-current": None,
                       "versioned-empty-current": '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                                                  '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict/>\n</plist>\n'}
+
+# The survey's features in an .omo, the only version of an .xcdatamodeld that names it current;
+# the versions' compile order at the sizes where a copy of its table moves; a warning in two versions.
+VERSIONED.update({f"omo-{name}": {"Model": EXPERIMENTS[name]} for name in SURVEY_MODELS})
+VERSIONED.update({f"versions-{n}": {f"V{i}": EXPERIMENTS["one-date"] for i in range(n)} for n in [6, 7, 8, 12, 13, 20, 21]})
+VERSIONED["warn-repeated"] = {"Model": EXPERIMENTS["no-inverse"], "Model 2": EXPERIMENTS["no-inverse"]}
+VERSIONED["versioned-one-no-current"] = {"Model": EXPERIMENTS["one-date"]}
+NO_CURRENT_VERSION["versioned-one-no-current"] = None
 
 # The .omo of a current version, one input varied at a time: each experiment model as the only
 # version of an .xcdatamodeld that names it current.
