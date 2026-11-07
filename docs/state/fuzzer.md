@@ -17,6 +17,14 @@ Run 3 runs unattended: log `~/nomac-out/scratch-fuzz/run3-500000.log`, output
 `fuzz_experiments.py findings --out <output>` writes the ranking; add the row to docs/PROGRESS.md
 and fix from the top. Delete `~/nomac-out/scratch-fuzz` when that is done.
 
+When this was written it stood at 16 identical of 17, too few to publish as the number: replace
+the partial row in docs/PROGRESS.md when it stops.
+
+`~/nomac-out/scratch-fuzz/listcheck.log` compares `nomac list` with the references of the nine corpus
+apps that have `wasCreatedForAppExtension` schemes, the check on that rule against real apps.
+netnewswire and icecubes matched before this was written; read the rest, and fix the rule if any
+app shows a scheme on one side only.
+
 Next:
 1. Run 1's seed 300048: xcodebuild fails with 64 on a scheme whose name a UI test bundle and a
    referenced project's framework share, nomac prints a block. `same-name-destinations` documents
