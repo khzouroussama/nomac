@@ -155,7 +155,7 @@ of them. These runs used an older copy of the Xcode SDK subset, so a failure her
 
 | Framework | What ran on Linux | Stopped at | Reached an IPA |
 |---|---|---|---|
-| Flutter 3.47.7 | Its Dart SDK and `dart pub get` for Flutter's own tool. The tool's first compile had taken over 11 minutes and was still running | Nothing of the app has run yet | No |
+| Flutter 3.47.7 | `flutter create --platforms=ios` succeeded and wrote `ios/Flutter/Generated.xcconfig` and the Swift package the project needs. `flutter precache --ios` started downloading the iOS engine | `flutter build ios --config-only` is refused (below). `nomac check` and `nomac archive` have not run on Linux yet | No |
 | Capacitor 8 | `npm init @capacitor/app`, `npm install @capacitor/ios`, `npx cap add ios` and `npx cap sync ios` all succeeded | `nomac check` reports that nomac cannot compile its launch screen (below). `nomac archive` was stopped unfinished after 7 minutes with no output | No |
 | Cordova | Stopped during `cordova create` | Not run | No |
 | Kotlin Multiplatform | Nothing | Not run | No |
@@ -167,10 +167,11 @@ of them. These runs used an older copy of the Xcode SDK subset, so a failure her
 Seen on a Mac with Xcode 27.0: `flutter create`, `flutter pub get` and an ad hoc `xcodebuild archive` of the
 result succeed, and `nomac check` lists only signing settings for that project (4 of 270 features).
 
-What you should expect on Linux, from Flutter 3.47.7's sources and its macOS files, not from a run:
+Seen on Linux: `flutter build ios --config-only` stops with `Could not find an option named "--config-only".`
+Nothing needs it for a fresh app, because `flutter create` has already written what the project needs.
 
-- `flutter build ios` refuses every system but macOS: "Building for iOS is only supported on macOS.".
-  `flutter pub get` is what writes `ios/Flutter/Generated.xcconfig` and the Swift package the project needs.
+What you should expect next on Linux, from Flutter 3.47.7's sources and its macOS files, not from a run:
+
 - **Release and Profile builds need a Linux build of `gen_snapshot_arm64`.** Flutter ships that compiler only
   as a macOS executable, and it has to match Flutter's Dart revision exactly. nomac does not provide one and
   has not tested one, so a Release build, which is what `nomac archive` makes by default, is the open question
