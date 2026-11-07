@@ -3,8 +3,7 @@
 
 The coverage survey (feature_survey.py) only reads projects. This takes a seeded sample of what the
 survey read and runs each project end to end on Linux, one project after another in one container,
-unchanged. A step cut by the network runs again; if it never finishes, the project is not measured
-and counts nowhere. Steps:
+unchanged. Steps:
 
   clone     the commit the survey read, shallow, with its submodules
   deps      the commands the project's README gives (corpus/wild-sample.json), else the ones its
@@ -15,6 +14,13 @@ and counts nowhere. Steps:
 
 The checkout and its derived data are deleted after each project; the logs stay under --root,
 outside the repository. Only project names, commits, classes and counts reach corpus/.
+
+`run` is meant to go unwatched (docs/state/wild-sample.md). Every step has a timeout. A step the
+network cuts runs again. A project is not measured, counts in no share and is taken again in the next
+round when its clone or dependency install fails, its archive times out, or this machine lacks a
+tool its README names; the report shows those apart, with the bounds they leave. <root>/results.log
+gets one line per attempt. Under 15 GB free on the Mac the run kills its step, writes <root>/STOPPED
+and ends, and no run starts while that file exists.
 
 Two frames, from the survey's `contents` records:
 
@@ -36,7 +42,9 @@ A failure gets one of three verdicts:
 
 Usage:
   wild_sample.py pick --survey DIR [--seed N] [--count N]   write corpus/wild-sample.json's sample
-  wild_sample.py run [--root R] [--jobs N] [project ...]    (Linux, in the container; leaves out what finished)
+  wild_sample.py tools                                      (Linux, as root) what READMEs ask for, retried; safe to rerun
+  wild_sample.py run [--root R] [--rounds N] [--round-wait S] [project ...]
+                                                            (Linux, in the container) leaves out what was measured
   wild_sample.py xcode [--root R] project ...               the same checkout under Xcode 27.0 (Mac)
   wild_sample.py triage [--root R] [--all] [--lines N]      each stopped project's first errors, for the verdicts
   wild_sample.py classes [--root R]                         nomac-fault classes, ranked by projects
@@ -46,6 +54,7 @@ Usage:
 import argparse
 import collections
 import concurrent.futures
+import contextlib
 import datetime
 import hashlib
 import json
@@ -82,8 +91,20 @@ JOBS_PER_BUILD = 6
 MAC_MIN_FREE_GB = 30
 MAC_STOP_FREE_GB = 15
 VOLUME_MAX_GB = 14
+VOLUME_STOP_GB = 15
 NETWORK_ATTEMPTS = 4
 NETWORK_WAIT = 180
+NETWORK_PROBES = 10
+ROUNDS = 4
+ROUND_WAIT = 1200
+TOOL_ATTEMPTS = 20
+TOOL_WAIT = 180
+TOOLCHAIN_WAIT = 7200
+OVER_BUDGET = "over the disk budget"
+APT_OPTIONS = ["-o", "Acquire::http::Timeout=20", "-o", "Acquire::Retries=5"]
+APT_PACKAGES = ["ruby-full", "ruby-dev", "build-essential", "7zip", "xz-utils", "curl", "make", "git-lfs", "libyaml-dev", "libffi-dev", "zlib1g-dev",
+                "autoconf", "automake", "libtool", "pkg-config", "cmake", "jq"]
+NODE = "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-{}.tar.xz"
 ERROR = re.compile(r"(^|\s)(error|fatal error):\s|^\s*\*\* [A-Z ]+ FAILED \*\*|^\[!\] ", re.MULTILINE)
 NETWORK = re.compile(r"Could not resolve host|Temporary failure|Empty reply from server|early EOF|RPC failed|TLS handshake|SSL_ERROR|SSL connection|"
                      r"gnutls_handshake|Connection (reset|refused|timed out)|Failed to connect|Operation timed out|ETIMEDOUT|ECONNRESET|EAI_AGAIN|"
@@ -95,6 +116,7 @@ SECRETS = [".ssh", ".aws", ".gnupg", ".config", ".netrc", ".npmrc", ".gem/creden
 print_lock = threading.Lock()
 running = set()
 stopping = threading.Event()
+over_budget = threading.Event()
 
 
 def log(message):
@@ -217,6 +239,21 @@ def with_network_retries(result, name, log_path, attempt):
         if tries + 1 < NETWORK_ATTEMPTS:
             time.sleep(NETWORK_WAIT)
     return status
+
+
+def wait_for_network(entry, env):
+    """GitHub answering at all, so that an outage costs one project's wait and not its result."""
+    url = f"https://github.com/{entry['repository']}.git"
+    for tries in range(NETWORK_PROBES):
+        try:
+            probe = subprocess.run(["git", "ls-remote", "--exit-code", url, "HEAD"], env=env, capture_output=True, text=True, timeout=60)
+            if probe.returncode == 0 or "not found" in probe.stderr:
+                return True
+        except subprocess.TimeoutExpired:
+            pass
+        if tries + 1 < NETWORK_PROBES:
+            time.sleep(NETWORK_WAIT)
+    return False
 
 
 def clone(entry, top, out, env):
@@ -387,12 +424,16 @@ def measure(root, work, entry):
     save(root, result)
     try:
         if entry.get("noApp"):
-            step(result, "scheme", False, time.time(), errors=["the repository has no app to archive"])
+            result["noApp"] = True
             return result
         started = time.time()
+        if not wait_for_network(entry, env):
+            result["notMeasured"] = "GitHub did not answer"
+            return result
         status = with_network_retries(result, "clone", out / "clone.log", lambda: clone(entry, top, out, env))
         step(result, "clone", status == 0, started, status=status, errors=[] if status == 0 else first_errors(out / "clone.log"))
         if status != 0:
+            result.setdefault("notMeasured", "clone failed")
             return result
 
         started = time.time()
@@ -406,6 +447,7 @@ def measure(root, work, entry):
         step(result, "deps", status == 0, started, status=status, commands=[command["run"] for command in commands],
              fromManifest="dependencies" in entry, errors=[] if status == 0 else first_errors(out / "deps.log"))
         if status != 0:
+            result.setdefault("notMeasured", "dependency install failed")
             return result
         save(root, result)
 
@@ -420,8 +462,8 @@ def measure(root, work, entry):
         try:
             report = json.loads(check.stdout)
             outside = [feature for feature in report["features"] if feature["status"] != "verified"]
-            stopping = sorted(feature["id"] for feature in outside if feature["domain"] not in NOT_STOPPING_DOMAINS)
-            step(result, "check", True, started, outside=len(outside), mayStop=stopping, fixes=[fix.get("id") for fix in report.get("projectFixes", [])])
+            may = sorted(feature["id"] for feature in outside if feature["domain"] not in NOT_STOPPING_DOMAINS)
+            step(result, "check", True, started, outside=len(outside), mayStop=may, fixes=[fix.get("id") for fix in report.get("projectFixes", [])])
         except (ValueError, KeyError):
             step(result, "check", True, started, status=check.returncode, unreadable=True, error=check.stderr[-400:])
         save(root, result)
@@ -444,6 +486,8 @@ def measure(root, work, entry):
             container.parent, env, out / "archive.log", BUILD_TIMEOUT))
         ok = status == 0 and archive.exists()
         step(result, "archive", ok, started, status=status, errors=first_errors(out / "archive.log", 20) if not ok else [])
+        if status == "timeout":
+            result["notMeasured"] = "archive timed out"
         if not ok:
             return result
         shutil.rmtree(scratch / "DerivedData", ignore_errors=True)
@@ -463,53 +507,86 @@ def measure(root, work, entry):
         result["notMeasured"] = f"this machine has no {error}"
         return result
     except subprocess.TimeoutExpired as error:
-        step(result, "harness", False, time.time(), errors=[f"timed out: {error.cmd[:2]}"])
+        result["notMeasured"] = f"timed out: {Path(error.cmd[0]).name} {error.cmd[1]}"
         return result
     finally:
         result["finished"] = datetime.datetime.now().isoformat(timespec="seconds")
         result.setdefault("ipa", False)
         if stopping.is_set():
             result["notMeasured"] = "stopped for disk space"
+        elif over_budget.is_set():
+            over_budget.clear()
+            result["notMeasured"] = OVER_BUDGET
         save(root, result)
+        subprocess.run(["pkill", "-9", "-f", str(run)], check=False)
         subprocess.run(["bash", "-c", f"chmod -R u+w {run} 2>/dev/null; rm -rf {run}"], check=False)
         for path in out.glob("*.log"):
             subprocess.run(["gzip", "-f", str(path)], check=False)
-        outcome = "IPA" if result["ipa"] else f"not measured, {result['notMeasured']}" if result.get("notMeasured") else f"stopped at {result.get('stopped')}"
-        log(f"{name}: {outcome} ({sum(s['seconds'] for s in result['steps'].values())} s)")
+        outcome = ("IPA" if result["ipa"] else "no-app" if result.get("noApp") else f"not-measured: {result['notMeasured']}" if result.get("notMeasured")
+                   else f"stopped-at: {result.get('stopped')}")
+        seconds = sum(s["seconds"] for s in result["steps"].values())
+        with open(root / "results.log", "a") as lines:
+            lines.write(f"{result['finished']} {entry['repository']} [{','.join(entry['frames'])}] {seconds}s nomac={result['nomac']} {outcome}\n")
+        log(f"{name}: {outcome} ({seconds} s)")
 
 
 def free_gigabytes(path):
     return shutil.disk_usage(path).free / 1e9
 
 
+def volume_gigabytes(work):
+    used = subprocess.run(["du", "-sx", "--block-size=1G", str(work)], capture_output=True, text=True).stdout.split()
+    return int(used[0]) if used else 0
+
+
 def wait_for_disk(root, work):
     """The Mac's disk is the real limit (bind-mounted root shows it); so is this volume's budget."""
-    while True:
+    while not stopping.is_set():
         mac = free_gigabytes(root)
-        used = subprocess.run(["du", "-sx", "--block-size=1G", str(work)], capture_output=True, text=True).stdout.split()
-        volume = int(used[0]) if used else 0
+        volume = volume_gigabytes(work)
         if mac >= MAC_MIN_FREE_GB and volume < VOLUME_MAX_GB:
             return
         log(f"waiting for disk: Mac {mac:.0f} GB free, volume {volume} GB")
         time.sleep(120)
 
 
-def disk_guard(root):
-    """Below the floor every running step goes and the run ends: the Mac's disk is shared."""
+def kill_steps():
+    for process in list(running):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+
+
+def disk_guard(root, work):
+    """Under the floor every running step goes and the run ends: the Mac's disk is shared. A project
+    over this volume's budget goes alone."""
+    checks = 0
     while not stopping.is_set():
-        if free_gigabytes(root) < MAC_STOP_FREE_GB:
-            log(f"stopping: the Mac has under {MAC_STOP_FREE_GB} GB free")
+        free = free_gigabytes(root)
+        if free < MAC_STOP_FREE_GB:
+            message = f"{datetime.datetime.now().isoformat(timespec='seconds')} the Mac has {free:.0f} GB free, under {MAC_STOP_FREE_GB} GB"
+            (root / "STOPPED").write_text(message + "\n")
+            log(f"stopping: {message}")
             stopping.set()
-            for process in list(running):
-                os.killpg(process.pid, signal.SIGKILL)
+            kill_steps()
+        checks += 1
+        if checks % 4 == 0 and running and volume_gigabytes(work) >= VOLUME_STOP_GB:
+            log(f"a project passed {VOLUME_STOP_GB} GB in this volume: its steps go")
+            over_budget.set()
+            kill_steps()
         time.sleep(30)
 
 
-def run_all(arguments):
-    root, work = Path(arguments.root), Path(arguments.work)
-    (root / "results").mkdir(parents=True, exist_ok=True)
-    manifest = load_manifest()
-    wanted = set(arguments.projects)
+def wait_for_toolchain():
+    """`nomac toolchain install` writes the launchers last."""
+    deadline = time.time() + TOOLCHAIN_WAIT
+    launcher = SHARED_HOME / ".local" / "bin" / "xcodebuild"
+    while not launcher.exists():
+        if time.time() > deadline:
+            sys.exit(f"no {launcher} after {TOOLCHAIN_WAIT} s: run `nomac toolchain install`")
+        time.sleep(60)
+
+
+def pending_projects(root, manifest, wanted):
     pending = []
     for entry in manifest["projects"]:
         name = identifier(entry["repository"])
@@ -518,21 +595,76 @@ def run_all(arguments):
         path = root / "results" / f"{name}.json"
         if not wanted and path.exists():
             done = json.loads(path.read_text())
-            if "finished" in done and not done.get("notMeasured"):
+            if "finished" in done and (not done.get("notMeasured") or done["notMeasured"] == OVER_BUDGET):
                 continue
         pending.append(entry)
-    log(f"{len(pending)} projects to measure with {Path(os.path.realpath(NOMAC)).parent.name}, {arguments.jobs} at a time")
+    return pending
 
-    threading.Thread(target=disk_guard, args=(root,), daemon=True).start()
+
+def run_all(arguments):
+    root, work = Path(arguments.root), Path(arguments.work)
+    (root / "results").mkdir(parents=True, exist_ok=True)
+    if (root / "STOPPED").exists():
+        sys.exit(f"{root / 'STOPPED'}: {(root / 'STOPPED').read_text().strip()}; free the disk and delete the file to run again")
+    wait_for_toolchain()
+    subprocess.run(["bash", "-c", f"chmod -R u+w {work}/runs 2>/dev/null; rm -rf {work}/runs/*"], check=False)
+    threading.Thread(target=disk_guard, args=(root, work), daemon=True).start()
+    manifest = load_manifest()
+    wanted = set(arguments.projects)
 
     def one(entry):
         wait_for_disk(root, work)
         if not stopping.is_set():
             measure(root, work, entry)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=arguments.jobs) as pool:
-        for future in concurrent.futures.as_completed([pool.submit(one, entry) for entry in pending]):
-            future.result()
+    for number in range(1, arguments.rounds + 1):
+        pending = pending_projects(root, manifest, wanted)
+        if not pending or stopping.is_set():
+            break
+        log(f"round {number}: {len(pending)} projects with {Path(os.path.realpath(NOMAC)).parent.name}, {arguments.jobs} at a time")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=arguments.jobs) as pool:
+            for future in concurrent.futures.as_completed([pool.submit(one, entry) for entry in pending]):
+                future.result()
+        if wanted:
+            break
+        if number < arguments.rounds and pending_projects(root, manifest, wanted):
+            time.sleep(arguments.round_wait)
+    left = pending_projects(root, manifest, wanted) if not wanted else []
+    with open(root / "results.log", "a") as lines:
+        lines.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} END {'stopped for disk space' if stopping.is_set() else 'rounds done'}, {len(left)} projects not measured\n")
+
+
+def tools(arguments):
+    """As root: what READMEs ask for, each step bounded and retried, so that a hung mirror cannot
+    hold the machine; a step already done is left. The measurement does not wait for this: a project
+    whose tool is not here yet is not measured and comes back in a later round."""
+    architecture = "arm64" if os.uname().machine == "aarch64" else "x64"
+    environment = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    steps = [("ruby", ["bash", "-c", "command -v ruby && command -v curl && command -v make"], None),
+             ("cocoapods", ["bash", "-c", "command -v pod"], ["gem", "install", "-N", "cocoapods", "-v", "1.16.2"]),
+             ("bundler", ["bash", "-c", "command -v bundle"], ["gem", "install", "-N", "bundler"]),
+             ("node", ["bash", "-c", "command -v node"], ["bash", "-c", f"curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 500 {NODE.format(architecture)} | tar -xJ -C /usr/local --strip-components=1"]),
+             ("corepack", ["bash", "-c", "command -v yarn"], ["corepack", "enable"])]
+
+    def run(command, timeout):
+        return subprocess.run(["timeout", "-k", "10", str(timeout), *command], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT).returncode == 0
+
+    def install_packages():
+        subprocess.run(["pkill", "-9", "-x", "apt-get"], check=False)
+        for lock in ("/var/lib/apt/lists/lock", "/var/lib/dpkg/lock-frontend", "/var/cache/apt/archives/lock"):
+            Path(lock).unlink(missing_ok=True)
+        return (run(["apt-get", "update", "-qq", *APT_OPTIONS], 300) and run(["dpkg", "--configure", "-a"], 300)
+                and run(["apt-get", "install", "-y", "-qq", *APT_OPTIONS, *APT_PACKAGES], 900))
+
+    for name, present, install in steps:
+        for attempt in range(TOOL_ATTEMPTS):
+            if run(present, 30):
+                break
+            log(f"tools: {name}, try {attempt + 1}")
+            if (install_packages() if install is None else run(install, 900)) and run(present, 30):
+                break
+            time.sleep(TOOL_WAIT)
+        log(f"tools: {name} {'ready' if run(present, 30) else 'NOT installed'}")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -608,10 +740,15 @@ def xcode(arguments):
 # Verdicts and the report
 
 
-def results_of(root):
-    """Measured projects: finished, and not cut short by the network or a missing tool."""
+def attempts_of(root):
     found = [json.loads(path.read_text()) for path in sorted((Path(root) / "results").glob("*.json"))]
-    return [result for result in found if "finished" in result and not result.get("notMeasured")]
+    return [result for result in found if "finished" in result]
+
+
+def results_of(root):
+    """Measured projects: finished, not cut short, an app; a verdict given by hand counts as measured."""
+    table = verdicts()
+    return [result for result in attempts_of(root) if not result.get("noApp") and (not result.get("notMeasured") or result["repository"] in table)]
 
 
 def verdicts():
@@ -642,13 +779,13 @@ def classes(arguments):
 def triage(arguments):
     """Each stopped project's step and first errors, to give it a verdict by hand."""
     table = verdicts()
-    for result in results_of(arguments.root):
-        if result["ipa"]:
+    for result in attempts_of(arguments.root):
+        if result["ipa"] or result.get("noApp"):
             continue
         if result["repository"] in table and not arguments.all:
             continue
         stopped = result["steps"].get(result.get("stopped"), {})
-        print(f"### {result['repository']} stopped at {result.get('stopped')} ({stopped.get('seconds')} s, network: {result.get('networkFailure')})")
+        print(f"### {result['repository']} stopped at {result.get('stopped')} ({stopped.get('seconds')} s; not measured: {result.get('notMeasured')})")
         for line in stopped.get("errors", [])[:arguments.lines]:
             print("  " + re.sub(r"/work/runs/[^/]+/(src/)?", "", line)[:220])
 
@@ -662,12 +799,20 @@ def share_line(label, successes, total):
 
 def report(arguments):
     finished = results_of(arguments.root)
+    attempts = attempts_of(arguments.root)
+    measured = {result["repository"] for result in finished}
     table = verdicts()
     manifest = load_manifest()
+    print(f"attempted {len(attempts)} of {len(manifest['projects'])} projects; not attempted yet: {len(manifest['projects']) - len(attempts)}")
     for frame in ("clear", "accepted"):
         members = [result for result in finished if frame in result["frames"]]
         ipa = sum(result["ipa"] for result in members)
         print(share_line(f"{frame}: IPA", ipa, len(members)))
+        unmeasured = [result for result in attempts if frame in result["frames"] and result["repository"] not in measured and not result.get("noApp")]
+        print(f"  no app to archive: {sum(bool(result.get('noApp')) and frame in result['frames'] for result in attempts)}")
+        print(f"  not measured: {len(unmeasured)} {dict(collections.Counter(result['notMeasured'].split(':')[0] for result in unmeasured))}")
+        if unmeasured:
+            print(f"  bounds if the not measured all fail or all pass: {ipa} to {ipa + len(unmeasured)} of {len(members) + len(unmeasured)}")
         counts = collections.Counter((table.get(result["repository"]) or {}).get("verdict", "no verdict") for result in members if not result["ipa"])
         print("  stopped:", dict(counts))
         decided = len(members) - counts["project"]
@@ -693,10 +838,13 @@ def main():
     command.add_argument("--survey", required=True)
     command.add_argument("--seed", type=int, default=SEED)
     command.add_argument("--count", type=int, default=COUNT)
+    commands.add_parser("tools")
     command = commands.add_parser("run")
     command.add_argument("--root", default=str(DEFAULT_ROOT))
     command.add_argument("--work", default=os.environ.get("WILD_WORK", "/work"))
     command.add_argument("--jobs", type=int, default=1)
+    command.add_argument("--rounds", type=int, default=ROUNDS)
+    command.add_argument("--round-wait", type=int, default=ROUND_WAIT)
     command.add_argument("projects", nargs="*")
     command = commands.add_parser("xcode")
     command.add_argument("--root", default=str(DEFAULT_ROOT))
@@ -712,7 +860,7 @@ def main():
     command.add_argument("--write", action="store_true")
     arguments = parser.parse_args()
     NOMAC = shutil.which("nomac") or "nomac"
-    {"pick": pick, "run": run_all, "xcode": xcode, "classes": classes, "triage": triage, "report": report}[arguments.command](arguments)
+    {"pick": pick, "tools": tools, "run": run_all, "xcode": xcode, "classes": classes, "triage": triage, "report": report}[arguments.command](arguments)
 
 
 if __name__ == "__main__":
