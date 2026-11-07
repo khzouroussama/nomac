@@ -139,6 +139,8 @@ final class NibViewController: NibArchivable, NibObjectChildren {
     let segueTemplates: [NibSegueTemplate]
     let swapsClass: Bool
     var navigationItem: NibNavigationItem?
+    /// A tab bar item of its own, after its title (`sb-vcattr-*`).
+    var tabItem: NibTabBarItem?
     var definesPresentationContext = false
     var keptAlive: [NibArchivable] = []
     var settings = ControllerSettings()
@@ -156,10 +158,11 @@ final class NibViewController: NibArchivable, NibObjectChildren {
     }
 
     var className: String { swapsClass ? "UIClassSwapper" : controllerClass.original.value }
-    var childObjects: [NibArchivable] { (navigationItem.map { [$0] } ?? []) + segueTemplates }
+    var childObjects: [NibArchivable] { (navigationItem.map { [$0] } ?? []) + (tabItem.map { [$0] } ?? []) + segueTemplates }
 
     func encode(to encoder: NibEncoder) throws {
         try settings.encodeTitle(to: encoder)
+        if let tabItem { try encoder.encode(tabItem, forKey: "UITabBarItem") }
         if let navigationItem {
             try encoder.encode(navigationItem, forKey: "UINavigationItem")
         }

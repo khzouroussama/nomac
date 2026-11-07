@@ -1263,6 +1263,29 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
 - Equal colors are one object, and so are equal color names (`same-color-twice`,
   `same-system-color-twice`, `rgb-then-same-gray`).
 
+## Older documents
+
+What Xcode 6 to 8 saved changes no nib, on any view or controller, with a device or without, at 27.0 and
+below 17 (rounds 120 to 122; the reader drops them, other values stay and are refused): `<animations/>`
+(`animations-*`), `<simulatedStatusBarMetrics>`, `<simulatedOrientationMetrics>`, `<simulatedScreenMetrics>` of the
+types observed and the top and bottom bars' metrics (`old-*`, `old-no-device-*`, `sb-old-*`), the capabilities
+`header-capability-*`, `defaultVersion` of `<deployment>` (`header-default-version-*`), a `<development>` version
+from 5000 (`header-development-*`), `promptedForUpgradeToXcode5`, a `<simulatedMetricsContainer>` in a xib
+(`header-metrics-container*`), `<mutableArray>` for a custom font's names (`header-fonts-mutable`), and an empty
+`customModule` or `customModuleProvider`, which is none (`header-custom-*`). What does change:
+
+- A `<development>` version under 5000 (4200, 4600, 4800) gives a scene's view no layout guides
+  (`sb-header-development-*`); so does a document without `useAutolayout` (`sb-noauto*`).
+- Without `useAutolayout` a view without an `<autoresizingMask>` has flexible top and bottom margins, mask 40,
+  in place of 36, whatever its kind (`noauto-*` against `auto-*-unmasked`, `sb-noauto-unmasked`).
+- `iOS.CocoaTouch.iPad` and `CocoaTouch.iPad.XIB` compile as the iPhone runtime and type, but for what is sized
+  without a device: below 17 without trait collections 820 x 1180, not 393 x 852 (`header-traitless-*`,
+  `sb-header-traitless-*`), and a storyboard with trait collections 600 x 600 at any target
+  (`sb-header-deviceless-*`).
+- Devices ibtool knows besides those of "Inputs nomac compiles": `ipad10_9rounded` (820 x 1180), `iPad13_0rounded`
+  (1032 x 1376), `ipad7_9` (744 x 1133). `ipad12_9`, `ipad10_5` and `ipad11_0` are as no device
+  (`header-device-*`, `sb-header-device-*`).
+
 ## Storyboards
 
 `ibtool <storyboard> --compilation-directory <dir>` writes `<dir>/<name>.storyboardc/`
@@ -1291,29 +1314,6 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   writer shares the objects it held twice, not equal values.
 - Segues (`<segue>` in a controller's `<connections>`, kind `show` or `presentation`, with an
   `identifier`; ibtool warns about a segue without one, which nomac refuses) are templates in
-## Older documents
-
-What Xcode 6 to 8 saved changes no nib, on any view or controller, with a device or without, at 27.0 and
-below 17 (rounds 120 to 122; the reader drops them, other values stay and are refused): `<animations/>`
-(`animations-*`), `<simulatedStatusBarMetrics>`, `<simulatedOrientationMetrics>`, `<simulatedScreenMetrics>` of the
-types observed and the top and bottom bars' metrics (`old-*`, `old-no-device-*`, `sb-old-*`), the capabilities
-`header-capability-*`, `defaultVersion` of `<deployment>` (`header-default-version-*`), a `<development>` version
-from 5000 (`header-development-*`), `promptedForUpgradeToXcode5`, a `<simulatedMetricsContainer>` in a xib
-(`header-metrics-container*`), `<mutableArray>` for a custom font's names (`header-fonts-mutable`), and an empty
-`customModule` or `customModuleProvider`, which is none (`header-custom-*`). What does change:
-
-- A `<development>` version under 5000 (4200, 4600, 4800) gives a scene's view no layout guides
-  (`sb-header-development-*`); so does a document without `useAutolayout` (`sb-noauto*`).
-- Without `useAutolayout` a view without an `<autoresizingMask>` has flexible top and bottom margins, mask 40,
-  in place of 36, whatever its kind (`noauto-*` against `auto-*-unmasked`, `sb-noauto-unmasked`).
-- `iOS.CocoaTouch.iPad` and `CocoaTouch.iPad.XIB` compile as the iPhone runtime and type, but for what is sized
-  without a device: below 17 without trait collections 820 x 1180, not 393 x 852 (`header-traitless-*`,
-  `sb-header-traitless-*`), and a storyboard with trait collections 600 x 600 at any target
-  (`sb-header-deviceless-*`).
-- Devices ibtool knows besides those of "Inputs nomac compiles": `ipad10_9rounded` (820 x 1180), `iPad13_0rounded`
-  (1032 x 1376), `ipad7_9` (744 x 1133). `ipad12_9`, `ipad10_5` and `ipad11_0` are as no device
-  (`header-device-*`, `sb-header-device-*`).
-
   their source's controller nib, under `UIStoryboardSegueTemplates` (an `NSArray`, after
   `UIStoryboardIdentifier`): `UIStoryboardShowSegueTemplate` (`UIIdentifier`,
   `UIDestinationViewControllerIdentifier` the destination's nib name, `UIActionName`
@@ -1679,9 +1679,35 @@ A child whose view refers to it (outlets to its view) has its own external objec
 `UpstreamPlaceholder-1`, the others keeping the shared empty one (`sb-tab-child-outlet`,
 `sb-split-detail-outlet`).
 
-nomac refuses children's bar button items or views beside them, a table view controller
-as a direct child, navigation children with titles of their own, split view controllers' other
+nomac refuses children's bar button items or views beside them, split view controllers' other
 attributes (display modes, column styles) and supplementary columns (B-292).
+
+Attributes and shapes (rounds 125 to 128, `sb-navattr-*`, `sb-tabattr-*`, `sb-vcattr-*`, `sb-tab-id-*`,
+`sb-shape-*`). A navigation controller, alone or as a child, writes `UITitle`, `UITabBarItem`,
+`UIStoryboardIdentifier`, `UIRestorationIdentifier`, `UIParentViewController`, `UIChildViewControllers`,
+`UIStoryboardSegueTemplates`, `UIDefinesPresentationContext`, the presentation keys of a view controller
+(`UIModalTransitionStyle`, `UIModalPresentationStyle`, `UIHidesBottomBarWhenPushed`,
+`UIKeyEdgesForExtendedLayout`, `UIKeyExtendedLayoutIncludesOpaqueBars`,
+`UIKeyAutomaticallyAdjustsScrollViewInsets`), `UIViewControllers`, `UINavigationBar`, `UIToolbar`,
+`UINavigationBarHidden`, `UIToolbarShown`, `UINavigationControllerCondensesBarsWhenKeyboardAppears`, and its
+class names; an identifier or a custom class makes it a class swapper, as a child too. Without a root it
+has no children and its bar no `UIItems`; its own segues' templates come before its root in all
+objects, their `viewController` outlets before its root's. A tab bar controller writes `UITitle`,
+`UINavigationItem`, `UIStoryboardIdentifier`, `UIRestorationIdentifier`, `UIChildViewControllers` (none
+without children), `UIDefinesPresentationContext`, the presentation keys, `UITabBar`,
+`UICustomizableViewControllers`, `UIViewControllers` and its class names. A view controller child with an
+identifier is a class swapper writing it after `UINibName`, and has a nib of its own, as a navigation
+root does; table and collection view controllers are children as view controllers are.
+
+`UITabBarItem`: `UISystemItem`, `UIEnabled`, `UITag`, `UITitle`, `UISpringLoaded` for IB's default item,
+`UIBadgeValue`, `UIBadgeColor`, `UIImage`, `UILandscapeImagePhone`, `UISelectedTemplateImage`, `UIImageInsets`
+(top, left, bottom, right), `UITitlePositionAdjustment` (the string `{1, 2}`). Any controller may declare one,
+writing it after its title and before its navigation item, and listing it after that item in all objects.
+`UITabBar` adds `UIViewInsetsLayoutMarginsFromSafeArea` 0 after its hugging, `UIBarTintColor`,
+`UISelectedImageTintColor`, `UITabBarItemPositioning` (fill 1, centered 2) after `UIItems`, `UIBarTranslucence`
+2 when not translucent, `UIBarStyle` 1 for black, its class names; its `tintColor` is not written.
+
+nomac refuses a tab bar or split view controller as a navigation controller's root (B-292).
 
 ## Search bars
 

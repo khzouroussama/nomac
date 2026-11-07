@@ -5,45 +5,56 @@ import Foundation
 /// bar; a `UIClassSwapper` when it is an entry point, a `UINavigationController` when only segues
 /// reach it.
 final class NibNavigationController: NibArchivable, NibObjectChildren {
-    let root: NibArchivable
+    /// Its root, none in a navigation controller without one (`sb-shape-nav-no-root`).
+    let root: NibArchivable?
     let bar: NibNavigationBar
     let swapsClass: Bool
-    let adjustsScrollViewInsets: Bool
-    var title: NibArchivable?
-    /// Its own identifier, its first key (`sb-nav-identifier`), and its toolbar (`sb-nav-toolbar`).
+    let className_: (name: NibString, original: NibString)
+    /// Its title, restoration identifier and presentation (`sb-navattr-*`).
+    var settings = ControllerSettings()
+    var definesPresentationContext = false
+    var barHidden = false
+    var toolbarShown = false
+    var condensesBarsWhenKeyboardAppears = false
+    /// Its own identifier (`sb-nav-identifier`), and its toolbar (`sb-nav-toolbar`).
     var storyboardIdentifier: NibString?
     var toolbar: NibNavigationToolbar?
-    /// A tab bar controller's child's tab bar item (`sb-tab-nav-*`), and the tab bar or split view
-    /// controller holding it (`sb-split-nav-*`).
+    /// Its tab bar item, a tab bar controller's child's (`sb-tab-nav-*`) or its own (`sb-navattr-tab-item`),
+    /// and the tab bar or split view controller holding it (`sb-split-nav-*`).
     var tabItem: NibTabBarItem?
     weak var container: NibContainerController?
-    let controllerClass = NibString("UINavigationController")
+    /// Its own segues' templates, after its children (`sb-shape-nav-show*`).
+    var segueTemplates: [NibSegueTemplate] = []
 
-    init(root: NibArchivable, bar: NibNavigationBar, swapsClass: Bool, adjustsScrollViewInsets: Bool) {
+    init(root: NibArchivable?, bar: NibNavigationBar, swapsClass: Bool, className: (name: NibString, original: NibString)) {
         self.root = root
         self.bar = bar
         self.swapsClass = swapsClass
-        self.adjustsScrollViewInsets = adjustsScrollViewInsets
+        self.className_ = className
     }
 
     var className: String { swapsClass ? "UIClassSwapper" : "UINavigationController" }
-    var childObjects: [NibArchivable] { [bar] + (toolbar.map { [$0] } ?? []) + (tabItem?.declared == true ? [tabItem!] : []) + [root] }
+    var childObjects: [NibArchivable] { [bar] + (toolbar.map { [$0] } ?? []) + (tabItem?.declared == true ? [tabItem!] : []) + segueTemplates + [root].compactMap { $0 } }
 
     func encode(to encoder: NibEncoder) throws {
-        if let storyboardIdentifier { try encoder.encode(storyboardIdentifier, forKey: "UIStoryboardIdentifier") }
+        try settings.encodeTitle(to: encoder)
         if let tabItem { try encoder.encode(tabItem, forKey: "UITabBarItem") }
+        if let storyboardIdentifier { try encoder.encode(storyboardIdentifier, forKey: "UIStoryboardIdentifier") }
+        try settings.encodeRestorationIdentifier(to: encoder)
         if let container { try encoder.encode(container, forKey: "UIParentViewController") }
-        if let title { try encoder.encode(title, forKey: "UITitle") }
-        try encoder.encode(NibArray([root], mutable: true), forKey: "UIChildViewControllers")
-        if !adjustsScrollViewInsets {
-            encoder.encode(.integer(0), forKey: "UIKeyAutomaticallyAdjustsScrollViewInsets")
-        }
-        try encoder.encode(NibArray([root], mutable: true), forKey: "UIViewControllers")
+        if let root { try encoder.encode(NibArray([root], mutable: true), forKey: "UIChildViewControllers") }
+        if !segueTemplates.isEmpty { try encoder.encode(NibArray(segueTemplates), forKey: "UIStoryboardSegueTemplates") }
+        if definesPresentationContext { encoder.encode(.boolean(true), forKey: "UIDefinesPresentationContext") }
+        settings.encodePresentation(to: encoder)
+        if let root { try encoder.encode(NibArray([root], mutable: true), forKey: "UIViewControllers") }
         try encoder.encode(bar, forKey: "UINavigationBar")
         if let toolbar { try encoder.encode(toolbar, forKey: "UIToolbar") }
+        if barHidden { encoder.encode(.boolean(true), forKey: "UINavigationBarHidden") }
+        if toolbarShown { encoder.encode(.boolean(true), forKey: "UIToolbarShown") }
+        if condensesBarsWhenKeyboardAppears { encoder.encode(.boolean(true), forKey: "UINavigationControllerCondensesBarsWhenKeyboardAppears") }
         if swapsClass {
-            try encoder.encode(controllerClass, forKey: "UIClassName")
-            try encoder.encode(controllerClass, forKey: "UIOriginalClassName")
+            try encoder.encode(className_.name, forKey: "UIClassName")
+            try encoder.encode(className_.original, forKey: "UIOriginalClassName")
         }
     }
 }
@@ -74,6 +85,8 @@ final class NibRootViewController: NibArchivable, NibObjectChildren {
     var keptAlive: [NibView] = []
     /// Whether the controller declares its navigation item, which all objects then lists.
     var declaresItem = false
+    /// A tab bar item of its own, before its navigation item (`sb-vcattr-root-tab-item*`).
+    var tabItem: NibTabBarItem?
 
     init(item: NibNavigationItem, viewNibName: String, segueTemplates: [NibSegueTemplate], baseClass: String,
          customClass: (name: NibString, original: NibString)?, externalObjects: NibDictionary = NibDictionary()) {
@@ -86,10 +99,11 @@ final class NibRootViewController: NibArchivable, NibObjectChildren {
     }
 
     var className: String { customClass != nil ? "UIClassSwapper" : baseClass }
-    var childObjects: [NibArchivable] { (declaresItem ? [item] : []) + segueTemplates }
+    var childObjects: [NibArchivable] { (declaresItem ? [item] : []) + (tabItem.map { [$0] } ?? []) + segueTemplates }
 
     func encode(to encoder: NibEncoder) throws {
         if let title { try encoder.encode(title, forKey: "UITitle") }
+        if let tabItem { try encoder.encode(tabItem, forKey: "UITabBarItem") }
         try encoder.encode(item, forKey: "UINavigationItem")
         try encoder.encode(externalObjects, forKey: "UIExternalObjectsTableForViewLoading")
         try encoder.encode(viewNibName, forKey: "UINibName")
@@ -203,7 +217,8 @@ final class NibNavigationBar: NibArchivable {
             encoder.encode(.boolean(true), forKey: "UIBarPrefersLargeTitles")
         }
         encoder.encode(.boolean(true), forKey: "UIIsLocked")
-        try encoder.encode(NibArray(items, mutable: true), forKey: "UIItems")
+        // A navigation controller without a root has no items (`sb-shape-nav-no-root`).
+        if !items.isEmpty { try encoder.encode(NibArray(items, mutable: true), forKey: "UIItems") }
         try encoder.encode(delegate, forKey: "UIDelegate")
         encoder.encode(.integer(2), forKey: "UIBarPosition")
         encoder.encode(.integer(1), forKey: "UIBarTranslucence")

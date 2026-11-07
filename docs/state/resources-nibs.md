@@ -369,16 +369,24 @@ Next actions:
 3. B-291: several recognizers in a scene. The placeholders' numbers are not the sorted connections'
    first reach: `sb-gesture-three`, `-nested`, `-predict` and wikipedia's
    DescriptionEditViewController disagree with every walk tried (`gsum.py`).
-4. Nibs the holdout's references show wrong on main, not refused (part A's marked A): constraints'
-   order and constants (A: wordpress QRLoginVerifyAuthorization, PostStatsTitleCell, vlc
-   VLCNetworkListCell), a color (A: keepassium PasswordAuditVC, simplenote OptionsViewController),
-   `UISeparatorInset`'s place (keepassium SyncConflictAlert), estimated section header heights
-   (AutoFillSetupMessageVC), habitica Support's second nib, an array's order (vlc QueueView), a
-   slider's value (simplenote SPNoteHistoryViewController), and the warning `Automatically Adjusts
-   Font requires using a Dynamic Type text style` (habitica's UserTopHeader, HabiticaAlertController,
-   ShopAdFooter).
+4. Nibs the survey's and holdout's references show wrong on main, not refused (`tools/classify.py
+   survey-diffs.txt`, `ddiff.py <document>`): part A's constraints and colors; this part's `UISeparatorInset`'s
+   place, estimated section heights, habitica Support's second nib, `UICellLayoutMarginsFollowReadableWidth`,
+   a slider's value, and the deprecation warnings of top and bottom layout guides. These come before more
+   refusals.
 
 Just finished:
+- Rounds 125 to 128: navigation and tab bar controllers' attributes and shapes, children with their own
+  identifiers (about 20 survey documents stopped there), table and collection children, tab bar items on
+  any controller, rootless navigation controllers and navigation controllers' own segues.
+- Rounds 123 and 124: map views (25 survey projects), vibrancy, legacy collection cells' content view
+  colors, buttons' title shadows.
+- Rounds 120 to 122 and 129, 130: what older documents carry: `<animations/>`, simulated metrics, capabilities,
+  `defaultVersion`, development versions, the iPad runtime, more devices, documents without Auto Layout
+  (default mask 40, no scene layout guides); labels' minimums by the device's font; the warning about fonts
+  that do not adjust. Survey references (`survey-obs`, 3,505 documents) found 48 wrong nibs on main; 9 of
+  them fixed, 39 left: identical 1,468 (from 1,253), equivalent 19 (8), refused 1,979 (2,196). Corpus 457
+  identical, 14 equivalent, 0 different, 117 refused; holdout 182, 3, 11, 120; experiments 4,657, 12, 0, 237.
 - Connections of one name, or of one event and selector, go by original class, then a walk of the
   views: xibs depth first, storyboards each view's subviews and then on from the last (rounds 118
   and 119; replaces all objects' order, which made wikipedia's ScrollableEducationPanelView and the

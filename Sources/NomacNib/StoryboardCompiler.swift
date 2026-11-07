@@ -104,10 +104,10 @@ extension DocumentCompiler {
         let tabChildren = Set(controllers.flatMap(\.children))
         let segueDestinations = Set(controllers.flatMap { $0.segues.compactMap(\.destination) })
         for root in roots {
-            // A navigation controller's root with its own identifier, the initial controller or one
-            // segues reach has its own nib too (`sb-nav-root-identifier`, `sb-nav-root-initial`,
-            // `sb-nav-root-reached*`).
-            guard let controller = byID[root], !tabChildren.contains(root) || !controller.isEntryPoint,
+            // A navigation controller's root or a tab bar controller's child with its own identifier,
+            // the initial controller or one segues reach has its own nib too (`sb-nav-root-identifier`,
+            // `sb-nav-root-initial`, `sb-nav-root-reached*`, `sb-tab-id-*`).
+            guard let controller = byID[root], !tabChildren.contains(root) || controller.id != initial,
                   controller.root == nil || tabChildren.contains(root), controller.children.isEmpty else {
                 throw unsupportedScene("a navigation controller's root that is no plain view controller or that other controllers reach")
             }
@@ -180,7 +180,7 @@ extension DocumentCompiler {
         for (scene, controller) in zip(scenes, controllers) where compiled.contains(controller.id) {
             let grandchildren = controller.children.compactMap { byID[$0]!.root }
             otherScenesControllers = Set(controllers.map(\.id)).subtracting([controller.id, controller.root].compactMap { $0 } + controller.children + grandchildren)
-            if !controller.children.isEmpty {
+            if !controller.children.isEmpty || scene.children(named: "objects").first?.children(named: "tabBarController").isEmpty == false {
                 var children: [ContainerChild] = []
                 for id in controller.children {
                     let root = try byID[id]!.root.map { (scene: scenesByID[$0]!, controller: byID[$0]!, templates: try templates(byID[$0]!)) }
@@ -189,7 +189,9 @@ extension DocumentCompiler {
                 files.merge(try compileContainerScene(scene, controller: controller, children: children)) { $1 }
             } else if let root = controller.root {
                 files.merge(try compileNavigationScene(scene, controller: controller, rootScene: scenesByID[root]!, root: byID[root]!,
-                                                       templates: templates(byID[root]!))) { $1 }
+                                                       templates: templates(byID[root]!), ownTemplates: templates(controller))) { $1 }
+            } else if scene.children(named: "objects").first?.children(named: "navigationController").isEmpty == false {
+                files.merge(try compileRootlessNavigationScene(scene, controller: controller, templates: templates(controller))) { $1 }
             } else if controller.reference != nil {
                 files.merge(try compileReferenceScene(scene, controller: controller)) { $1 }
             } else if scene.children(named: "objects").first?.children(named: "pageViewController").isEmpty == false {
@@ -278,10 +280,10 @@ extension DocumentCompiler {
     /// names' key of that name, an integer or a dictionary.
     indirect enum InfoValue {
         case string(String)
-        case nibName(String)
-        case integer(Int)
         /// A string all its uses share: a reference's storyboard name or identifier (`sb-ref-plist-*`).
         case sharedString(String)
+        case nibName(String)
+        case integer(Int)
         case dictionary([(String, InfoValue)])
     }
 
@@ -310,19 +312,19 @@ extension DocumentCompiler {
         var objects: [BinaryPropertyList.Object] = []
         var nibNameKeys: [String: Int] = [:]
         var sharedKeys: [String: Int] = [:]
+        var sharedStrings: [String: Int] = [:]
         func append(_ value: InfoValue, nibNames isNibNames: Bool = false) throws -> Int {
             switch value {
-        var sharedStrings: [String: Int] = [:]
             case .string(let text):
                 objects.append(.string(text))
                 return objects.count - 1
-            case .nibName(let name):
-                return nibNameKeys[name]!
             case .sharedString(let text):
                 if let known = sharedStrings[text] { return known }
                 objects.append(.string(text))
                 sharedStrings[text] = objects.count - 1
                 return objects.count - 1
+            case .nibName(let name):
+                return nibNameKeys[name]!
             case .integer(let number):
                 objects.append(.integer(number))
                 return objects.count - 1
@@ -563,14 +565,6 @@ extension DocumentCompiler {
             }
         }
         let identifier = controller.attributes["storyboardIdentifier"]
-        if controller.name == "navigationController" {
-            guard root != nil, segues.isEmpty else {
-                throw unsupportedScene("a navigation controller without one root view controller or with segues")
-            }
-        }
-        if controller.name == "tabBarController" {
-            guard !children.isEmpty else { throw unsupportedScene("a tab bar controller without children") }
-        }
         if controller.name == "splitViewController" {
             guard children.map(\.relationship).sorted() == ["detailViewController", "masterViewController"] else {
                 throw unsupportedScene("a split view controller without one master and one detail view controller")
@@ -600,7 +594,7 @@ extension DocumentCompiler {
         try check(controller, attributes: ["id", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "sceneMemberID",
                                            "definesPresentationContext", "userLabel"] + ControllerSettings.attributes + (kind == "viewController" ? [] : ["clearsSelectionOnViewWillAppear"]),
                   children: Set(["layoutGuides", "view", "tableView", "collectionView", "connections", "freeformSimulatedSizeMetrics", "size", "nil", "navigationItem",
-                                 "simulatedNavigationBarMetrics", "simulatedTabBarMetrics", "simulatedToolbarMetrics", "toolbarItems", "extendedEdge", "value"]
+                                 "toolbarItems", "extendedEdge", "value", "tabBarItem"]
                                  + (kind == "tableViewController" ? ["refreshControl"] : [])))
         try emptyToolbarItems(controller)
         let baseClass = ["tableViewController": "UITableViewController", "collectionViewController": "UICollectionViewController"][kind] ?? "UIViewController"
@@ -631,6 +625,7 @@ extension DocumentCompiler {
         let viewController = NibViewController(viewNibName: view.nibName, storyboardIdentifier: sceneController.identifier.map { string($0) }, className: className,
                                                swapsClass: customClass != nil || sceneController.isEntryPoint, segueTemplates: templates)
         viewController.navigationItem = declared ? item : nil
+        viewController.tabItem = try declaredTabItem(controller)
         viewController.definesPresentationContext = try bool(controller, "definesPresentationContext", default: false)
         viewController.keptAlive = extras.map(\.view) + (recognizer.map { [$0.recognizer] } ?? [])
         viewController.settings = try controllerSettings(controller, storyboardIdentifier: viewController.storyboardIdentifier)
@@ -937,15 +932,15 @@ extension DocumentCompiler {
     /// title or scroll view insets of its own, and the root's empty external objects the container's.
     mutating func inlinedNavigation(_ navigation: XIBElement, swapsClass: Bool, rootScene: XIBElement, root rootController: SceneController,
                                     templates: [NibSegueTemplate], empty: NibArray, sharedExternals: NibDictionary?) throws -> InlinedNavigation {
-        try checkNavigation(navigation, inContainer: sharedExternals != nil)
+        try checkNavigation(navigation)
         let bar = try navigationBar(navigation)
         let rootObjects = Set(rootScene.children(named: "objects").first?.children.map(\.name) ?? [])
         let rootKind = ["tableViewController", "collectionViewController"].first { rootObjects.contains($0) } ?? "viewController"
         let (controller, objects) = try sceneObjects(rootScene, controller: rootKind)
         try check(controller, attributes: ["id", "sceneMemberID", "customClass", "customModule", "customModuleProvider", "definesPresentationContext",
                                            "storyboardIdentifier", "clearsSelectionOnViewWillAppear", "userLabel"] + ControllerSettings.attributes,
-                  children: ["layoutGuides", "view", "tableView", "collectionView", "connections", "navigationItem", "nil", "simulatedNavigationBarMetrics", "toolbarItems", "extendedEdge", "value",
-                             "refreshControl", "simulatedTabBarMetrics", "simulatedToolbarMetrics"])
+                  children: ["layoutGuides", "view", "tableView", "collectionView", "connections", "navigationItem", "nil", "toolbarItems", "extendedEdge", "value",
+                             "refreshControl", "tabBarItem"])
         try emptyToolbarItems(controller)
         let rootClass = ["tableViewController": "UITableViewController", "collectionViewController": "UICollectionViewController"][rootKind] ?? "UIViewController"
         let item = NibNavigationItem()
@@ -974,6 +969,7 @@ extension DocumentCompiler {
         rootViewController.keepsSelection = !(try bool(controller, "clearsSelectionOnViewWillAppear", default: true))
         rootViewController.keptAlive = extras.map(\.view)
         rootViewController.declaresItem = declared
+        rootViewController.tabItem = try declaredTabItem(controller)
         rootViewController.settings = try presentationSettings(controller)
         guard !rootViewController.keepsSelection || extras.isEmpty && !rootViewController.definesPresentationContext && rootController.identifier == nil
                 && !rootViewController.settings.presents else {
@@ -1001,9 +997,10 @@ extension DocumentCompiler {
 
     /// A navigation controller's own attributes and children; in a container, without a title or
     /// scroll view insets of its own.
-    func checkNavigation(_ navigation: XIBElement, inContainer: Bool) throws {
-        try check(navigation, attributes: ["id", "sceneMemberID", "userLabel"] + (inContainer ? [] : ["automaticallyAdjustsScrollViewInsets", "title", "storyboardIdentifier"]),
-                  children: Set(["navigationBar", "connections", "toolbarItems", "nil"] + (inContainer ? ["tabBarItem"] : ["toolbar"])))
+    func checkNavigation(_ navigation: XIBElement) throws {
+        try check(navigation, attributes: ["id", "sceneMemberID", "userLabel", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "definesPresentationContext",
+                                           "navigationBarHidden", "toolbarHidden", "hidesBarsWhenKeyboardAppears"] + ControllerSettings.attributes,
+                  children: ["navigationBar", "connections", "toolbarItems", "nil", "tabBarItem", "toolbar", "extendedEdge"])
         for child in navigation.children {
             switch child.name {
             case "toolbarItems": try check(child, attributes: [], children: [])
@@ -1018,11 +1015,19 @@ extension DocumentCompiler {
     /// container too (`sb-navattr-tab-identifier`, `sb-navattr-tab-custom`).
     mutating func navigationController(_ navigation: XIBElement, root: NibArchivable?, bar: NibNavigationBar, swapsClass: Bool,
                                        empty: NibArray) throws -> NibNavigationController {
-        let controller = NibNavigationController(root: root, bar: bar, swapsClass: swapsClass,
-                                                 adjustsScrollViewInsets: try bool(navigation, "automaticallyAdjustsScrollViewInsets", default: true))
-        controller.title = navigation.attributes["title"].map { text($0, id: navigation.attributes["id"], property: "title") }
-        controller.storyboardIdentifier = navigation.attributes["storyboardIdentifier"].map { string($0) }
+        let custom = try customClass(navigation, original: "UINavigationController")
+        let name = string("UINavigationController")
+        let identifier = navigation.attributes["storyboardIdentifier"].map { string($0) }
+        let controller = NibNavigationController(root: root, bar: bar, swapsClass: swapsClass || custom != nil || identifier != nil, className: custom ?? (name, name))
+        controller.storyboardIdentifier = identifier
+        controller.settings = try controllerSettings(navigation, storyboardIdentifier: identifier)
+        controller.definesPresentationContext = try bool(navigation, "definesPresentationContext", default: false)
+        controller.barHidden = try bool(navigation, "navigationBarHidden", default: false)
+        controller.toolbarShown = !(try bool(navigation, "toolbarHidden", default: true))
+        controller.condensesBarsWhenKeyboardAppears = try bool(navigation, "hidesBarsWhenKeyboardAppears", default: false)
         controller.toolbar = try navigationToolbar(navigation, empty: empty)
+        let item = try tabBarItem(navigation)
+        controller.tabItem = item.declared ? item : nil
         bar.delegate = controller
         return controller
     }
@@ -1030,9 +1035,8 @@ extension DocumentCompiler {
     /// A navigation controller whose root is a storyboard reference: the reference's navigation
     /// item is the bar's, and the reference has no `storyboard` outlet (`sb-ref-nav-root`,
     /// `sb-ref-tab-nav-root`); a reference without a navigation item is not observed.
-    mutating func referenceNavigation(_ navigation: XIBElement, swapsClass: Bool, root: SceneController, empty: NibArray,
-                                      inContainer: Bool) throws -> NibNavigationController {
-        try checkNavigation(navigation, inContainer: inContainer)
+    mutating func referenceNavigation(_ navigation: XIBElement, swapsClass: Bool, root: SceneController, empty: NibArray) throws -> NibNavigationController {
+        try checkNavigation(navigation)
         let bar = try navigationBar(navigation)
         guard root.reference?.item == true else { throw unsupportedScene("a navigation controller's root storyboard reference without a navigation item") }
         let item = NibNavigationItem()
@@ -1048,12 +1052,29 @@ extension DocumentCompiler {
     /// A navigation controller's scene with its root controller's (docs/formats/nib.md "Navigation
     /// controllers"): one nib of the navigation controller, its bar, the root controller and its
     /// navigation item, bar button items and segue templates, and the root's view nib.
+    /// A navigation controller's scene without a root: its one nib holds it and its bar
+    /// (`sb-shape-nav-no-root*`).
+    private mutating func compileRootlessNavigationScene(_ scene: XIBElement, controller sceneController: SceneController, templates: [NibSegueTemplate]) throws -> [String: Data] {
+        guard templates.isEmpty else { throw unsupportedScene("segues of a navigation controller without a root") }
+        let (navigation, _) = try sceneObjects(scene, controller: "navigationController")
+        try checkNavigation(navigation)
+        let empty = NibArray([])
+        let controller = try navigationController(navigation, root: nil, bar: try navigationBar(navigation), swapsClass: sceneController.isEntryPoint, empty: empty)
+        let owner = NibProxy(identifier: "IBFilesOwner")
+        let placeholder = NibProxy(identifier: "UIStoryboardPlaceholder")
+        let topLevel: [NibArchivable] = [owner, NibProxy(identifier: "IBFirstResponder"), placeholder, controller]
+        let connections = [NibOutletConnection(label: NibString("storyboard"), source: controller, destination: placeholder),
+                           NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: controller)]
+        return ["\(sceneController.nibName).nib": try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: Self.allObjects(topLevel), connections: connections, empty: empty))]
+    }
+
     private mutating func compileNavigationScene(_ scene: XIBElement, controller sceneController: SceneController, rootScene: XIBElement,
-                                                 root rootController: SceneController, templates: [NibSegueTemplate]) throws -> [String: Data] {
+                                                 root rootController: SceneController, templates: [NibSegueTemplate], ownTemplates: [NibSegueTemplate]) throws -> [String: Data] {
         let (navigation, _) = try sceneObjects(scene, controller: "navigationController")
         let empty = NibArray([])
         if rootController.reference != nil {
-            let controller = try referenceNavigation(navigation, swapsClass: sceneController.isEntryPoint, root: rootController, empty: empty, inContainer: false)
+            guard ownTemplates.isEmpty else { throw unsupportedScene("segues of a navigation controller of a storyboard reference") }
+            let controller = try referenceNavigation(navigation, swapsClass: sceneController.isEntryPoint, root: rootController, empty: empty)
             let owner = NibProxy(identifier: "IBFilesOwner")
             let placeholder = NibProxy(identifier: "UIStoryboardPlaceholder")
             let navigationPlaceholder = NibProxy(sharing: placeholder.identifier)
@@ -1068,6 +1089,7 @@ extension DocumentCompiler {
         }
         let inlined = try inlinedNavigation(navigation, swapsClass: sceneController.isEntryPoint, rootScene: rootScene, root: rootController,
                                             templates: templates, empty: empty, sharedExternals: nil)
+        inlined.navigation.segueTemplates = ownTemplates
         let owner = NibProxy(identifier: "IBFilesOwner")
         let placeholder = NibProxy(identifier: "UIStoryboardPlaceholder")
         let navigationPlaceholder = NibProxy(sharing: placeholder.identifier)
@@ -1077,7 +1099,9 @@ extension DocumentCompiler {
                                             NibOutletConnection(label: storyboard, source: inlined.root, destination: placeholder)]
         connections += inlined.outlets + inlined.anchors
         connections.append(NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: inlined.navigation))
-        connections += Self.templateOutlets(templates, controller: inlined.root, label: NibString("viewController"))
+        let viewController = NibString("viewController")
+        connections += Self.templateOutlets(ownTemplates, controller: inlined.navigation, label: viewController)
+        connections += Self.templateOutlets(templates, controller: inlined.root, label: viewController)
         connections += inlined.actions
         let all = Self.allObjects(topLevel)
         keyValuePairs = navigationPairs

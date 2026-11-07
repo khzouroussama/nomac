@@ -1369,7 +1369,6 @@ extension DocumentCompiler {
             try resize(view, to: size, keepingOrigin: true)
         }
     }
-}
 
     /// The document's `<device>`, unless ibtool knows no such device, as if the document named none
     /// (`header-device-ipad12_9-*`, `-ipad10_5-*`, `-ipad11_0-*`).
@@ -1384,3 +1383,4 @@ extension DocumentCompiler {
         if document.attributes["useTraitCollections"] == "YES" { return StoryboardCompiler.sizeWithoutDevice }
         return document.attributes["targetRuntime"] == "iOS.CocoaTouch.iPad" ? (820, 1180) : StoryboardCompiler.sizeWithoutDeviceOrTraitCollections
     }
+}
