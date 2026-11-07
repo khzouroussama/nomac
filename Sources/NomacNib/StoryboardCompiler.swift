@@ -280,6 +280,8 @@ extension DocumentCompiler {
         case string(String)
         case nibName(String)
         case integer(Int)
+        /// A string all its uses share: a reference's storyboard name or identifier (`sb-ref-plist-*`).
+        case sharedString(String)
         case dictionary([(String, InfoValue)])
     }
 
@@ -300,8 +302,8 @@ extension DocumentCompiler {
         }
         if !references.isEmpty {
             top.append(("UIViewControllerIdentifiersToExternalStoryboardReferences", .dictionary(references.map { reference in
-                (reference.nibName, .dictionary((reference.identifier.map { [("UIReferencedControllerIdentifier", .string($0))] } ?? [])
-                    + [("UIReferencedStoryboardName", .string(reference.storyboard))]))
+                (reference.nibName, .dictionary((reference.identifier.map { [("UIReferencedControllerIdentifier", .sharedString($0))] } ?? [])
+                    + [("UIReferencedStoryboardName", .sharedString(reference.storyboard))]))
             })))
         }
         top.append(("UIStoryboardVersion", .integer(1)))
@@ -310,11 +312,17 @@ extension DocumentCompiler {
         var sharedKeys: [String: Int] = [:]
         func append(_ value: InfoValue, nibNames isNibNames: Bool = false) throws -> Int {
             switch value {
+        var sharedStrings: [String: Int] = [:]
             case .string(let text):
                 objects.append(.string(text))
                 return objects.count - 1
             case .nibName(let name):
                 return nibNameKeys[name]!
+            case .sharedString(let text):
+                if let known = sharedStrings[text] { return known }
+                objects.append(.string(text))
+                sharedStrings[text] = objects.count - 1
+                return objects.count - 1
             case .integer(let number):
                 objects.append(.integer(number))
                 return objects.count - 1

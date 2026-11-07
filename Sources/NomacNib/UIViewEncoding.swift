@@ -73,6 +73,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         /// `UIToolbar` of no items: the nib's empty array (`toolbar-*`).
         case toolbar(items: NibArray)
         case webView(WebViewContent)
+        case map(MapContent)
         /// `UINavigationBar` among subviews: its items, a mutable array (`nav-bar-sub-*`).
         case navigationBar(items: NibArray, translucent: Bool)
         /// `UIDatePicker` of date and time or a count-down timer (`date-picker-*`).
@@ -182,6 +183,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .textView: return "UITextView"
         case .toolbar: return "UIToolbar"
         case .webView: return "WKWebView"
+        case .map: return "MKMapView"
         case .navigationBar: return "UINavigationBar"
         case .datePicker: return "UIDatePicker"
         case .pickerView: return "UIPickerView"
@@ -218,7 +220,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .collection(let collection): return (safeAreaPlaceholder.map { [$0] } ?? []) + [collection.layout] + constraints + subviews
         case .segment: return []
         case .navigationBar(let items, _): return constraints + items.elements
-        case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .toolbar, .webView, .datePicker,
+        case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .toolbar, .webView, .map, .datePicker,
              .pickerView, .searchBar, .refreshControl: break
         }
         let guides = subviews.filter { $0.layoutGuide != nil }
@@ -342,9 +344,10 @@ final class NibView: NibArchivable, NibObjectChildren {
             encoder.encode(.integer(1), forKey: "UIBarPosition")
             encoder.encode(.integer(1), forKey: "UIBarTranslucence")
         case .webView(let webView): try webView.encode(to: encoder)
+        case .map(let map): try map.encode(to: encoder)
         case .searchBar(let searchBar): try searchBar.encode(to: encoder)
         case .navigationBar(let items, let translucent):
-            try encoder.encode(items, forKey: "UIItems")
+            if !items.elements.isEmpty { try encoder.encode(items, forKey: "UIItems") }
             encoder.encode(.integer(2), forKey: "UIBarPosition")
             encoder.encode(.integer(translucent ? 1 : 2), forKey: "UIBarTranslucence")
         case .datePicker(let countDown, let usesCurrentDate):

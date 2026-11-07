@@ -153,8 +153,8 @@ extension DocumentCompiler {
             let activity = try activityContent(element)
             view.kind = .activity(activity)
             // A stopped indicator that does not hide when stopped writes no UIHidden (`activity-hidden-*`).
-            if !activity.hidesWhenStopped, !activity.animating {
-                view.flags.hidden = false
+            if !activity.animating {
+                view.flags.hidden = activity.hidesWhenStopped
             }
         case "segmentedControl":
             let segmented = try segmentedContent(element)

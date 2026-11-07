@@ -545,7 +545,7 @@ struct DocumentCompiler {
             : isStack ? StackContent.attributes : isTable ? TableContent.attributes : isScroll ? ScrollContent.attributes
             : isCollection ? CollectionContent.attributes
             : element.name == "navigationBar" ? ["translucent"] : element.name == "searchBar" ? SearchBarContent.attributes
-            : element.name == "wkWebView" ? WebViewContent.attributes
+            : element.name == "wkWebView" ? WebViewContent.attributes : element.name == "mapView" ? MapContent.attributes
             : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate"]
             : Self.controlAttributes[element.name] ?? []
         try check(element, attributes: Self.viewAttributes + kindAttributes + ["customClass", "customModule", "customModuleProvider"],
@@ -555,9 +555,10 @@ struct DocumentCompiler {
                                 + (isLabel ? ["fontDescription", "string", "variation", "attributedString", "size"] : [])
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
                                 + (element.name == "toolbar" ? ["items"] : []) + (element.name == "wkWebView" ? ["wkWebViewConfiguration"] : [])
+                                + (element.name == "mapView" ? ["standardMapConfiguration"] : [])
                                 + (element.name == "navigationBar" ? ["items"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
-                                + (isButton ? ["fontDescription", "state", "inset", "buttonConfiguration"] : []) + (element.name == "segmentedControl" ? ["segments"] : [])
-                                + (isEffect ? ["view", "blurEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
+                                + (isButton ? ["fontDescription", "state", "inset", "buttonConfiguration", "size"] : []) + (element.name == "segmentedControl" ? ["segments"] : [])
+                                + (isEffect ? ["view", "blurEffect", "vibrancyEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
                                 + (element.name == "textView" ? ["fontDescription", "textInputTraits", "string", "dataDetectorType"] : [])
                                 + (element.name == "searchBar" ? ["textInputTraits"] : [])
                                 + (isCollection ? ["collectionViewFlowLayout", "collectionViewLayout", "cells", "collectionReusableView"] : [])
@@ -618,16 +619,16 @@ struct DocumentCompiler {
             case ("rect", "frame"), ("rect", "contentStretch"), ("point", "canvasLocation"), ("subviews", nil), ("color", "backgroundColor"), ("constraints", nil),
                  ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _),
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
-                 ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel,
+                 ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel, ("size", "titleShadowOffset") where isButton,
                  ("color", "separatorColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
                  ("variation", _), ("prototypes", nil), ("sections", nil), ("color", "tintColor"), ("state", _), ("inset", _), ("buttonConfiguration", "configuration"),
                  ("edgeInsets", "layoutMargins"), ("directionalEdgeInsets", "directionalLayoutMargins"), ("viewLayoutGuide", "contentLayoutGuide"),
-                 ("viewLayoutGuide", "frameLayoutGuide"), ("segments", nil), ("view", "contentView"), ("blurEffect", nil), ("collectionViewFlowLayout", "collectionViewLayout"),
+                 ("viewLayoutGuide", "frameLayoutGuide"), ("segments", nil), ("view", "contentView"), ("blurEffect", nil), ("vibrancyEffect", nil), ("collectionViewFlowLayout", "collectionViewLayout"),
                  ("collectionViewLayout", "collectionViewLayout"), ("cells", nil), ("collectionReusableView", "sectionHeaderView"), ("collectionReusableView", "sectionFooterView"),
                  ("userDefinedRuntimeAttributes", nil), ("accessibility", "accessibilityConfiguration"), ("textInputTraits", "textInputTraits"),
                  ("dataDetectorType", "dataDetectorTypes"), ("imageReference", "image"),
                  ("preferredSymbolConfiguration", "preferredSymbolConfiguration"), ("items", nil), ("refreshControl", "refreshControl"),
-                 ("wkWebViewConfiguration", "configuration"):
+                 ("wkWebViewConfiguration", "configuration"), ("standardMapConfiguration", "preferredConfiguration"):
                 continue
             case ("color", _) where Self.controlAttributes[element.name] != nil:
                 continue
@@ -658,7 +659,7 @@ struct DocumentCompiler {
         var subviews: [NibView] = []
         for container in element.children(named: "subviews") {
             try check(container, attributes: [], children: Set(["view", "imageView", "label", "tableView", "button", "stackView", "scrollView", "visualEffectView", "collectionView",
-                                                                "containerView", "toolbar", "wkWebView", "navigationBar", "datePicker", "pickerView", "searchBar"]
+                                                                "containerView", "toolbar", "wkWebView", "mapView", "navigationBar", "datePicker", "pickerView", "searchBar"]
                                                                + Self.controlAttributes.keys))
             for child in container.children {
                 subviews.append(try view(child, topLevel: false, parent: id))
@@ -699,6 +700,11 @@ struct DocumentCompiler {
         if element.name == "navigationBar" {
             try navigationBar(element, view: view)
         }
+        if element.name == "mapView" {
+            // Whatever the document, a map writes its layout margins, all 0 (`map-plain`).
+            view.kind = .map(try mapContent(element))
+            view.layoutMargins = [0, 0, 0, 0]
+        }
         if element.name == "wkWebView" {
             view.kind = .webView(try webViewContent(element))
         }
@@ -728,14 +734,22 @@ struct DocumentCompiler {
         }
         if isLabel {
             var label = try self.label(element)
-            let variations = try element.children(named: "variation").map { variation in
+            let fonts = try element.children(named: "variation").map { variation in
                 try check(variation, attributes: ["key"], children: ["fontDescription"])
                 return (try sizeClasses(variation), try font(variation))
             }
+            let variations = fonts.map { ($0.0, $0.1.font) }
             if !variations.isEmpty {
                 traitStorages.append(TraitStorage(object: view, keyPath: string("font"), variations: variations.map { ($0.0, .object($0.1)) },
                                                   defaultValue: .object(label.font)))
                 label.font = TraitStorage.value(variations, default: label.font, device: deviceSizeClasses)
+                // A label's minimums go by its font on the storyboard's device, a warning by the
+                // document's (`sb-label-min-variation-*`, `sb-label-scale-variation-*`, `sb-label-min-warning-*`).
+                if label.minimumScaleFactor != nil, let chosen = fonts.first(where: { $0.1.font === label.font })?.1.pointSize {
+                    let factor = try element.attributes["minimumScaleFactor"].map { try number($0, "minimumScaleFactor") }
+                    let minimum = try element.attributes["minimumFontSize"].map { try number($0, "minimumFontSize") }
+                    (label.minimumFontSize, label.minimumScaleFactor) = Self.fontMinimum(factor: factor, minimum: minimum, size: chosen)
+                }
             }
             view.label = label
         }
@@ -824,8 +838,8 @@ struct DocumentCompiler {
                                      "stackView": "UIStackView", "scrollView": "UIScrollView", "activityIndicatorView": "UIActivityIndicatorView",
                                      "segmentedControl": "UISegmentedControl", "progressView": "UIProgressView", "pageControl": "UIPageControl",
                                      "slider": "UISlider", "visualEffectView": "UIVisualEffectView", "textField": "UITextField", "switch": "UISwitch",
-                                     "collectionView": "UICollectionView", "textView": "UITextView", "wkWebView": "WKWebView",
-                                     "datePicker": "UIDatePicker", "pickerView": "UIPickerView"]
+                                     "collectionView": "UICollectionView", "textView": "UITextView", "wkWebView": "WKWebView", "mapView": "MKMapView",
+                                     "datePicker": "UIDatePicker", "pickerView": "UIPickerView", "toolbar": "UIToolbar", "navigationBar": "UINavigationBar", "searchBar": "UISearchBar"]
     /// The controls compiled by `controlKind`, and the attributes each takes besides a view's.
     static let controlAttributes = ["activityIndicatorView": ActivityContent.attributes, "segmentedControl": SegmentedContent.attributes,
                                     "progressView": ProgressContent.attributes, "pageControl": PageContent.attributes, "slider": SliderContent.attributes,
@@ -905,6 +919,7 @@ struct DocumentCompiler {
             content.shadowOffset = [try number(shadowOffset.attributes["width"] ?? "0", "width"), try number(shadowOffset.attributes["height"] ?? "0", "height")]
         }
         content.adjustsFontForContentSizeCategory = try bool(element, "adjustsFontForContentSizeCategory", default: false)
+        warnIfFontDoesNotAdjust(element, adjusts: content.adjustsFontForContentSizeCategory)
         content.textAlignment = try attributed?.alignment ?? attributes["textAlignment"].map { try mapped($0, LabelContent.textAlignments, "textAlignment") } ?? 0
         let lineBreak = try attributes["lineBreakMode"].map { try mapped($0, LabelContent.lineBreakModes, "lineBreakMode") } ?? 4
         content.lineBreakMode = lineBreak == 4 ? nil : lineBreak
@@ -925,13 +940,24 @@ struct DocumentCompiler {
             guard let size = font.pointSize ?? style.flatMap({ NibFont.textStyleSizes[$0] }) else {
                 throw unsupported("this minimum font size of a label")
             }
-            content.minimumFontSize = Float(factor.map { (size * $0 * 4).rounded() / 4 } ?? minimum!)
-            content.minimumScaleFactor = Float(factor ?? minimum! / size)
+            (content.minimumFontSize, content.minimumScaleFactor) = Self.fontMinimum(factor: factor, minimum: minimum, size: size)
             if factor == nil, minimum! > size, let id = attributes["id"] {
                 warnings.append((id, "Minimum Font Size greater than current font size [9]"))
             }
         }
         return content
+    }
+
+    /// ibtool's warning about an element adjusting a font other than a text style's to the content
+    /// size category (`warn-adjusts-*`, `sb-warn-adjusts-label`); a button does not warn.
+    mutating func warnIfFontDoesNotAdjust(_ element: XIBElement, adjusts: Bool) {
+        guard adjusts, element.child("fontDescription", key: "fontDescription")?.attributes["style"] == nil, let id = element.attributes["id"] else { return }
+        warnings.append((id, "Automatically Adjusts Font requires using a Dynamic Type text style [9]"))
+    }
+
+    /// A label's minimum font size and scale factor for a font of a size.
+    static func fontMinimum(factor: Double?, minimum: Double?, size: Double) -> (size: Float, scale: Float) {
+        (Float(factor.map { (size * $0 * 4).rounded() / 4 } ?? minimum!), Float(factor ?? minimum! / size))
     }
 
     /// A label's font, one object per description, and its point size (nil for a text style).

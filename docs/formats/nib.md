@@ -342,6 +342,12 @@ ibtool resolves outside these lists would come out unresolved, and `nomac verify
 difference. Deployment target and devices do not change the result (`label-named-helvetica-15`,
 `label-named-unknown-15`).
 
+On a storyboard's device a label's `UIMinimumScaleFactor` and `UIMinimumFontSize` go by the font of that device's
+size classes; ibtool's warning about a minimum over the font's size goes by the document's font
+(`sb-label-min-variation-*`, `sb-label-scale-variation-*`, `sb-label-min-warning-*`). A label, text field or text
+view with `adjustsFontForContentSizeCategory` and a font other than a text style's warns `Automatically Adjusts
+Font requires using a Dynamic Type text style [9]` (`warn-adjusts-*`).
+
 ## Attributed labels
 
 A label with `usesAttributedText="YES"` and an `<attributedString key="attributedText">` of one
@@ -884,6 +890,13 @@ subviews; the content view's own children are its constraints (`effect-label-con
 ExposureDetectionViewController).
 Vibrancy effects are refused.
 
+A `<vibrancyEffect>` (round 123 and 124, `vibrancy-*`, `vibrancy-grid-*`) holds a `<blurEffect>`: a
+`UIVibrancyEffect` writing, over a material, `UIVibrancyEffectVibrancyStyle` (label 0, secondaryLabel 1, its
+default, tertiaryLabel 2, quaternaryLabel 3, fill 4, secondaryFill 5, tertiaryFill 6, separator 7), then its
+blur's `UIVibrancyEffectBlurMaterialStyle`, `UIVibrancyEffectBlurAutomaticStyle` and `UIVibrancyEffectBlurStyle`.
+Its content view writes a `UITintColor` the document does not name: `whiteColor`, or for the label style over a
+material 96% black, over a dark material 96% white.
+
 ## Collection views
 
 A `<collectionView>` of a xib without prototypes (`dataMode="none"`; `collection-*`, round 45) is a
@@ -999,6 +1012,21 @@ mutable array of its `UINavigationItem`s, listed in all objects after its constr
 as `UICenterItemGroups`, `UILargeTitleDisplayMode` 0 and the bar), `UIBarPosition` 2 and
 `UIBarTranslucence` (1, 2 for `translucent="NO"`). A bar button item's `style="done"` is `UIStyle` 2.
 Bar button items with actions are refused.
+
+## Map views
+
+A `<mapView>` (round 123 and 124, `map-*`, `sb-map`) is an `MKMapView`: a view's keys with
+`UIViewLayoutMargins` all 0, then `MKDelegate` nil (its outlet is a connection), `MKMapType` (standard 0,
+satellite 1, hybrid 2, satelliteFlyover 3, hybridFlyover 4, mutedStandard 5), `MKZoomEnabled`,
+`MKScrollEnabled`, `MKShowsUserLocation`, `MKPitchEnabled`, `MKRotateEnabled`, `MKShowsBuildings` (true whatever
+the document), `MKShowsTraffic`, `MKShowsCompass`, `MKShowsScaleKey`, `MKShowsPointsOfInterest`,
+`MKPointOfInterestFilter` nil, `MKPreferredConfiguration`, `MKPitchButtonVisibility` 1 and
+`MKShowsUserTrackingButton` false. The configuration is `MKStandardMapConfiguration` for the standard and muted
+types (with `MKStandardMapConfigurationEmphasisStyle` 0, muted 1), `MKImageryMapConfiguration` for satellites and
+`MKHybridMapConfiguration` for hybrids: `MKMapConfigurationElevationStyle` (1 for flyovers), `ShowsTraffic` (the
+map's, but false for imagery), `ShowsHiking` and `ShowsTopographicFeatures` false, `PointOfInterestFilter` nil. A
+`<standardMapConfiguration>` wins over `mapType`, the map then of type 0, its `elevationStyle` and
+`showsTraffic` also the map's traffic.
 
 ## Date pickers and picker views
 
@@ -1694,7 +1722,8 @@ in that controller's nib: the placeholder with `UIStoryboardIdentifier` and
 `storyboard` outlet; a tab bar gives it a default spring-loaded item in `UIItems` only, a
 navigation bar its navigation item (with `UINavigationBar`) as for a root controller. The
 `Info.plist` lists every reference something reaches under
-`UIViewControllerIdentifiersToExternalStoryboardReferences`, nib name to a dictionary of
+`UIViewControllerIdentifiersToExternalStoryboardReferences` (equal storyboard names and identifiers one string
+object across its dictionaries: `sb-ref-plist-*`), nib name to a dictionary of
 `UIReferencedControllerIdentifier` (when given) and `UIReferencedStoryboardName`, entered in that
 order; the references enter in document order, and both levels are copied Foundation tables. The
 top-level keys enter as nib names, entry point, references, version (`sb-ref-show`: version,

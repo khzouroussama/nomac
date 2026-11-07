@@ -210,9 +210,7 @@ extension DocumentCompiler {
                                              ("NSTextHighlightOutlineColor", systemColor("secondarySystemFillColor", NibColor.systemColors["secondarySystemFillColor"]!))]))
         content.allowsEditingTextAttributes = allowsEditingTextAttributes
         content.adjustsFontForContentSizeCategory = try bool(element, "adjustsFontForContentSizeCategory", default: false)
-        guard !content.adjustsFontForContentSizeCategory || element.child("fontDescription", key: "fontDescription")?.attributes["style"] != nil else {
-            throw unsupported("a text view adjusting a font other than a text style's to the content size category")
-        }
+        warnIfFontDoesNotAdjust(element, adjusts: content.adjustsFontForContentSizeCategory)
         return content
     }
 }

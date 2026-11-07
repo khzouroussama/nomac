@@ -44,6 +44,7 @@ struct ButtonContent {
     var type: Int
     var adjustsImageSizeForAccessibility = false
     var font: NibFont?
+    var titleShadowOffset: [Double]?
     var role: Int?
     var contentInsets: [Double]?
     var titleInsets: [Double]?
@@ -69,9 +70,10 @@ struct ButtonContent {
         if adjustsImageSizeForAccessibility { encoder.encode(.boolean(true), forKey: "UIAdjustsImageSizeForAccessibilityContentSizeCategory") }
         if let font, configuration == nil { try encoder.encode(font, forKey: "UIFont") }
         if let role { encoder.encode(.integer(role), forKey: "UIButtonRole") }
-        for (insets, key) in [(contentInsets, "UIContentEdgeInsets"), (titleInsets, "UITitleEdgeInsets"), (imageInsets, "UIImageEdgeInsets")] {
-            if let insets { encoder.encode(.data(NibView.doubles(insets)), forKey: key) }
-        }
+        if let contentInsets { encoder.encode(.data(NibView.doubles(contentInsets)), forKey: "UIContentEdgeInsets") }
+        if let titleInsets { encoder.encode(.data(NibView.doubles(titleInsets)), forKey: "UITitleEdgeInsets") }
+        if let titleShadowOffset { encoder.encode(.data(NibView.doubles(titleShadowOffset)), forKey: "UITitleShadowOffset") }
+        if let imageInsets { encoder.encode(.data(NibView.doubles(imageInsets)), forKey: "UIImageEdgeInsets") }
         if springLoaded { encoder.encode(.boolean(true), forKey: "UISpringLoaded") }
         if changesSelectionAsPrimaryAction { encoder.encode(.boolean(true), forKey: "UIButtonChangesSelectionAsPrimaryAction") }
         try encoder.encode(configuration, forKey: "UIButtonConfiguration")
@@ -181,6 +183,12 @@ extension DocumentCompiler {
         control.pointerInteractionEnabled = try bool(element, "pointerInteraction", default: false)
         let sorted = states.sorted { $0.state < $1.state }.map { (state: NibNumber(integer: $0.state), content: $0.content) }
         var button = ButtonContent(control: control, states: sorted, type: type, font: font)
+        // A title shadow of no offset writes none (`button-title-shadow-offset-*`).
+        for size in element.children(named: "size") {
+            try check(size, attributes: ["key", "width", "height"], children: [])
+            let offset = [try number(size.attributes["width"] ?? "0", "width"), try number(size.attributes["height"] ?? "0", "height")]
+            if offset != [0, 0] { button.titleShadowOffset = offset }
+        }
         button.lineBreakMode = try attributes["lineBreakMode"].flatMap { mode in
             mode == "middleTruncation" ? nil : try mapped(mode, LabelContent.lineBreakModes, "lineBreakMode")
         }

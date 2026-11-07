@@ -167,6 +167,7 @@ extension DocumentCompiler {
             try value(empty, "key", in: ["textColor"])
         }
         let textColor = try element.child("color", key: "textColor").map { try color($0) }
+        warnIfFontDoesNotAdjust(element, adjusts: try bool(element, "adjustsFontForContentSizeCategory", default: false))
         var content = TextFieldContent(contentHorizontalAlignment: try mapped(attributes["contentHorizontalAlignment"] ?? "center", ControlContent.horizontalAlignments,
                                                                               "contentHorizontalAlignment"),
                                 adjustsFontForContentSizeCategory: try bool(element, "adjustsFontForContentSizeCategory", default: false), font: try font(element).font,

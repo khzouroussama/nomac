@@ -54,7 +54,11 @@ extension DocumentCompiler {
         let contentElement: XIBElement
         if legacy {
             try check(content, attributes: ["key", "opaque", "clipsSubviews", "multipleTouchEnabled", "contentMode", "insetsLayoutMarginsFromSafeArea"],
-                      children: ["rect", "autoresizingMask", "subviews"])
+                      children: ["rect", "autoresizingMask", "subviews", "color"])
+            // Its colors change nothing (`cvcell-old-content-color-*`).
+            for color in content.children(named: "color") {
+                try value(color, "key", in: ["backgroundColor", "tintColor"])
+            }
             contentID = "\(id).contentView"
             contentElement = XIBElement(name: "view", attributes: ["id": contentID])
             let moved = element.children(named: "constraints").flatMap(\.children).map { constraint in
@@ -62,7 +66,7 @@ extension DocumentCompiler {
             }
             let constraints = XIBElement(name: "constraints", attributes: [:])
             constraints.children = moved
-            contentElement.children = content.children + (moved.isEmpty ? [] : [constraints]) + element.children(named: "variation")
+            contentElement.children = content.children.filter { $0.name != "color" } + (moved.isEmpty ? [] : [constraints]) + element.children(named: "variation")
         } else {
             guard element.children(named: "constraints").isEmpty, element.children(named: "variation").isEmpty else {
                 throw unsupported("constraints or variations of a collection view cell of Xcode 12's template")
