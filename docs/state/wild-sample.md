@@ -8,7 +8,7 @@ fault, the project's own, or not known. Branch `corpus/wild-sample`. BACKLOG B-5
 
 ## Current step
 
-A detached run started on 2026-11-07 at 03:35 on the Mac's clock (the logs' times are UTC, an hour
+A detached run started on 2026-11-07 at 03:52 on the Mac's clock (the logs' times are UTC, an hour
 behind), nomac `efb6f387`, in the container `nomac-wild-run` (volume `nomac-wild`). It takes the 48 projects of `corpus/wild-sample.json` one at a time, in four
 rounds at most, 20 minutes apart, and nothing needs to watch it. It runs from a frozen copy of the
 script and manifest in `/work/driver`, so a change to this branch or worktree does not reach it.
@@ -22,8 +22,8 @@ All on the Mac, under `~/nomac-out/wild-sample`, and in the container under `/ou
 
 | File | What it holds |
 |---|---|
-| `results.log` | One line per attempt: time, project, frames, seconds, nomac, then `IPA`, `stopped-at: <step>`, `not-measured: <reason>` or `no-app`. The last line starts with `END` when the run has finished. |
-| `STOPPED` | Exists only if the Mac fell under 15 GB free, which ended the run. |
+| `results.log` | One line per attempt: time, project, frames, seconds, nomac, then `IPA`, `stopped at <step>` (with what is known), `not-measured: <reason>` or `no-app`. The last attempt at a project counts. The last line starts with `END` when the run has finished. |
+| `STOPPED` | Exists only if the run ended itself, and says why: the Mac under 15 GB free, or the preflight failed. |
 | `run.log` | The driver's own lines: rounds, retries, waits for disk. |
 | `tools.log` | Ruby, CocoaPods and Node being installed, each `ready` or `NOT installed`. |
 | `results/<owner>__<name>.json` | Each step's status, seconds and first errors. |
@@ -56,16 +56,13 @@ Then:
 
 Read these with the numbers:
 
-- `report`, not `results.log`, says what counts. Only what the network cut is not measured: an
-  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`, and a project the
-  run's own stop for disk ended. Those count in no share, and `report` prints their count and the
-  worst-case bounds they leave. Every other failure counts as stopped until a verdict by hand moves
-  it, so a share here errs low: `pod install` failing could be nomac's launchers.
-- The running driver is older than that rule, so `results.log` says `not-measured:` for some projects
-  that `report` counts as stopped. `not-measured: dependency install failed` is `stopped at install,
-  cause not read`, `clone failed` is `stopped at clone, cause not read`, `archive timed out` is
-  `stopped at archive, timed out`, and `this machine has no <tool>` is `stopped at install, this
-  machine has no <tool>`. The driver takes all of these again in later rounds; the last attempt counts.
+- Only what the network cut is not measured: an attempt whose reason reads `<step>: <message>`, or
+  `GitHub did not answer`, and a project the run's own stop for disk ended. Those count in no share,
+  and `report` prints their count and the worst-case bounds they leave. Every other failure counts as
+  stopped until a verdict by hand moves it, so a share here errs low: `pod install` failing could be
+  nomac's launchers. Labels say what is known: `stopped at install, cause not read`, `stopped at clone,
+  cause not read`, `stopped at archive, timed out`, `stopped at install, this machine has no <tool>`.
+  The driver takes the failed installs and clones again in later rounds.
 - `immich-app/immich` needs Flutter and `flutter` is not installed, so it counts as stopped at install.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded
@@ -113,6 +110,14 @@ platform, 1,586 of the toolchain folder and 46 under `Contents`; of the iOS plat
 Those files, macOS last, were still being copied when the run began, so a project stopped by a
 missing macOS SDK file in the first hour should be taken again.
 
+Never kill a `tar` that is extracting into a developer directory. GNU tar writes each symlink as an
+empty `0600` file and swaps in the links when it finishes, so a killed one leaves those files behind.
+That happened here on 2026-11-07: `usr/lib/swift/clang` stayed an empty file, clang lost its resource
+directory, and a one-line Swift file failed with `module '_c_standard_library_obsolete' requires
+feature 'found_incompatible_headers__check_search_paths'`. So the first run's two projects were not
+measured: their results are in `void-subset-1`, not `results`, and say nothing about nomac. The
+preflight now catches this. After a killed copy, compare every path's type and size with the source.
+
 ## Findings outside the build
 
 The survey read 18 of the 133 projects it calls clear through a package's or a playground's
@@ -128,4 +133,8 @@ No project had finished when this was written, so the driver has not yet carried
 through `nomac archive` and `nomac export`; `results.log` shows whether it did. A drill with a stand-in
 for nomac and real clones from GitHub went through every other path: an IPA, a failed archive, a
 missing tool, a failed install, a clone that fails, no app, and the second round taking only the not
-measured. It left no run folder behind. Not drilled: a stop for disk, an archive timeout, a resume.
+measured. It left no run folder behind. A preflight that fails writes `STOPPED` and the next run
+refuses to start. Not drilled: a stop for disk, an archive timeout, a resume.
+
+The preflight compiles with `swiftc` directly, passing the `-fclang-abi-compat=4.0` that nomac passes,
+and does not go through `nomac archive`. It shows the toolchain and SDK work, not that nomac does.

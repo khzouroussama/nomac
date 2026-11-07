@@ -18,8 +18,10 @@ outside the repository. Only project names, commits, classes and counts reach co
 `run` is meant to go unwatched (docs/state/wild-sample.md). Every step has a timeout. A step the
 network cuts runs again. A project whose clone or dependency install fails, whose archive times out,
 or whose README names a tool this machine lacks is taken again in the next round. <root>/results.log
-gets one line per attempt. Under 15 GB free on the Mac the run kills its step, writes <root>/STOPPED
-and ends, and no run starts while that file exists.
+gets one line per attempt. Before any project a line of Swift goes through the iOS SDK's module
+scanner, since a broken toolchain would otherwise read as every project's failure. If that fails, or
+the Mac falls under 15 GB free, the run writes why to <root>/STOPPED and ends, killing any step in
+progress, and no run starts while that file exists.
 
 In the shares only what the network cut (or the run's own stop for disk) is not measured, and `report`
 prints the bounds that leaves. Every other failure counts as stopped until a verdict by hand moves
@@ -104,6 +106,7 @@ ROUND_WAIT = 1200
 TOOL_ATTEMPTS = 20
 TOOL_WAIT = 180
 TOOLCHAIN_WAIT = 7200
+PREFLIGHT_TIMEOUT = 1800
 OVER_BUDGET = "over the disk budget"
 APT_OPTIONS = ["-o", "Acquire::http::Timeout=20", "-o", "Acquire::Retries=5"]
 APT_PACKAGES = ["ruby-full", "ruby-dev", "build-essential", "7zip", "xz-utils", "curl", "make", "git-lfs", "libyaml-dev", "libffi-dev", "zlib1g-dev",
@@ -526,8 +529,7 @@ def measure(root, work, entry):
         subprocess.run(["bash", "-c", f"chmod -R u+w {run} 2>/dev/null; rm -rf {run}"], check=False)
         for path in out.glob("*.log"):
             subprocess.run(["gzip", "-f", str(path)], check=False)
-        outcome = ("IPA" if result["ipa"] else "no-app" if result.get("noApp") else f"not-measured: {result['notMeasured']}" if result.get("notMeasured")
-                   else f"stopped-at: {result.get('stopped')}")
+        outcome = "IPA" if result["ipa"] else "no-app" if result.get("noApp") else f"not-measured: {result['notMeasured']}" if cut_short(result) else stop_label(result)
         seconds = sum(s["seconds"] for s in result["steps"].values())
         with open(root / "results.log", "a") as lines:
             lines.write(f"{result['finished']} {entry['repository']} [{','.join(entry['frames'])}] {seconds}s nomac={result['nomac']} {outcome}\n")
@@ -590,6 +592,32 @@ def wait_for_toolchain():
         time.sleep(60)
 
 
+def preflight(root, work):
+    """One line of Swift, with its own home so that no cache hides anything. If this fails every
+    project would, for a reason that has nothing to do with them, so the run ends with no result."""
+    selected = SHARED_HOME / ".nomac" / "xcode" / "selected"
+    build = selected.read_text().strip() if selected.exists() else "none selected"
+    developer = SHARED_HOME / ".nomac" / "xcode" / build / "Xcode.app" / "Contents" / "Developer"
+    scratch = work / "runs" / ".preflight"
+    (scratch / "home").mkdir(parents=True, exist_ok=True)
+    (scratch / "t.swift").write_text("import Foundation\nprint(NSObject())\n")
+    started = time.time()
+    try:
+        status = run_logged([developer / "Toolchains" / "XcodeDefault.xctoolchain" / "usr" / "bin" / "swiftc", "-target", "arm64-apple-ios17.0",
+                             "-sdk", developer / "Platforms" / "iPhoneOS.platform" / "Developer" / "SDKs" / "iPhoneOS.sdk", "-module-name", "T",
+                             "-explicit-module-build", "-Xcc", "-fclang-abi-compat=4.0", "-Xcc", "-fno-sized-deallocation", "-c", "t.swift", "-o", "t.o"],
+                            scratch, dict(os.environ, HOME=str(scratch / "home"), TMPDIR=str(scratch)), scratch / "log", PREFLIGHT_TIMEOUT)
+    except OSError as error:
+        status = str(error)
+    errors = first_errors(scratch / "log", 2)
+    shutil.rmtree(scratch, ignore_errors=True)
+    if status != 0:
+        message = f"{datetime.datetime.now().isoformat(timespec='seconds')} preflight failed ({status}): {' | '.join(errors)}"
+        (root / "STOPPED").write_text(message + "\n")
+        sys.exit(message)
+    log(f"preflight: one line of Swift compiles ({round(time.time() - started)} s)")
+
+
 def pending_projects(root, manifest, wanted):
     pending = []
     for entry in manifest["projects"]:
@@ -611,7 +639,8 @@ def run_all(arguments):
     if (root / "STOPPED").exists():
         sys.exit(f"{root / 'STOPPED'}: {(root / 'STOPPED').read_text().strip()}; free the disk and delete the file to run again")
     wait_for_toolchain()
-    subprocess.run(["bash", "-c", f"chmod -R u+w {work}/runs 2>/dev/null; rm -rf {work}/runs/*"], check=False)
+    subprocess.run(["bash", "-c", f"chmod -R u+w {work}/runs 2>/dev/null; rm -rf {work}/runs/* {work}/runs/.preflight"], check=False)
+    preflight(root, work)
     threading.Thread(target=disk_guard, args=(root, work), daemon=True).start()
     manifest = load_manifest()
     wanted = set(arguments.projects)
