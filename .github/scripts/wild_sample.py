@@ -23,10 +23,11 @@ scanner, since a broken toolchain would otherwise read as every project's failur
 the Mac falls under 15 GB free, the run writes why to <root>/STOPPED and ends, killing any step in
 progress, and no run starts while that file exists.
 
-In the shares only what the network cut (or the run's own stop for disk) is not measured, and `report`
-prints the bounds that leaves. Every other failure counts as stopped until a verdict by hand moves
-it, labelled by what is known ("stopped at install, cause not read"), since `pod install` failing
-could be nomac's launchers and a share that is too low is better than one too high.
+In the shares only what says nothing about nomac or the project is not measured: what the network
+cut, a tool this machine lacks, and the run's own stop for disk. `report` prints how many, why, and
+the bounds that leaves. Every other failure counts as stopped until a verdict by hand moves it,
+labelled by what is known ("stopped at install, cause not read"), since `pod install` failing could
+be nomac's launchers and a share that is too low is better than one too high.
 
 Two frames, from the survey's `contents` records:
 
@@ -48,7 +49,7 @@ A failure gets one of three verdicts:
 
 Usage:
   wild_sample.py pick --survey DIR [--seed N] [--count N]   write corpus/wild-sample.json's sample
-  wild_sample.py tools                                      (Linux, as root) what READMEs ask for, retried; safe to rerun
+  wild_sample.py tools [--apt-mirror URL]                   (Linux, as root) what READMEs ask for, retried; safe to rerun
   wild_sample.py run [--root R] [--rounds N] [--round-wait S] [project ...]
                                                             (Linux, in the container) leaves out what was measured
   wild_sample.py xcode [--root R] project ...               the same checkout under Xcode 27.0 (Mac)
@@ -684,6 +685,9 @@ def tools(arguments):
 
     def install_packages():
         subprocess.run(["pkill", "-9", "-x", "apt-get"], check=False)
+        if arguments.apt_mirror:
+            sources = Path("/etc/apt/sources.list.d/ubuntu.sources")
+            sources.write_text(re.sub(r"^URIs: .*$", f"URIs: {arguments.apt_mirror}", sources.read_text(), flags=re.MULTILINE))
         for lock in ("/var/lib/apt/lists/lock", "/var/lib/dpkg/lock-frontend", "/var/cache/apt/archives/lock"):
             Path(lock).unlink(missing_ok=True)
         return (run(["apt-get", "update", "-qq", *APT_OPTIONS], 300) and run(["dpkg", "--configure", "-a"], 300)
@@ -779,10 +783,11 @@ def attempts_of(root):
 
 
 def cut_short(result):
-    """Whether only the network or the run's own stop for disk ended this attempt: `with_network_retries`
-    records those as "<step>: <reason>"."""
+    """Whether this attempt ended for a reason that says nothing about nomac or the project: the test
+    machine lacks a tool, the run stopped for disk, or the network cut it (`with_network_retries`
+    records that as "<step>: <reason>"). An install that ran and failed is not one of these."""
     reason = result.get("notMeasured") or ""
-    return reason in ("GitHub did not answer", "stopped for disk space") or reason.startswith(("clone: ", "deps: ", "archive: "))
+    return reason in ("GitHub did not answer", "stopped for disk space") or reason.startswith(("clone: ", "deps: ", "archive: ", "this machine has no "))
 
 
 def stop_label(result):
@@ -792,8 +797,6 @@ def stop_label(result):
         return f"stopped at {result.get('stopped')}"
     if reason == "dependency install failed":
         return "stopped at install, cause not read"
-    if reason.startswith("this machine has no "):
-        return f"stopped at install, {reason}"
     if reason == "clone failed":
         return "stopped at clone, cause not read"
     if reason == "archive timed out":
@@ -900,7 +903,8 @@ def main():
     command.add_argument("--survey", required=True)
     command.add_argument("--seed", type=int, default=SEED)
     command.add_argument("--count", type=int, default=COUNT)
-    commands.add_parser("tools")
+    command = commands.add_parser("tools")
+    command.add_argument("--apt-mirror", help="a mirror for apt, when the default one is too slow for its timeout")
     command = commands.add_parser("run")
     command.add_argument("--root", default=str(DEFAULT_ROOT))
     command.add_argument("--work", default=os.environ.get("WILD_WORK", "/work"))

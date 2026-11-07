@@ -56,14 +56,18 @@ Then:
 
 Read these with the numbers:
 
-- Only what the network cut is not measured: an attempt whose reason reads `<step>: <message>`, or
-  `GitHub did not answer`, and a project the run's own stop for disk ended. Those count in no share,
-  and `report` prints their count and the worst-case bounds they leave. Every other failure counts as
-  stopped until a verdict by hand moves it, so a share here errs low: `pod install` failing could be
-  nomac's launchers. Labels say what is known: `stopped at install, cause not read`, `stopped at clone,
-  cause not read`, `stopped at archive, timed out`, `stopped at install, this machine has no <tool>`.
-  The driver takes the failed installs and clones again in later rounds.
-- `immich-app/immich` needs Flutter and `flutter` is not installed, so it counts as stopped at install.
+- Only what says nothing about nomac or the project is not measured: what the network cut (an
+  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`), a tool the test machine
+  lacks (`this machine has no <tool>`), and a project the run's own stop for disk ended. Those count
+  in no share, and `report` prints how many, why, and the worst-case bounds they leave. Every other
+  failure counts as stopped until a verdict by hand moves it, so a share here errs low: `pod install`
+  failing could be nomac's links. Labels say what is known: `stopped at install, cause not read`,
+  `stopped at clone, cause not read`, `stopped at archive, timed out`. The driver takes failed installs
+  and clones again in later rounds.
+- `report`, not `results.log`, says what counts. The run started at 03:52 is older than the tool rule,
+  so its `results.log` says `stopped at install, this machine has no <tool>` for projects that
+  `report` counts as not measured.
+- `immich-app/immich` needs Flutter and `flutter` is not installed, so it stays not measured.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded
   in the manifest; a project without those keys uses what its files imply and its first app scheme.
@@ -101,7 +105,13 @@ docker run -d --name nomac-wild-run --cpus 8 --ulimit nofile=65536:65536 -v noma
 
 In the container, as a normal user whose home is `/work/home`: nomac linked at `~/.local/bin/nomac`,
 `nomac sdk install` and `nomac toolchain install` as docs/INSTALL.md says; then as root
-`wild_sample.py tools`, and copy the three scripts and the manifest to `/work/driver` as above.
+`wild_sample.py tools`, and copy the three scripts and the manifest to `/work/driver` as above. A file
+just edited on the Mac can read short through the bind mount, so check that the copy parses.
+
+If `ports.ubuntu.com` is too slow for apt's 20-second timeout, give `tools` a mirror:
+`--apt-mirror http://ftp.tu-chemnitz.de/pub/linux/ubuntu-ports/` answered in 2 seconds on 2026-11-07,
+when `ports.ubuntu.com` took 12 and apt had failed on it. It serves the same packages under Ubuntu's
+signatures. This run's container uses it.
 
 Use a subset fresh from `nomac sdk install`: on 2026-11-07 `/ref/xcode` held 10,048 files and a fresh
 subset 61,187. What `/ref/xcode` lacks is 42,014 files of the macOS platform, 7,492 of the watchOS
