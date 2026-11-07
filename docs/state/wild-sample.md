@@ -116,9 +116,12 @@ just edited on the Mac can read short through the bind mount, so check that the 
 
 `tools --apt-mirror http://ftp.tu-chemnitz.de/pub/linux/ubuntu-ports/` gives apt a faster mirror: it
 answered in 2 seconds on 2026-11-07 when `ports.ubuntu.com` took 12. It serves the same packages
-under Ubuntu's signatures. This run's container uses it, and installed its packages by hand
-(`~/nomac-out/wild-sample/scratch/apt_then_tools.sh`, log `apt.log`) because the frozen driver's
-`tools` still has the 300-second limit on apt that killed each slow download, since fixed here.
+under Ubuntu's signatures. This run's container gets its packages from
+`~/nomac-out/wild-sample/scratch/apt_loop.sh` (log `apt.log`), which alternates that mirror with
+`ports.ubuntu.com` every 5 minutes or so for up to 8 hours and then runs `tools`, and its Node from
+`scratch/node_install.py`, because the frozen driver's `tools` still has the 300-second limit on apt
+that killed each slow download, since fixed here. If the container restarts, start both again, as
+root and detached, before the driver. `tools finished: 5 of 5` in `apt.log` means all are installed.
 
 Use a subset fresh from `nomac sdk install`: on 2026-11-07 `/ref/xcode` held 10,048 files and a fresh
 subset 61,187. What `/ref/xcode` lacks is 42,014 files of the macOS platform, 7,492 of the watchOS
