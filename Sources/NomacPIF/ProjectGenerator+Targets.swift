@@ -212,7 +212,7 @@ extension ProjectGenerator {
         }
         if counts.isEmpty {
             for type in synchronizedCandidates(of: target).compactMap(\.member.fileType) where Self.languageRank(fileType: type) != nil {
-                counts[type, default: 0] += 1
+                counts[type] = 1
             }
         }
         let winner = counts.min { a, b in a.value != b.value ? a.value > b.value : Self.languageRank(fileType: a.key)! < Self.languageRank(fileType: b.key)! }

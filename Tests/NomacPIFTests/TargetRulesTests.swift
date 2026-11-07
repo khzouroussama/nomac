@@ -327,6 +327,36 @@ import NomacTestSupport
         #expect(targets["AssemblyMember"]?["predominantSourceCodeLanguage"] == nil)
     }
 
+    /// loader-experiments `language-fallback-missing`: excluded items count once per file type,
+    /// on disk or not, so the order of the languages alone decides among them.
+    @Test func excludedSynchronizedItemsCountOncePerType() throws {
+        let cases: [(name: String, excluded: [String], files: [String], language: String?)] = [
+            ("ManySwift", ["a.swift", "b.swift", "c.swift", "d.m"], ["a.swift", "b.swift", "c.swift", "d.m"], "Objective-C"),
+            ("ManyObjC", ["a.m", "b.m", "c.m", "d.c"], ["a.m", "b.m", "c.m", "d.c"], "C"),
+            ("SwiftNotOnDisk", ["b.m", "g1.swift", "g2.swift", "g3.swift"], ["b.m"], "Objective-C"),
+            ("ObjCNotOnDisk", ["a.swift", "g.m"], ["a.swift"], "Objective-C"),
+            ("OnlyNotOnDisk", ["g1.swift", "g2.swift", "g.m"], [], "Objective-C"),
+            ("NoLanguageOnDisk", ["g.swift"], ["a.json"], "Swift"),
+            ("AssemblyNotOnDisk", ["a.swift", "g1.s", "g2.s"], ["a.swift"], nil),
+        ]
+        var objects = "", children = "", files: [String: String] = [:], targetsToWrite: [Target] = []
+        for (index, item) in cases.enumerated() {
+            let number = String(format: "%023d", index + 1)
+            objects += "A\(number) = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (E\(number), ); path = \(item.name); sourceTree = \"<group>\"; };\n"
+            objects += "E\(number) = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (\(item.excluded.joined(separator: ", ")), ); target = C\(number); };\n"
+            objects += "W\(number) = {isa = PBXSourcesBuildPhase; files = (); };\n"
+            children += "A\(number), "
+            for file in item.files { files["\(item.name)/\(file)"] = "" }
+            if item.files.isEmpty { files["\(item.name)/.keep"] = "" }
+            targetsToWrite.append(Target(id: "C\(number)", name: item.name, extra: "fileSystemSynchronizedGroups = (A\(number), ); buildPhases = (W\(number), );"))
+        }
+        let targets = try Self.targets(targetsToWrite, objects: objects, groupChildren: children, files: files)
+        for item in cases {
+            #expect(targets[item.name] != nil)
+            #expect(targets[item.name]?["predominantSourceCodeLanguage"] == item.language.map { .string("Xcode.SourceCodeLanguage.\($0)") }, "\(item.name)")
+        }
+    }
+
     // MARK: Info.plist
 
     /// loader-experiments `info-plist-conditions`.
