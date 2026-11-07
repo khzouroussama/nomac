@@ -357,25 +357,39 @@ inline; `nstruct.py`, `objlist.py`: an experiment's objects and its all-objects 
 
 Current step: working through part B's refusals from the survey's ranking (2026-11-07): the
 survey's `nib:refused=B-260` split by real cause, weighting the projects Xcode 27 accepts, then
-B-261's storyboard features outside part A's list.
+B-261's storyboard features outside part A's list. Wrong nibs come before refusals.
+
+Everything below lives in `~/nomac-out/wt-scratch/nibs-2` (outside the repository; none of it is committed):
 
 Next actions:
-1. Rank: `~/nomac-out/wt-scratch/nibs-2/rank.py <nomac> <out.json> <roots>` on the corpus, the holdout
-   and `~/nomac-out/wt-scratch/nibs-2/survey-docs` (each refused survey project's documents at its
-   surveyed commit, `tools/fetch_docs.py`; `projects.json` marks those Xcode 27 accepts as `live`).
-2. Measure with `~/nomac-out/wt-scratch/nibs-2/measure.sh [full]`: corpus, holdout (Xcode's outputs in
-   `holdout-obs`, recorded with `record_docs.py`) and all experiments (`nib`, the union of the old
-   sets). `ddiff.py <document>` and `ediff.py <experiment>` show structural differences.
-3. B-291: several recognizers in a scene. The placeholders' numbers are not the sorted connections'
-   first reach: `sb-gesture-three`, `-nested`, `-predict` and wikipedia's
-   DescriptionEditViewController disagree with every walk tried (`gsum.py`).
-4. Nibs the survey's and holdout's references show wrong on main, not refused (`tools/classify.py
-   survey-diffs.txt`, `ddiff.py <document>`): part A's constraints and colors; this part's `UISeparatorInset`'s
-   place, estimated section heights, habitica Support's second nib, `UICellLayoutMarginsFollowReadableWidth`,
-   a slider's value, and the deprecation warnings of top and bottom layout guides. These come before more
-   refusals.
+1. Wrong nibs first. Xcode's own outputs for 5,297 documents of the survey are in `survey-obs`, the holdout's in
+   `holdout-obs`: `python3 $C survey-obs <nomac> corpus` (`$C` = `.github/scripts/nib_compare.py`) counts them. At
+   this commit 66 survey documents and 10 holdout documents still differ. `tools/classify.py survey-diffs.txt`
+   groups them by first difference, `ddiff.py <document> 30` shows one. Open: `Info.plist` order (part A's B-266),
+   constraints and colors (part A), estimated section heights, `UISeparatorInset`'s place,
+   `UICellLayoutMarginsFollowReadableWidth`, an all-objects order (vlc QueueView), the deprecation warnings of top
+   and bottom layout guides, 3 accessibility orders the walk does not fit (ish's Terminal).
+2. Refusals, ranked per family in `fam/{tables,bars,buttons,scenes,other}-list.txt`, top down. Largest:
+   `propertyAccessControl` on any element (119 documents), `<view>` in `<tableView>` (47), `<webView>` (32),
+   `<tableView>` in `<objects>` (32), navigation bars' `translucent`, `barStyle` and colors (75), a navigation
+   controller's bar without a frame (26), several unreached controllers (23), `<customObject>` in `<objects>` (22).
+   Re-rank with `JOBS=4 python3 tools/rank_survey.py <nomac> survey-docs survey-rank.json`. Of the Xcode-27-ready projects,
+   button configurations' localized titles stop the most (7), then navigation bars' `translucent` and scenes without
+   one controller (5 each).
+3. B-291, several recognizers in a scene: the placeholders' numbers are not the sorted connections' first reach;
+   `sb-gesture-three`, `-nested`, `-predict` and wikipedia's DescriptionEditViewController fit no walk tried (`gsum.py`).
+
+Tools: `measure.sh [full]` (corpus, holdout, experiments), `tools/check_docs.py <nomac> <regex>` (the documents a refusal
+stopped, against Xcode's output, the check that keeps a lifted refusal from writing wrong nibs), `cmp.py <round files>`,
+`kdiff.py <base> <names>`, `keys.py`, `dumpnib.py`. Round name lists are `round120.txt` to `round133.txt`, observations
+`nib/observations.json`. `fam/README.md` and `tools/treelock` are a kit for several agents in this one worktree, never
+used yet. Under the CPU rule of 2026-11-07, test with `--filter NomacNibTests` and `swift build -j 4`.
 
 Just finished:
+- Rounds 131 to 133: only `Base.lproj` is localizable, frameless views by `toolsVersion` (11019, bisected), sliders
+  without a value, accessibility configurations by the walk. Survey (5,297 documents): identical 2,725, equivalent
+  60, different 66, refused 2,446, from 2,695, 59, 96, 2,447. Corpus 459 identical, 14 equivalent, 0 different, 115
+  refused; holdout 192, 4, 10, 110.
 - Rounds 125 to 128: navigation and tab bar controllers' attributes and shapes, children with their own
   identifiers (about 20 survey documents stopped there), table and collection children, tab bar items on
   any controller, rootless navigation controllers and navigation controllers' own segues.
@@ -384,9 +398,8 @@ Just finished:
 - Rounds 120 to 122 and 129, 130: what older documents carry: `<animations/>`, simulated metrics, capabilities,
   `defaultVersion`, development versions, the iPad runtime, more devices, documents without Auto Layout
   (default mask 40, no scene layout guides); labels' minimums by the device's font; the warning about fonts
-  that do not adjust. Survey references (`survey-obs`, 3,505 documents) found 48 wrong nibs on main; 9 of
-  them fixed, 39 left: identical 1,468 (from 1,253), equivalent 19 (8), refused 1,979 (2,196). Corpus 457
-  identical, 14 equivalent, 0 different, 117 refused; holdout 182, 3, 11, 120; experiments 4,657, 12, 0, 237.
+  that do not adjust. On the first 3,505 survey documents: identical 1,468 (from 1,253), equivalent 19 (8), different
+  39 (48), refused 1,979 (2,196); experiments 4,657 identical, 12 equivalent, 0 different, 237 refused.
 - Connections of one name, or of one event and selector, go by original class, then a walk of the
   views: xibs depth first, storyboards each view's subviews and then on from the last (rounds 118
   and 119; replaces all objects' order, which made wikipedia's ScrollableEducationPanelView and the
