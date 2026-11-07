@@ -20,7 +20,8 @@ packages, come from one shared install under <root>/expo (the sweep's npm date).
 The set `sample` is the coverage survey's repeatable sample of open-source projects
 (`feature_survey.py catalogs --sample 60`, its results in <survey>/catalogs), each catalog compiled
 alone on that step's command line, as a build for iOS 15. Its count is the projects whose catalogs
-all compile.
+all compile. The set `sample-own-target` is the same with each project's own most common deployment
+target: a real build passes that, and catalogs before iOS 13 compile differently.
 
 actool's outputs are kept in <root>/actool, keyed by the command line, and reused; nomac's stay in
 <root>/nomac for catalogs that do not match. Outputs stay outside the repository.
@@ -219,6 +220,13 @@ def fetch(root):
     print("not fetched:", missing)
 
 
+def project_target(top):
+    """A repository's most common IPHONEOS_DEPLOYMENT_TARGET, or None."""
+    values = [v for p in top.glob("**/*.xcodeproj/project.pbxproj") if "/Pods/" not in str(p)
+              for v in setting_values(p.read_text(errors="replace"), "IPHONEOS_DEPLOYMENT_TARGET") if re.fullmatch(r"[\d.]+", v)]
+    return collections.Counter(values).most_common(1)[0][0] if values else None
+
+
 def make_tasks(root):
     tasks = []
     def package_copy(arg):
@@ -247,13 +255,16 @@ def make_tasks(root):
     for top in sorted(p for p in apps.iterdir() if p.is_dir() and p.name not in logged):
         tasks += alone_tasks("sweep", top.name, top)
     for result in sorted((SURVEY / "catalogs").glob("*.json")):
+        own = project_target(SURVEY / "repos" / result.stem)
         for relative in sorted(json.loads(result.read_text())["catalogs"]):
             catalog = root / "sample" / result.stem / relative
-            args = [str(catalog), "--platform", "iphoneos", "--minimum-deployment-target", "15.0", "--target-device", "iphone",
-                    "--target-device", "ipad", "--compress-pngs", "--output-format", "human-readable-text"]
-            if (catalog / "AppIcon.appiconset").is_dir():
-                args += ["--app-icon", "AppIcon"]
-            tasks.append(task("sample", result.stem, args + ["--compile", "OUT", "--output-partial-info-plist", "OUT"]))
+            for app_set, target in (("sample", "15.0"), ("sample-own-target", own)):
+                args = [str(catalog), "--platform", "iphoneos", "--minimum-deployment-target", target, "--target-device", "iphone",
+                        "--target-device", "ipad", "--compress-pngs", "--output-format", "human-readable-text"]
+                if (catalog / "AppIcon.appiconset").is_dir():
+                    args += ["--app-icon", "AppIcon"]
+                if target:
+                    tasks.append(task(app_set, result.stem, args + ["--compile", "OUT", "--output-partial-info-plist", "OUT"]))
     for task_ in tasks:
         task_["present"] = all(Path(c).exists() for c in task_["catalogs"]) and bool(task_["catalogs"])
     ae.write_json(root / "tasks.json", tasks)
@@ -452,7 +463,7 @@ def run(root, nomac, sets, apps, only, jobs):
 
 def report(root):
     results = list(json.loads((root / "results.json").read_text()).values())
-    for app_set in ("corpus", "holdout", "sweep", "sample"):
+    for app_set in ("corpus", "holdout", "sweep", "sample", "sample-own-target"):
         members = [r for r in results if r["set"] == app_set]
         counts = collections.Counter(r["status"] for r in members)
         apps = {r["app"] for r in members}

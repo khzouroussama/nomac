@@ -45,7 +45,7 @@ import Testing
         #expect((source.image.width, source.image.height) == (43, 51))
         #expect(source.resizing?.layout == .ninePartStretch)
         #expect(Self.words(ImageSet.geometry(source)[0].value) == [9, 0, 31, 18, 20, 18, 31, 1, 20, 19, 31, 24, 20, 0, 30, 18, 1, 18, 30, 1, 1, 19, 30, 24, 1, 0, 0, 18, 30, 18, 0, 1, 30, 19, 0, 24, 30])
-        #expect(Array(source.image.pixels[(43 - 24) * 4..<(43 - 24) * 4 + 2]) == [UInt8(640 - 24), 0])
+        #expect(Array(source.image.pixels[(43 - 24) * 4..<(43 - 24) * 4 + 2]) == [UInt8((640 - 24) % 256), 0])
         let horizontal = ["resizing": ["mode": "3-part-horizontal", "center": ["mode": "tile", "width": 1], "cap-insets": ["left": 18, "right": 24]]]
         var wide = Self.source(640, 320)
         try EntryTraits(horizontal, allEntries: [], path: "/s").apply(to: &wide, factor: 1, path: "/s")

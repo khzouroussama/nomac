@@ -247,11 +247,13 @@ import Testing
         #expect(flags == [0x10, 0x8, 0])
     }
 
-    /// A color PNG whose ICC profile nomac cannot read stops.
-    @Test func unreadableColorProfilesStop() {
+    /// A profile ColorSync would not use leaves the image untagged, as if the chunk were not there
+    /// (`bad-profiles` not-a-profile).
+    @Test func unreadableColorProfilesLeaveTheImageUntagged() throws {
         let profile = Array("ICC\0\0".utf8) + [0x78, 0x01, 0x01, 0x04, 0x00, 0xFB, 0xFF] + Array("fake".utf8) + [0x03, 0xFA, 0x01, 0x98]
         let bytes = Self.png(width: 1, height: 1, colorType: 6, rows: [[1, 2, 3, 255]], chunks: [("iCCP", profile)])
-        #expect(throws: PNGImage.unsupportedProfile("not an ICC profile", path: "/p.png")) { try PNGImage(data: bytes, path: "/p.png") }
+        let image = try PNGImage(data: bytes, path: "/p.png")
+        #expect(image.pixels == [3, 2, 1, 255] && !image.convertedColors)
     }
 
     @Test func visionOSIconStacksAddNothingOnIOS() throws {
@@ -343,7 +345,8 @@ import Testing
         #expect(try appearance([["appearance": "luminosity", "value": "dark"]]) == .dark)
         #expect(try appearance([["appearance": "luminosity", "value": "light"]]) == .light)
         #expect(try appearance([["appearance": "contrast", "value": "high"]]) == .highContrastAny)
-        #expect(throws: NomacError.self) { try appearance([["appearance": "luminosity", "value": "dark"], ["appearance": "contrast", "value": "high"]]) }
+        #expect(try appearance([["appearance": "luminosity", "value": "dark"], ["appearance": "contrast", "value": "high"]]) == .highContrastDark)
+        #expect(throws: NomacError.self) { try appearance([["appearance": "luminosity", "value": "dark"], ["appearance": "luminosity", "value": "light"]]) }
     }
 
     /// watchOS keeps only the colors and images for any appearance (`image-appearances` watch

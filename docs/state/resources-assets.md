@@ -29,10 +29,15 @@ the coverage survey's sample of 60 projects with actool and with nomac on the sa
 The work order follows the sample, the only set not chosen by hand: well-kept corpus apps have
 complete icon sets, and 20 of those 60 projects did not.
 
-| 2026-11-07 | sample: compile all, match actool | corpus refused, different | holdout | sweep |
-|---|---|---|---|---|
-| main 85c5aab0 | 23, 14 of 60 | 23, 10 of 128 | 21, 5 of 75 | 4, 2 of 171 |
-| this branch | 38, 34 of 60 | 21, 10 | 17, 5 | 4, 2 |
+| 2026-11-07 | sample at iOS 15: compile all, match actool | sample at each project's own target | corpus refused, different | holdout | sweep |
+|---|---|---|---|---|---|
+| main 85c5aab0 | 23, 14 of 60 | not measured | 23, 10 of 128 | 21, 5 of 75 | 4, 2 of 171 |
+| this branch | 38, 34 of 60 | 13, 12 of 50 | 21, 10 | 17, 5 | 4, 2 |
+
+The survey's own count was 21 of 60 with a debug binary, 3 projects timing out at 600 s. The 3 watch
+catalogs it counts as refused also stop actool on its iOS command line. The column that matters
+most is the own-target one: 824 of 1,413 surveyed projects (58%) target before iOS 13 (8.x 303, 9.x
+149, 10.x 93, 12.x 86, 7.x 60, 11.x 65) and 23 of those 50 stop on that refusal alone.
 
 Not covered: catalogs of apps that never built on the sweep (`rocketchat`, `graysky`, `bluesky`,
 `obytes-template`, `expo-with-libsql`: 14 tasks whose catalogs `expo prebuild` or a package
@@ -325,15 +330,29 @@ command lines of retro-rampage, tofu, flappy-fly-bird, uncloudnotes and swiftfin
 
 ## Next actions
 
-By the sample's ranking, rerun with `catalog_sweep.py run <root> --only refused,different`:
+By the sample's ranking, with `catalog_sweep.py run <root> --only refused,different` after each:
 
-1. Launch images with files and `--launch-image` (`launch-images`): the slot table is measured.
-2. `gAMA` values (B-209): the rule is measured (scratch `gamma/g1.py` to `g3.py`): 1/2.2 and 2.2 within
-   0.0001 leave pixels alone without `cHRM`, up to 15 too; others convert like a profile with that
-   curve; `sRGB` or a usable profile win; two `gAMA` chunks count as none.
-3. `.brandassets` beside other assets on iOS, JPEG Exif, SVG filters, sticker catalogs.
-4. RENDITIONS over 510 entries (B-201), image variants before 13.0 (B-200).
-5. The slowest catalogs: duckduckgo's `DaxOnboarding` takes 151 s in release.
+Ready but not built or run in nomac, as files outside the repository under
+`~/nomac-out/wt-scratch/assets` (each folder has `rule.md` with the rule and its counts against
+actool, `tests.swift`, and `cases.py`): `launch-wip/apply_b2.py` (launch images, PNG gamma, brand
+assets on iOS, SVG and PDF speed); `agents/oldtargets/oldtargets.diff` (deployment targets before
+iOS 13, first by far); `agents/misc/misc.diff`, `agents/b201/b201.diff`, `agents/exif/JPEGFile.swift`;
+`agents/svg/svg.diff`, which conflicts with apply_b2's speed patch in `IconRenderer.draw`.
+`integ/` is a copy of the tree with apply_b2, misc, b201, exif and their experiments and tests applied
+and conflicts resolved, not compiled. Copy its files over a checkout of this branch, build, run the
+experiments, commit by family.
+
+1. Deployment targets before iOS 13 (B-200): `oldtargets.diff`.
+2. Launch images and gamma: `apply_b2.py`.
+3. misc, B-201, Exif, SVG. Exif adds a new refusal for rewritten IPTC APP13 (9 of 110 JPEGs), which
+   nomac dropped silently before; decide that when measuring it.
+4. 16-bit PNGs (B-209), catalogs' speed under load (duckduckgo's `HomeMessage` took 151 s in release).
+
+To test with the machine loaded, build one target (`swift build --target NomacAssetsTests -j 4`) and
+run its bundle with `swiftpm-testing-helper --test-bundle-path <bundle>/Contents/MacOS/<name>
+--testing-library swift-testing`, `DYLD_FRAMEWORK_PATH` and `DYLD_LIBRARY_PATH` set to the macOS
+platform's Developer `Library/Frameworks` and `usr/lib`: stopping a release build invalidated the
+whole debug tree, 648 steps.
 
 ### Parked: PDF image sets (B-200)
 

@@ -690,7 +690,7 @@ import Testing
         #expect(ImageSet.keyBytes([(.appearance, 1), (.scale, 2), (.element, 9), (.part, 181)]) == [1, 0, 9, 0, 2, 0, 181, 0, 12, 0, 2, 0, 7, 0, 1, 0, 0, 0, 0, 0])
         var both = dark
         both["appearances"] = [["appearance": "luminosity", "value": "dark"], ["appearance": "contrast", "value": "high"]]
-        #expect(throws: (any Error).self) { try ImageSet.entryAppearance(both, asset: asset) }
+        #expect(try ImageSet.entryAppearance(both, asset: asset) == .highContrastDark)
     }
 
     /// Details the corpus showed: offsets only with their apostrophes (`info`), PostScript programs
