@@ -201,11 +201,14 @@ enum IconRenderer {
             var maskFactors: [Int: [Double]] = [:]
             func render(_ shapes: [SVGImage.Shape]) -> Canvas {
                 var canvas = Canvas(width: width, height: height)
+                // One coverage buffer for all shapes, cleared after each over the rows it reached.
+                var coverage = [Double](repeating: 0, count: width * height), inside = coverage
                 for shape in shapes {
-                    var coverage = Rasterizer.fill(pixels(shape.polygons), width: width, height: height, evenOdd: shape.evenOdd)
+                    let rows = Rasterizer.fill(pixels(shape.polygons), width: width, height: height, evenOdd: shape.evenOdd, into: &coverage)
                     for clip in shape.clips {
-                        let inside = Rasterizer.fill(pixels(clip.polygons), width: width, height: height, evenOdd: clip.evenOdd)
-                        for index in coverage.indices { coverage[index] *= inside[index] }
+                        let reached = Rasterizer.fill(pixels(clip.polygons), width: width, height: height, evenOdd: clip.evenOdd, into: &inside)
+                        for index in rows.lowerBound * width..<rows.upperBound * width { coverage[index] *= inside[index] }
+                        for index in reached.lowerBound * width..<reached.upperBound * width { inside[index] = 0 }
                     }
                     // A mask lets through its content's luminance (Rec. 709 weights on the
                     // premultiplied color) inside its region.
@@ -219,11 +222,13 @@ enum IconRenderer {
                             }
                         }()
                         maskFactors[mask.number] = factors
-                        for index in coverage.indices { coverage[index] *= factors[index] }
+                        for index in rows.lowerBound * width..<rows.upperBound * width { coverage[index] *= factors[index] }
                     }
-                    var layer = Canvas(width: width, height: height)
-                    layer.pixels.withUnsafeMutableBufferPointer { out in
-                        for (index, value) in coverage.enumerated() where value > 0 {
+                    canvas.pixels.withUnsafeMutableBufferPointer { out in
+                        for index in rows.lowerBound * width..<rows.upperBound * width {
+                            let value = coverage[index]
+                            guard value > 0 else { continue }
+                            coverage[index] = 0
                             let color: SVGImage.RGB, alpha: Double
                             switch shape.paint {
                             case .color(let rgb): (color, alpha) = (rgb, shape.opacity)
@@ -233,13 +238,14 @@ enum IconRenderer {
                                 (color, alpha) = (rgb, opacity * shape.opacity)
                             }
                             let v = Float(value * alpha)
-                            out[index * 4] = Float(color.red) * v
-                            out[index * 4 + 1] = Float(color.green) * v
-                            out[index * 4 + 2] = Float(color.blue) * v
-                            out[index * 4 + 3] = v
+                            guard v > 0 else { continue }
+                            let keep = 1 - v
+                            out[index * 4] = Float(color.red) * v + out[index * 4] * keep
+                            out[index * 4 + 1] = Float(color.green) * v + out[index * 4 + 1] * keep
+                            out[index * 4 + 2] = Float(color.blue) * v + out[index * 4 + 2] * keep
+                            out[index * 4 + 3] = v + out[index * 4 + 3] * keep
                         }
                     }
-                    canvas.draw(layer)
                 }
                 return canvas
             }
@@ -431,6 +437,14 @@ enum Rasterizer {
     static let samples = 8
 
     static func fill(_ polygons: [[SVGImage.Point]], width: Int, height: Int, evenOdd: Bool) -> [Double] {
+        var coverage = [Double](repeating: 0, count: width * height)
+        fill(polygons, width: width, height: height, evenOdd: evenOdd, into: &coverage)
+        return coverage
+    }
+
+    /// Writes the coverage of the rows the polygons reach, the others untouched, and returns those rows.
+    @discardableResult
+    static func fill(_ polygons: [[SVGImage.Point]], width: Int, height: Int, evenOdd: Bool, into coverage: inout [Double]) -> Range<Int> {
         struct Edge { var x0, y0, x1, y1: Double; var direction: Int }
         var edges: [Edge] = []
         for polygon in polygons where polygon.count > 1 {
@@ -440,8 +454,7 @@ enum Rasterizer {
                 edges.append(a.y < b.y ? Edge(x0: a.x, y0: a.y, x1: b.x, y1: b.y, direction: 1) : Edge(x0: b.x, y0: b.y, x1: a.x, y1: a.y, direction: -1))
             }
         }
-        var coverage = [Double](repeating: 0, count: width * height)
-        guard !edges.isEmpty else { return coverage }
+        guard !edges.isEmpty else { return 0..<0 }
         let minY = max(0, Int(edges.map(\.y0).min()!.rounded(.down))), maxY = min(height, Int(edges.map(\.y1).max()!.rounded(.up)))
         var row = [Double](repeating: 0, count: width + 1)
         var crossings: [(x: Double, direction: Int)] = []
@@ -474,7 +487,7 @@ enum Rasterizer {
             }
             for x in 0..<width { coverage[y * width + x] = min(row[x], 1) }
         }
-        return coverage
+        return minY..<max(minY, maxY)
     }
 
     static func span(_ row: inout [Double], from start: Double, to end: Double, width: Int, weight: Double) {

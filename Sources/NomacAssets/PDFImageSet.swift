@@ -141,13 +141,17 @@ enum PDFRaster {
             for image in PDFPage.images(page.items) where images[image.key] == nil {
                 let samples = image.samples
                 let values = Self.values(samples)
-                var cache: [[Double]: (sRGB: [Double], extended: [Double])] = [:]
+                struct Key: Hashable { var a, b, c, d: Double }
+                var cache: [Key: (sRGB: [Double], extended: [Double])] = [:]
+                let pixels = samples.width * samples.height, count = samples.space?.components ?? 1
                 var sRGB: [Double] = [], extended: [Double] = [], alpha: [Double] = []
+                sRGB.reserveCapacity(pixels * 3)
+                extended.reserveCapacity(pixels * 3)
+                alpha.reserveCapacity(pixels)
                 let stencil = try samples.space == nil ? convert(image.color) : nil
                 let mask = image.mask.map(Self.values)
-                for pixel in 0..<(samples.width * samples.height) {
-                    let count = samples.space?.components ?? 1
-                    let components = Array(values[(pixel * count)..<(pixel * count + count)])
+                for pixel in 0..<pixels {
+                    let first = pixel * count
                     var opacity = mask.map { maskValues in
                         // The mask's pixel nearest this one's center (`images` rgb-smask: same size).
                         let x = (pixel % samples.width) * image.mask!.width / samples.width
@@ -157,15 +161,18 @@ enum PDFRaster {
                     let color: (sRGB: [Double], extended: [Double])
                     if let stencil {
                         color = stencil
-                        opacity *= components[0] < 0.5 ? 1 : 0
-                    } else if let known = cache[components] {
-                        color = known
+                        opacity *= values[first] < 0.5 ? 1 : 0
                     } else {
-                        color = try convert(PDFPage.Color(space: samples.space, components: components))
-                        cache[components] = color
+                        let key = Key(a: values[first], b: count > 1 ? values[first + 1] : 0, c: count > 2 ? values[first + 2] : 0, d: count > 3 ? values[first + 3] : 0)
+                        if let known = cache[key] {
+                            color = known
+                        } else {
+                            color = try convert(PDFPage.Color(space: samples.space, components: Array(values[first..<first + count])))
+                            cache[key] = color
+                        }
                     }
-                    sRGB += color.sRGB
-                    extended += color.extended
+                    sRGB.append(contentsOf: color.sRGB)
+                    extended.append(contentsOf: color.extended)
                     alpha.append(opacity)
                 }
                 images[image.key] = (sRGB, extended, alpha)
