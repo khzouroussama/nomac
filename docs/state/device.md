@@ -7,15 +7,15 @@ iPhone, first through `xcrun devicectl` on the Mac (the demo route), then with
 
 ## Current step
 
-The Linux route works on the owner's iPhone (iOS 27.0.1, USB, 2026-10-30): from a Linux
-container, through a loopback-only forward of the Mac's usbmuxd and the Mac's pair record,
-`nomac device status`, `nomac uninstall`, `nomac install` and `nomac launch` ran against the
-device, with nomac's own lockdown, TLS, AFC, installation_proxy, CoreDevice tunnel, userspace
-TCP, RemoteXPC and app service. Two apps were installed and launched that way and stayed up:
-the demo app (signed in Linux by `nomac codesign` with the nomac development identity) and
-rn-bare, built, archived, signed and exported by nomac in Linux by the React Native workstream.
-Next: expo-default the same way, then the network route (B-404) and mounting the Developer Disk
-Image (B-403).
+The route works on the owner's iPhone (iOS 27.0.1, USB, 2026-10-30, 2026-11-01): from a Linux
+container, through a loopback-only forward of the Mac's usbmuxd and the Mac's pair record, `nomac
+device status`, `install`, `launch` and `test` ran with nomac's own lockdown, TLS, AFC,
+installation_proxy, CoreDevice tunnel, userspace TCP, RemoteXPC and testmanagerd sessions.
+
+A first run with no Mac is now prepared as far as it goes without a phone (ADR 0404). **No iPhone has
+been on a Linux machine's USB**, so `nomac device pair`, `nomac device developer-mode` and the
+Developer Disk Image's mount on a phone Xcode never prepared are untested against a device: that run
+(B-407) is the next thing, and it needs the owner's phone and a Linux machine.
 
 ## Inventory (2026-10-30, read-only)
 
@@ -220,9 +220,11 @@ Xcode never saw lists no app service. From pymobiledevice3's `mobile_image_mount
 
 ## Next actions
 
-Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free.
+Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free. Everything left
+needs the phone, except B-408's address sanitizer. The sign-in route for free Apple IDs (B-004) is
+the owner's decision.
 
-1. With the phone, when the owner allows: the UI tests with `nomac test`; the mixed project
+1. With the phone, when the owner allows: the first run on a Linux machine's USB (B-407); the UI tests with `nomac test`; the mixed project
    (failing, skipped, expected failure: status and output against Xcode's `test-mixed`).
 2. B-403 mount on a device: needs a restart on a host whose CoreDevice does not remount the
    image (a Linux host, B-407); the iPhone refuses to unmount Xcode's cryptex image.
