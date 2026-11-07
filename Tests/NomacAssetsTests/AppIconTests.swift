@@ -183,10 +183,9 @@ import Testing
             image.ancillaryChunks = types.map { PNGImage.Chunk(type: $0, data: $0 == "sRGB" ? [0] : Array($0.utf8)) }
             return image
         }
-        let chunks = try IconPNG.ancillaryChunks(image(["tEXt", "sRGB", "eXIf", "pHYs", "iTXt", "tEXt"]), path: "/i.png")
-        #expect(chunks.map(\.type) == ["gAMA", "sRGB", "cHRM", "eXIf", "iTXt", "pHYs", "tEXt", "tEXt"])
-        #expect(chunks[0].data == IconPNG.bigEndian(45_455))
-        #expect(throws: NomacError.self) { try IconPNG.ancillaryChunks(image(["zTXt"]), path: "/i.png") }
+        let chunks = try IconPNG.ancillaryChunks(image(["tEXt", "sRGB", "eXIf", "pHYs", "iTXt", "tEXt"]), path: "/i.png", plain: false)
+        #expect((chunks.early + chunks.late).map(\.type) == ["gAMA", "sRGB", "cHRM", "eXIf", "iTXt", "pHYs", "tEXt", "tEXt"])
+        #expect(chunks.early[0].data == IconPNG.bigEndian(45_455))
     }
 
     static func icon(_ idiom: String, _ size: String, _ scale: Int) -> AppIconSet.Icon {

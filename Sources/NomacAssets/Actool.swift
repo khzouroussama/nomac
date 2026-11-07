@@ -37,12 +37,15 @@ public struct Actool {
         public var includeStickerContent = false
         public var stickersIconRole: String?
         public var stickerPackIdentifierPrefix: String?
+        /// `--warnings`, which `--notices` includes, and `--notices` print the document's messages.
+        public var printsDocumentWarnings = false
+        public var printsDocumentNotices = false
 
         /// Any of the symbol files makes actool write those and nothing else, even with `--compile`.
         var generatesSymbols: Bool { swiftSymbols != nil || objectiveCSymbols != nil || symbolIndex != nil }
 
         /// Options that change nothing in the outputs nomac writes so far.
-        static let acceptedFlags: Set<String> = ["--notices", "--warnings", "--errors"]
+        static let acceptedFlags: Set<String> = ["--errors", "--enable-icon-stack-fallback-generation=disabled"]
         static let acceptedValues: Set<String> = ["--enable-on-demand-resources", "--development-region"]
 
         public init(arguments: [String]) throws {
@@ -67,6 +70,8 @@ public struct Actool {
                 case "--standalone-icon-behavior": standaloneIconBehavior = try value(argument)
                 case "--include-all-app-icons": includeAllAppIcons = true
                 case "--compress-pngs": compressPNGs = true
+                case "--warnings": printsDocumentWarnings = true
+                case "--notices": (printsDocumentWarnings, printsDocumentNotices) = (true, true)
                 case "--include-sticker-content": includeStickerContent = true
                 case "--stickers-icon-role": stickersIconRole = try value(argument)
                 case "--sticker-pack-identifier-prefix": stickerPackIdentifierPrefix = try value(argument)
@@ -177,10 +182,17 @@ public struct Actool {
         // App icon sets neither `--app-icon` nor an alternate names add nothing (`app-icons`
         // icons-not-named); alternates give renditions only.
         for asset in catalog.assets where asset.type == "appiconset" && (asset.name == options.appIcon || setAlternates.contains(asset.name)) {
-            let icons = try AppIconSet.icons(asset)
-            guard !icons.isEmpty else { continue }
+            var problems = AppIconSet.Problems()
+            let icons = try AppIconSet.icons(asset, watch: platform.watch, problems: &problems)
+            guard !icons.isEmpty else {
+                // Files only of other platforms: actool's error; no files at all: nothing (`app-icons`).
+                if asset.name == options.appIcon, (asset.contents["images"] as? [[String: Any]] ?? []).contains(where: { $0["filename"] != nil }) {
+                    errors.append("\(catalogPaths[0]): error: The stickers icon set, app icon set, or icon stack named \"\(asset.name)\" did not have any applicable content.")
+                }
+                continue
+            }
             let catalogPath = catalogPaths.first { asset.path.hasPrefix($0 + "/") } ?? catalogPaths[0]
-            var compiled = try AppIconSet.compile(asset, icons: icons, catalog: catalogPath, standaloneBehavior: options.standaloneIconBehavior,
+            var compiled = try AppIconSet.compile(asset, icons: icons, problems: problems, catalog: catalogPath, standaloneBehavior: options.standaloneIconBehavior,
                                                   targetDevices: options.targetDevices, alternate: asset.name != options.appIcon)
             if asset.name != options.appIcon {
                 guard compiled.notices.isEmpty else { throw NomacError("actool: alternate app icon sets of legacy sizes are not supported yet (BACKLOG B-202)", path: asset.path) }
@@ -280,10 +292,8 @@ public struct Actool {
             }
         }
 
-        let documentNotices = appIcons.flatMap(\.notices)
-        guard documentNotices.isEmpty || errors.isEmpty && notices.isEmpty else {
-            throw NomacError("actool: app icon notices together with other messages are not supported yet (BACKLOG B-202)")
-        }
+        let documentWarnings = options.printsDocumentWarnings ? appIcons.flatMap(\.warnings) : []
+        let documentNotices = options.printsDocumentNotices ? appIcons.flatMap(\.notices) : []
 
         var outputs: [String] = []
         try FileSystem.createDirectory(directory)
@@ -291,7 +301,7 @@ public struct Actool {
             + compiledIcons.flatMap { icon in icon.compiled.pngs.map { ($0.filename, $0.image, icon.icon.path) } }
         for (filename, image, source) in pngs {
             let path = directory + "/" + filename
-            try FileSystem.write(Data(try IconPNG.data(image, path: source)), to: path)
+            if !image.iconIsUnwritable { try FileSystem.write(Data(try IconPNG.data(image, path: source)), to: path) }
             outputs.append(path)
         }
         if let pack = stickers?.pack {
@@ -319,14 +329,17 @@ public struct Actool {
         }
 
         var report = ""
-        if !documentNotices.isEmpty {
-            report += "/* com.apple.actool.document.notices */\n" + documentNotices.map { $0 + "\n" }.joined()
-        }
         if !errors.isEmpty {
             report += "/* com.apple.actool.errors */\n" + errors.map { $0 + "\n" }.joined()
         }
         if !notices.isEmpty {
             report += "/* com.apple.actool.notices */\n" + notices.map { $0 + "\n" }.joined()
+        }
+        if !documentWarnings.isEmpty {
+            report += "/* com.apple.actool.document.warnings */\n" + documentWarnings.map { $0 + "\n" }.joined()
+        }
+        if !documentNotices.isEmpty {
+            report += "/* com.apple.actool.document.notices */\n" + documentNotices.map { $0 + "\n" }.joined()
         }
         report += "/* com.apple.actool.compilation-results */\n" + outputs.map { $0 + "\n" }.joined() + "\n"
         return Result(standardOutput: report, writtenFiles: outputs, failed: !errors.isEmpty)

@@ -21,7 +21,36 @@ Xcode's outputs on 2026-10-24; the corpus checkouts are being restored, so the c
 measured again yet. Next: the other rendered-pixel features (resized app icons, SVG images,
 symbol glyphs) under ADR 0204, then the corpus's `.icon` files (swiftfin, icecubes, signal).
 
+## Measure
+
+`.github/scripts/catalog_sweep.py` compiles every catalog of the corpus, the holdout, the sweep and
+the coverage survey's sample of 60 projects with actool and with nomac on the same command line
+(Xcode's, from the build logs, where there is one) and ranks what stops or changes the most apps.
+The work order follows the sample, the only set not chosen by hand: well-kept corpus apps have
+complete icon sets, and 20 of those 60 projects did not.
+
+| 2026-11-07 | sample: compile all, match actool | corpus refused, different | holdout | sweep |
+|---|---|---|---|---|
+| main 85c5aab0 | 23, 14 of 60 | 23, 10 of 128 | 21, 5 of 75 | 4, 2 of 171 |
+| this branch | 38, 34 of 60 | 21, 10 | 17, 5 | 4, 2 |
+
+Not covered: catalogs of apps that never built on the sweep (`rocketchat`, `graysky`, `bluesky`,
+`obytes-template`, `expo-with-libsql`: 14 tasks whose catalogs `expo prebuild` or a package
+writes); `expo-with-webrtc`, whose prebuild fails with the shared install; holdout and signal
+catalogs compiled alone with settings from their captures, packages' catalogs left out of the
+holdout; tvOS targets, which nomac does not build (B-206).
+
 ## Just finished
+
+- Incomplete app icon sets: required-icon warnings, entries without a slot, images of the wrong size,
+  missing files, car icons, the error for a set of other platforms only (`incomplete-icons` 25
+  cases, `icon-entries` 32). `--warnings` and `--notices` now choose what prints.
+- Icon PNGs: every chunk's place, palette and low-depth inputs as plain PNGs, interlacing, halves
+  from 4,096 pixels (`icon-chunks` 66 cases); `copypng` shares them.
+- Damaged `iCCP` chunks no longer stop nomac; actool treats the image as untagged (`bad-profiles`).
+- Image set entries: `language-direction`, `alignment-insets`, `resizing` (`image-traits`); luminosity
+  with high contrast (`appearance-pairs`); PDF `DefaultRGB` and `DefaultGray` (`default-spaces`);
+  `--enable-icon-stack-fallback-generation=disabled` changes nothing.
 
 - Image set appearances (B-200): luminosity dark and light and high contrast for every image
   type, packed apart per appearance; watchOS keeps only the any appearance, images and colors;
@@ -296,9 +325,15 @@ command lines of retro-rampage, tofu, flappy-fly-bird, uncloudnotes and swiftfin
 
 ## Next actions
 
-1. watchOS asset catalogs (B-206), app icon entries outside B-202's sizes, palette and profile
-   PNGs in `copypng` (B-214), sprite atlas limits (B-202),
-   `.car` tables over 510 entries (B-201), image variants before 13.0 (B-200).
+By the sample's ranking, rerun with `catalog_sweep.py run <root> --only refused,different`:
+
+1. Launch images with files and `--launch-image` (`launch-images`): the slot table is measured.
+2. `gAMA` values (B-209): the rule is measured (scratch `gamma/g1.py` to `g3.py`): 1/2.2 and 2.2 within
+   0.0001 leave pixels alone without `cHRM`, up to 15 too; others convert like a profile with that
+   curve; `sRGB` or a usable profile win; two `gAMA` chunks count as none.
+3. `.brandassets` beside other assets on iOS, JPEG Exif, SVG filters, sticker catalogs.
+4. RENDITIONS over 510 entries (B-201), image variants before 13.0 (B-200).
+5. The slowest catalogs: duckduckgo's `DaxOnboarding` takes 151 s in release.
 
 ### Parked: PDF image sets (B-200)
 

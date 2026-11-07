@@ -135,6 +135,7 @@ enum Idiom {
     static let universal: UInt16 = 0
     static let phone: UInt16 = 1
     static let pad: UInt16 = 2
+    static let car: UInt16 = 4
     static let watch: UInt16 = 5
     /// App icon sets' `ios-marketing` entries.
     static let marketing: UInt16 = 6

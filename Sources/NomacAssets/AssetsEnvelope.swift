@@ -31,6 +31,8 @@ public enum AssetsEnvelope {
         .verified("assets:appiconset.images=none", "assets-experiments:app-icons"),
         .verified("assets:appiconset.images=multi-size", "assets-experiments:app-icons"),
         .verified("assets:appiconset.images=single-size", "assets-experiments:single-size-icons"),
+        .verified("assets:appiconset.images=other", "assets-experiments:icon-entries"),
+        .verified("assets:identifiers=more-than-126", "assets-experiments:bitmap-order"),
         .verified("assets:launchimage", "assets-experiments:app-icons"),
         .verified("assets:launchimage.images=none", "assets-experiments:app-icons"),
         .verified("assets:spriteatlas", "assets-experiments:sprites"),
@@ -69,7 +71,6 @@ public enum AssetsEnvelope {
         .unverified("assets:imageset.file=missing", "image sets naming a missing file are not observed", backlog: "B-200"),
         .unverified("assets:imageset.png=unsupported", "16-bit PNGs and gammas other than 1/2.2 are not read yet", backlog: "B-209"),
         .unverified("assets:imageset.png=color-profile-other", "color profiles other than matrix/TRC ones are not read yet", backlog: "B-213"),
-        .unverified("assets:appiconset.images=other", "other platforms' icon sizes are not observed", backlog: "B-211"),
         .unverified("assets:launchimage.images=files", "launch images are not written yet", backlog: "B-202"),
         .unverified("assets:symbolset.template=layer-tree", "template 6's layer trees are not written yet", backlog: "B-202"),
         .unverified("assets:colorset.color=reference-other", "system colors actool does not know, iOS-only ones for universal, other platforms and appearances", backlog: "B-203"),
@@ -77,6 +78,5 @@ public enum AssetsEnvelope {
         .unverified("assets:colorset.color-space=none", "colors without a color space are not observed", backlog: "B-203"),
         .unverified("assets:dataset.type=unknown-extension", "dynamic type identifiers are not known", backlog: "B-208"),
         .unverified("assets:names=same-name-several-types", "one observation only", backlog: "B-208"),
-        .unverified("assets:identifiers=more-than-126", "BITMAPKEYS leaves split beyond 126 entries", backlog: "B-201"),
     ]
 }

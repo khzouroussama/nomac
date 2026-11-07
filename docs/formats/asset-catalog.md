@@ -309,12 +309,13 @@ key is one 2-byte value per attribute in this order.
 
 | Number | Attribute | Values seen |
 |---|---|---|
-| 7 | appearance | 0 any, 1 dark, 2 high contrast, 4 light |
+| 7 | appearance | 0 any, 1 dark, 2 high contrast, 3 high contrast dark, 4 light, 5 high contrast light |
 | 13 | localization | 0 |
 | 12 | scale | 1 for colors |
 | 15 | idiom | 0 universal, 1 iPhone, 2 iPad |
 | 16 | subtype | 0 |
 | 24 | display gamut | 0 sRGB, 1 Display P3 |
+| 4 | direction | 5 left to right, 4 right to left |
 | 17 | identifier | the name identifier |
 | 1 | element | 85 |
 | 2 | part | 217 colors, 181 data and images |
@@ -932,7 +933,10 @@ The content (`paths`, `colors`, `clips`, `details`, `extgstate`, `state-changes`
 - Colors: DeviceRGB and DeviceGray become ICCBased spaces with Apple's sRGB (3,144 bytes) and
   gray (4,508 bytes) profiles, written `/CsN cs … sc` at each change; an ICCBased space keeps its
   own profile, byte for byte (one space for all copies of a profile), its `cs` written only when
-  the space changes; DeviceCMYK stays `c m y k k`. Quartz's rasters convert CMYK through its CMYK
+  the space changes. A `DefaultRGB` or `DefaultGray` resource makes the device space that ICCBased
+  space in colors and images, in the resources in force (a form with its own resources has its
+  own, one without them the page's), but not in a shading's dictionary (`default-spaces`).
+  DeviceCMYK stays `c m y k k`. Quartz's rasters convert CMYK through its CMYK
   profile; nomac's do so for grays only (C, M and Y 0), with the sRGB measured on actool's rasters
   at each quarter of 1/255 of K (`cmyk-k`: 0 is white, 1 is 26 26 26, 1/255 is 255 254 253, the
   same at 1x and 3x); other CMYK colors, and K between those steps, stop nomac. A page with no color set has no color space.
@@ -1256,6 +1260,100 @@ ones identical, gray, translucent and every icon size included):
   data (from 15 down while the data plus 262 bytes fit in half the window), in halves after
   `iDOT` as above.
 
+
+### Which chunks an icon PNG keeps (`icon-chunks`)
+
+The icon PNG takes each chunk as this table says, whatever order the input has them in; of a
+repeated chunk the first counts, but the text chunks. `early` chunks come right after `IHDR`:
+
+| Place | Chunks |
+|---|---|
+| early | `gAMA`, `sRGB`, `iCCP`, `sBIT`, `cHRM`, then every other ancillary chunk safe to copy (a lower-case fourth letter) in file order, which is where `iTXt`, `eXIf`, `caNv` and `vpAg` go; `prVW`, `cICP`, `mDCV` and `cLLI` are not safe to copy and are left out |
+| plain PNGs only | `PLTE`, `tRNS` |
+| late | `bKGD` of the image's length (1 byte for a palette, 2 for gray, 6 for RGB; others are left out), `hIST` with a palette, `oFFs`, `pCAL`, `sCAL` with its numbers written as `%.12e`, `pHYs`, `tIME`, `sPLT`, then `tEXt` and `zTXt` in file order, `zTXt` deflated again |
+| after the image data | `tIME` when none came before, then `tEXt` and `zTXt` read after the data; every other chunk there is left out |
+
+`sRGB` brings `gAMA` 45,455 and sRGB's `cHRM` in place of the file's and leaves `iCCP` out. CgBI
+PNGs deflate raw (no zlib header), plain ones with one. A wrong checksum on any ancillary chunk:
+actool lists the PNG and does not write it, and `copypng -compress` prints pngcrush's error,
+writes nothing and exits with 0. An unknown critical chunk: ImageIO cannot read the file and the
+entry is left out without a word.
+
+8-bit RGB and RGBA inputs give CgBI PNGs (RGB with `tRNS` still has the opaque flag); every other
+form gives a plain PNG of its own samples at its own depth, palette and `tRNS` included, each row
+with filter 0. Interlaced inputs stay interlaced, CgBI ones too, rows pass by pass. Images of at
+least 4,096 pixels in two rows or more are written in halves, 8-bit and not interlaced only (65 ×
+63 no, 64 × 64 and 2,048 × 2 yes, 4,097 × 1 no). The smaller zlib window is for 8-bit samples only.
+
+### Damaged color profiles (`bad-profiles`)
+
+actool never stops on an `iCCP` chunk, and says nothing about one it cannot use. `Assets.car` and
+the icon PNG read it by two rules:
+
+- Pixels (ImageIO): an `sRGB` chunk before any `iCCP` chunk means no conversion. Of the `iCCP` chunks
+  before `PLTE` and the image data, the last one that passes converts: a name of 1 to 79 bytes,
+  method 0, a zlib stream whose checksum and trailing bytes are not looked at (the chunk's own
+  checksum neither), a profile whose size field is its length, with `acsp`, version 2 or 4, class
+  `mntr` or `scnr`, the image's color space (RGB on RGB, gray on gray), XYZ connection space, its
+  colorants and curves. Anything else leaves the image untagged: as if the chunk were not there.
+- Icon PNG (pngcrush): the first `iCCP` chunk before the image data with a name of at least one
+  byte, a zlib stream with its checksum right, and a profile of at least 4 bytes whose size field
+  is at most its length, the profile cut to that size. The method byte is not looked at; a name
+  over 79 bytes is written as 80 bytes and one NUL. So a profile can be in the icon PNG and not
+  in the pixels (`bad-signature`, `wrong-method`), or the reverse (`bad-adler`).
+
+### Entries an app icon set does not use (`incomplete-icons`, `icon-entries`)
+
+A set compiles whatever it has. With `--warnings` actool prints, for what the targeted devices
+lack, `A 60x60@2x app icon is required for iPhone apps targeting iOS 7.0 and later` (iPhone), `A
+76x76@2x app icon ... iPad apps targeting iOS 7.0 and later` and `A 83.5x83.5@2x app icon ...
+targeting iOS 9.0 and later` (iPad) and `A 1024x1024 app store icon is required for iOS apps`
+(always). `CFBundleIcons~ipad` is there when the set has iPad entries or the build targets iPads;
+its `CFBundleIconFiles` only when an iPad PNG is written, the iPhone's first.
+
+Entries:
+
+- Car entries of 60 × 60 at 2x and 3x are renditions of idiom 4, for any target.
+- Other sizes, scales and idioms (`tv`, `vision`, `watch` beside iOS entries, universal entries
+  without a platform), and files no entry names, add nothing. They give `The app icon set "X" has
+  an unassigned child.` or `has N unassigned children.`, naming a stray file before the entry with
+  the lowest file name. Mac entries give nothing at all. Keys such as `expected-size` and `folder`,
+  and the set's `properties`, change nothing.
+- An image of the wrong size (`X.appiconset/f.png is 100x100 but should be 120x120.`) or a missing
+  file (`The file "f.png" for the image set "X" does not exist.`) is left out, then counted as
+  lacking. A file that is no image is left out without a word. A `.jpg` is stored as an image
+  set's JPEG; one in the 60 pt or 76 pt 2x slot also gives a plain PNG, which nomac does not write yet.
+- A named set with files of other platforms only (mac, watch on iOS) gives actool's error `The
+  stickers icon set, app icon set, or icon stack named "X" did not have any applicable content.`
+  and status 1; one without any file gives nothing.
+
+These warnings go over a set three times: the unassigned line and the entries' lines, the required
+ones once after the first pass, and the second pass does not count `tv` entries. The order of the
+entries' lines changes from run to run (ADR 0203); comparisons sort them.
+
+`--warnings` and `--notices` choose what prints: `document.warnings` with either, `document.notices`
+with `--notices`; `com.apple.actool.errors` and `com.apple.actool.notices` print with neither, in
+the order errors, notices, document warnings, document notices.
+
+### Entry traits (`image-traits`)
+
+- `language-direction`: key attribute 4, after the display gamut and before the identifier, 5 for
+  left to right and 4 for right to left. A set with one direction has flag 0x40 on all its
+  renditions, a set with both has not. Directions do not split packing classes; within a size
+  images pack in key order, the direction before the identifier. Entries with and without a
+  direction beside each other keep only one of them; nomac stops on that.
+- `alignment-insets`: property 1003's four numbers are left, top, right, bottom, as signed words, and
+  its size what they leave of the image; a PNG's in its pixels, a vector file's rasters' times the
+  raster's scale.
+- `resizing`: the image is cut to caps and center (from the center's start), and that is the
+  image. Layout 31 or 30 for `9-part` with a `stretch` or `tile` center, 21 or 20 for
+  `3-part-horizontal`, 24 or 23 for `3-part-vertical`. Property 1001 has one slice per part, row by
+  row from the top, y from the bottom: a 640 × 320 image with caps 20, 30, 18, 24 and a center of
+  1 × 1 becomes 43 × 51 with slices (0, 31, 18, 20), (18, 31, 1, 20), (19, 31, 24, 20), (0, 30, 18,
+  1), ... A vector file's numbers are multiplied by the raster's scale. Packed images keep their
+  layout in the link.
+- Luminosity with high contrast (`appearance-pairs`), either order: appearance 3
+  `UIAppearanceHighContrastDark` and 5 `UIAppearanceHighContrastLight`, in colors and images.
 
 ### Loose PNGs (`copypng`)
 

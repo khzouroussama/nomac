@@ -13,8 +13,45 @@ enum AppIconSet {
         "iphone": ["20x20": [2, 3], "29x29": [1, 2, 3], "40x40": [2, 3], "57x57": [1, 2], "60x60": [2, 3]],
         "ipad": ["20x20": [1, 2], "29x29": [1, 2], "40x40": [1, 2], "50x50": [1, 2], "72x72": [1, 2], "76x76": [1, 2], "83.5x83.5": [2]],
         "ios-marketing": ["1024x1024": [1]],
+        "car": ["60x60": [2, 3]],
     ]
-    static let idioms: [String: UInt16] = ["iphone": Idiom.phone, "ipad": Idiom.pad, "ios-marketing": Idiom.marketing]
+    static let idioms: [String: UInt16] = ["iphone": Idiom.phone, "ipad": Idiom.pad, "car": Idiom.car, "ios-marketing": Idiom.marketing]
+
+    /// What actool warns about in a set's entries (`icon-entries`).
+    struct Problems {
+        struct Unassigned {
+            var idiom: String, size: String, scale: String, filename: String
+        }
+
+        /// Images of the wrong size and missing files: where, and the message.
+        var entries: [(slot: String, message: String)] = []
+        /// Entries of a size or idiom without a slot, and files no entry names.
+        var unassigned: [Unassigned] = []
+        var strayFiles: [String] = []
+
+        /// actool goes over a set three times, the second time without counting `tv` entries,
+        /// with the warnings for what is required after the first (`icon-entries`; the order of
+        /// the messages within a pass changes from run to run, ADR 0203).
+        func warnings(folder: String, name: String, required: [String]) -> [(where: String, message: String)] {
+            func line(tv: Bool) -> [(where: String, message: String)] {
+                let counted = unassigned.filter { tv || $0.idiom != "tv" }
+                let count = counted.count + strayFiles.count
+                guard count > 0 else { return [] }
+                let place: String
+                if let file = strayFiles.first {
+                    place = "./\(folder)/(null)[2d][\(file)]"
+                } else {
+                    let first = counted.min { $0.filename.utf8.lexicographicallyPrecedes($1.filename.utf8) }!
+                    let idiom = first.idiom == "vision" ? "" : first.idiom
+                    place = "./\(folder)/[][\(idiom)][\(first.size)][][][\(first.scale)][][][][][2d][\(first.filename)]"
+                }
+                let children = count == 1 ? "an unassigned child" : "\(count) unassigned children"
+                return [(place, "The app icon set \"\(name)\" has \(children).")]
+            }
+            let pass = entries.map { (where: $0.slot, message: $0.message) }
+            return line(tv: true) + pass + required.map { (where: "./\(folder)", message: $0) } + line(tv: false) + pass + line(tv: true) + pass
+        }
+    }
 
     /// The iPhone 60 pt 3x image is also a 90 pt 2x image of subtype 1792.
     static let largePhoneSubtype: UInt16 = 1792
@@ -33,6 +70,8 @@ enum AppIconSet {
         var platform = "ios"
         /// A watch icon's subtype, from its case size.
         var subtype: UInt16 = 0
+        /// A JPEG file, stored as it is.
+        var jpeg: JPEGFile?
 
         var points: Double { Double(size.prefix { $0 != "x" })! }
     }
@@ -44,6 +83,7 @@ enum AppIconSet {
         var pngs: [(filename: String, icon: Icon)]
         var infoPlist: [String: PropertyListValue]
         var notices: [String]
+        var warnings: [String] = []
     }
 
     /// The notices actool prints for entries of sizes only older releases use, for the devices
@@ -59,37 +99,65 @@ enum AppIconSet {
         "ipad 76x76 1": "76x76@1x app icons only apply to iPad apps targeting releases of iOS prior to 10.0.",
     ]
 
-    static func icons(_ asset: AssetCatalog.Asset) throws -> [Icon] {
-        let unsupported = Set(asset.contents.keys).subtracting(["images", "info"])
-        guard unsupported.isEmpty else {
-            throw NomacError("app icon set properties \(unsupported.sorted()) are not supported yet (BACKLOG B-202)", path: asset.path)
-        }
+    /// The set's images; `problems` gets actool's warnings about entries it does not use: images
+    /// of the wrong size and missing files, left out (`icon-entries`), and entries of other sizes
+    /// and idioms and files no entry names. Files that are no images are left out without a word.
+    static func icons(_ asset: AssetCatalog.Asset, watch: Bool = true, problems: inout Problems) throws -> [Icon] {
         var icons: [Icon] = []
-        for entry in asset.contents["images"] as? [[String: Any]] ?? [] {
+        let entries = asset.contents["images"] as? [[String: Any]] ?? []
+        let filesNamed = Set(entries.compactMap { $0["filename"] as? String })
+        for file in ((try? FileManager.default.contentsOfDirectory(atPath: asset.path)) ?? []).sorted()
+        where file != "Contents.json" && !file.hasPrefix(".") && !filesNamed.contains(file) {
+            problems.strayFiles.append(file)
+        }
+        let multiSize = entries.contains { $0["filename"] != nil && ["iphone", "ipad", "ios-marketing", "car"].contains($0["idiom"] as? String ?? "") }
+        for entry in entries {
             guard let filename = entry["filename"] as? String else { continue }
             let idiom = entry["idiom"] as? String ?? "", size = entry["size"] as? String ?? "", scaleName = entry["scale"] as? String ?? ""
-            if idiom == "universal" {
+            if idiom == "universal" && (!multiSize || entry["platform"] != nil) {
                 icons.append(try singleSizeIcon(entry, filename: filename, asset: asset))
                 continue
             }
             // Mac sizes in a set are left out (`app-icons` icons-with-mac; flutter, netnewswire).
             if idiom == "mac" { continue }
-            if ["watch", "watch-marketing"].contains(idiom) {
-                icons.append(try watchIcon(entry, filename: filename, asset: asset))
+            if !multiSize, ["watch", "watch-marketing"].contains(idiom) {
+                if watch { icons.append(try watchIcon(entry, filename: filename, asset: asset)) }
                 continue
             }
-            guard Set(entry.keys).isSubset(of: ["filename", "idiom", "scale", "size"]), let scale = ImageSet.scales[scaleName],
-                  slots[idiom]?[size]?.contains(scale) == true else {
-                throw NomacError("app icon entries other than iPhone, iPad and App Store sizes are not supported yet (BACKLOG B-202)", path: asset.path + "/" + filename)
+            guard Set(entry.keys).isSubset(of: ["filename", "idiom", "scale", "size", "expected-size", "folder"]) else {
+                throw NomacError("app icon entries with \(Set(entry.keys).subtracting(["filename", "idiom", "scale", "size"]).sorted()) are not supported yet (BACKLOG B-202)", path: asset.path + "/" + filename)
+            }
+            guard let scale = ImageSet.scales[scaleName], slots[idiom]?[size]?.contains(scale) == true else {
+                problems.unassigned.append(.init(idiom: idiom, size: size, scale: scaleName, filename: filename))
+                continue
             }
             guard !icons.contains(where: { $0.idiom == idiom && $0.size == size && $0.scale == scale }) else {
                 throw NomacError("app icon sets with two images of one size are not supported yet (BACKLOG B-202)", path: asset.path)
             }
-            guard (filename as NSString).pathExtension.lowercased() == "png" else {
-                throw NomacError("image files other than PNG are not supported yet (BACKLOG B-200)", path: asset.path + "/" + filename)
-            }
+            let slot = "./\((asset.path as NSString).lastPathComponent)/[][\(idiom)][\(size)][][][\(scaleName)][][][][]"
             let path = asset.path + "/" + filename
-            icons.append(Icon(idiom: idiom, size: size, scale: scale, filename: filename, path: path, image: try PNGImage(contentsOf: path)))
+            guard let data = FileManager.default.contents(atPath: path) else {
+                problems.entries.append((slot, "The file \"\(filename)\" for the image set \"\(asset.name)\" does not exist."))
+                continue
+            }
+            let pixels = (Double(size.prefix { $0 != "x" }) ?? 0) * Double(scale)
+            var icon = Icon(idiom: idiom, size: size, scale: scale, filename: filename, path: path, image: PNGImage(width: 0, height: 0, pixels: []))
+            let type = (filename as NSString).pathExtension.lowercased()
+            if ["jpg", "jpeg"].contains(type) {
+                guard let jpeg = try? JPEGFile([UInt8](data), path: path) else { continue }
+                icon.jpeg = jpeg
+                icon.image = PNGImage(width: jpeg.width, height: jpeg.height, pixels: [])
+            } else if type == "png" {
+                do { icon.image = try PNGImage(data: [UInt8](data), path: path) } catch is PNGImage.Unreadable { continue }
+            } else {
+                throw NomacError("image files other than PNG and JPEG are not supported yet (BACKLOG B-200)", path: path)
+            }
+            guard Double(icon.image.width) == pixels, Double(icon.image.height) == pixels else {
+                let expected = pixels.rounded(), wanted = "\(Int(expected))x\(Int(expected))"
+                problems.entries.append((slot, "\((asset.path as NSString).lastPathComponent)/\(filename) is \(icon.image.width)x\(icon.image.height) but should be \(wanted)."))
+                continue
+            }
+            icons.append(icon)
         }
         let singleSize = icons.filter { $0.idiom == "universal" }
         guard singleSize.isEmpty || singleSize.count == icons.count else {
@@ -154,21 +222,27 @@ enum AppIconSet {
         return Icon(idiom: "universal", size: "1024x1024", scale: 1, filename: filename, path: path, image: image, appearance: appearance, platform: platform)
     }
 
-    /// actool warns about sets without an iPhone 60 pt 2x or an App Store icon; nomac stops on
-    /// them, and on sets an iPad build has no 76 pt 2x icon for (not observed).
+    /// What actool warns a set of the targeted devices lacks, in this order (`incomplete-icons`).
     /// An alternate set is neither checked nor warned about (`alternate-app-icons`).
-    static func compile(_ asset: AssetCatalog.Asset, icons: [Icon], catalog: String, standaloneBehavior: String?, targetDevices: [String],
+    static func requiredIconWarnings(_ icons: [Icon], targetDevices: [String]) -> [String] {
+        func lacks(_ idiom: String, _ size: String, _ scale: Int) -> Bool { !icons.contains { $0.idiom == idiom && $0.size == size && $0.scale == scale } }
+        var warnings: [String] = []
+        if targetDevices.contains("iphone"), lacks("iphone", "60x60", 2) { warnings.append("A 60x60@2x app icon is required for iPhone apps targeting iOS 7.0 and later") }
+        if targetDevices.contains("ipad") {
+            if lacks("ipad", "76x76", 2) { warnings.append("A 76x76@2x app icon is required for iPad apps targeting iOS 7.0 and later") }
+            if lacks("ipad", "83.5x83.5", 2) { warnings.append("A 83.5x83.5@2x app icon is required for iPad apps targeting iOS 9.0 and later") }
+        }
+        if lacks("ios-marketing", "1024x1024", 1) { warnings.append("A 1024x1024 app store icon is required for iOS apps") }
+        return warnings
+    }
+
+    static func compile(_ asset: AssetCatalog.Asset, icons: [Icon], problems: Problems = Problems(), catalog: String, standaloneBehavior: String?, targetDevices: [String],
                         alternate: Bool = false) throws -> Compiled {
         if icons.first?.idiom == "universal" {
             return try compileSingleSize(asset, icons: icons, standaloneBehavior: standaloneBehavior, targetDevices: targetDevices)
         }
         if icons.contains(where: { $0.platform == "watchos" }) {
             return try compileWatchMultiSize(asset, icons: icons, targetDevices: targetDevices)
-        }
-        func has(_ idiom: String, _ size: String, _ scale: Int) -> Bool { icons.contains { $0.idiom == idiom && $0.size == size && $0.scale == scale } }
-        let iPad = !targetDevices.contains("ipad") || has("ipad", "76x76", 2) && has("ipad", "83.5x83.5", 2)
-        guard alternate || has("iphone", "60x60", 2) && has("ios-marketing", "1024x1024", 1) && iPad else {
-            throw NomacError("app icon sets without an iPhone 60x60@2x, an iPad 76x76@2x and 83.5x83.5@2x or an App Store icon are not supported yet (BACKLOG B-202)", path: asset.path)
         }
         let largePhone = icons.first { $0.idiom == "iphone" && $0.size == "60x60" && $0.scale == 3 }
         let allPoints = Set(icons.map(\.points) + (largePhone == nil ? [] : [largePhonePoints])).sorted()
@@ -178,6 +252,7 @@ enum AppIconSet {
             var source = ImageSet.Source(name: asset.name, filename: icon.filename, path: icon.path, image: icon.image, scale: icon.scale, idiom: idioms[icon.idiom]!)
             source.kind = .appIcon
             source.dimension2 = dimension2(icon.points)
+            source.jpeg = icon.jpeg
             return source
         }
         var sizeTables: [CARRendition] = []
@@ -201,6 +276,9 @@ enum AppIconSet {
         case "all": written = icons.filter { $0.idiom != "ios-marketing" }
         default: written = []
         }
+        if let jpeg = written.first(where: { $0.jpeg != nil }) {
+            throw NomacError("icon PNGs from JPEG files are not supported yet (BACKLOG B-212)", path: jpeg.path)
+        }
         func baseNames(_ idiom: String) -> [String] {
             var names: [String] = []
             for icon in written.filter({ $0.idiom == idiom }).sorted(by: { $0.points < $1.points }) where !names.contains(asset.name + icon.size) {
@@ -215,8 +293,10 @@ enum AppIconSet {
         }
         let phoneFiles = baseNames("iphone")
         var infoPlist = ["CFBundleIcons": iconsKey(phoneFiles)]
-        if icons.contains(where: { $0.idiom == "ipad" }) {
-            infoPlist["CFBundleIcons~ipad"] = iconsKey(phoneFiles + baseNames("ipad").filter { !phoneFiles.contains($0) })
+        // Beside an iPad's icon files the iPhone's; without any, none (`incomplete-icons`).
+        if icons.contains(where: { $0.idiom == "ipad" }) || targetDevices.contains("ipad") {
+            let padFiles = baseNames("ipad").filter { !phoneFiles.contains($0) }
+            infoPlist["CFBundleIcons~ipad"] = iconsKey(padFiles.isEmpty ? [] : phoneFiles + padFiles)
         }
         let pngs = written.map { icon in
             (asset.name + icon.size + (icon.scale > 1 ? "@\(icon.scale)x" : "") + (icon.idiom == "ipad" ? "~ipad" : "") + ".png", icon)
@@ -227,7 +307,9 @@ enum AppIconSet {
                 "\(catalog):./\(folder)/[][\(icon.idiom)][\(icon.size)][][][\(icon.scale)x][][][][]: notice: \($0)"
             }
         }
-        return Compiled(sources: sources, sizeTables: sizeTables, pngs: pngs, infoPlist: infoPlist, notices: notices)
+        let required = alternate ? [] : requiredIconWarnings(icons, targetDevices: targetDevices)
+        let warnings = problems.warnings(folder: folder, name: asset.name, required: required).map { "\(catalog):\($0.where): warning: \($0.message)" }
+        return Compiled(sources: sources, sizeTables: sizeTables, pngs: pngs, infoPlist: infoPlist, notices: notices, warnings: warnings)
     }
 
     /// A single-size set (`app-icons` single-size cases): per targeted idiom a size table of
