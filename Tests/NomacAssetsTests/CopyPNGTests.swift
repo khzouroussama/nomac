@@ -26,10 +26,10 @@ import Testing
     }
 
     @Test func grayPNGsNameTheSmallestWindowHoldingTheRows() throws {
-        let out = try CopyPNG.compressed(Self.gray, stripText: true, path: "/g.png")
+        let out = try #require(try CopyPNG.compressed(Self.gray, stripText: true, path: "/g.png"))
         let idat = try #require(out.indices.first { Array(out[$0..<$0 + 4]) == Array("IDAT".utf8) })
         #expect(Array(out[idat + 4..<idat + 6]) == [0x08, 0xD7])
         #expect(!String(decoding: out, as: UTF8.self).contains("tEXt"))
-        #expect(String(decoding: try CopyPNG.compressed(Self.gray, stripText: false, path: "/g.png"), as: UTF8.self).contains("tEXt"))
+        #expect(String(decoding: try #require(try CopyPNG.compressed(Self.gray, stripText: false, path: "/g.png")), as: UTF8.self).contains("tEXt"))
     }
 }

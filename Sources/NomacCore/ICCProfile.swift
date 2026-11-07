@@ -40,44 +40,50 @@ public struct ICCProfile: Sendable {
         }
     }
 
+    /// A profile nomac cannot convert with; `isInvalid` when ColorSync does not use it either and
+    /// the image counts as untagged (`bad-profiles`).
     public struct Unsupported: Error, CustomStringConvertible {
         public var description: String
+        public var isInvalid = false
     }
 
     public init(_ data: [UInt8]) throws {
         func u32(_ offset: Int) -> UInt32 { data[offset..<offset + 4].reduce(0) { $0 << 8 | UInt32($1) } }
         func s15(_ offset: Int) -> Double { Double(Int32(bitPattern: u32(offset))) / 65536 }
-        guard data.count >= 132, data[36..<40].elementsEqual(Array("acsp".utf8)) else { throw Unsupported(description: "not an ICC profile") }
+        func invalid(_ what: String) -> Unsupported { Unsupported(description: what, isInvalid: true) }
+        guard data.count >= 132, Int(u32(0)) == data.count, data[36..<40].elementsEqual(Array("acsp".utf8)) else { throw invalid("not an ICC profile") }
         isGray = data[16..<20].elementsEqual(Array("GRAY".utf8))
-        guard isGray || data[16..<20].elementsEqual(Array("RGB ".utf8)), data[20..<24].elementsEqual(Array("XYZ ".utf8)) else {
-            throw Unsupported(description: "a profile other than RGB or gray to XYZ")
-        }
         var tags: [String: (offset: Int, size: Int)] = [:]
         for index in 0..<Int(u32(128)) {
             let entry = 132 + 12 * index
-            guard entry + 12 <= data.count else { throw Unsupported(description: "a truncated tag table") }
+            guard entry + 12 <= data.count else { throw invalid("a truncated tag table") }
             let offset = Int(u32(entry + 4)), size = Int(u32(entry + 8))
-            guard offset + size <= data.count else { throw Unsupported(description: "a truncated tag") }
+            guard offset + size <= data.count else { throw invalid("a truncated tag") }
             tags[String(decoding: data[entry..<entry + 4], as: UTF8.self)] = (offset, size)
         }
         if let lut = ["A2B0", "A2B1", "B2A0"].first(where: { tags[$0] != nil }) {
             throw Unsupported(description: "a \(lut) table")
         }
+        // Versions 2 and 4 of monitor and input classes, RGB or gray to XYZ (`bad-profiles`).
+        guard [2, 4].contains(data[8]), ["mntr", "scnr"].contains(String(decoding: data[12..<16], as: UTF8.self)),
+              isGray || data[16..<20].elementsEqual(Array("RGB ".utf8)), data[20..<24].elementsEqual(Array("XYZ ".utf8)) else {
+            throw invalid("a profile other than a version 2 or 4 monitor or input one, RGB or gray to XYZ")
+        }
         var columns: [[Double]] = isGray ? [[1, 0, 0], [0, 1, 0], [0, 0, 1]] : []
         for name in isGray ? [] : ["rXYZ", "gXYZ", "bXYZ"] {
             guard let tag = tags[name], tag.size >= 20, data[tag.offset..<tag.offset + 4].elementsEqual(Array("XYZ ".utf8)) else {
-                throw Unsupported(description: "no \(name) colorant")
+                throw invalid("no \(name) colorant")
             }
             columns.append([s15(tag.offset + 8), s15(tag.offset + 12), s15(tag.offset + 16)])
         }
         matrix = (0..<3).map { row in columns.map { $0[row] } }
         curves = try (isGray ? ["kTRC"] : ["rTRC", "gTRC", "bTRC"]).map { name in
-            guard let tag = tags[name], tag.size >= 12 else { throw Unsupported(description: "no \(name) curve") }
+            guard let tag = tags[name], tag.size >= 12 else { throw invalid("no \(name) curve") }
             let type = String(decoding: data[tag.offset..<tag.offset + 4], as: UTF8.self)
             switch type {
             case "curv":
                 let count = Int(u32(tag.offset + 8))
-                guard tag.size >= 12 + 2 * count else { throw Unsupported(description: "a truncated curve") }
+                guard tag.size >= 12 + 2 * count else { throw invalid("a truncated curve") }
                 func entry(_ index: Int) -> UInt16 { UInt16(data[tag.offset + 12 + 2 * index]) << 8 | UInt16(data[tag.offset + 13 + 2 * index]) }
                 switch count {
                 case 0: return .identity

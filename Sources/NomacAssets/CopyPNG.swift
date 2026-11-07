@@ -22,11 +22,17 @@ public enum CopyPNG {
         guard files.count == 2 else { throw NomacError("usage: copypng [-compress] [-strip-PNG-text] <input> <output>") }
         guard let data = FileManager.default.contents(atPath: files[0]) else { throw NomacError("Can't find \(files[0])", path: files[0]) }
         let output = options.isEmpty ? [UInt8](data) : try compressed([UInt8](data), stripText: options.contains("-strip-PNG-text"), path: files[0])
+        guard let output else {
+            // pngcrush's words, with no file and status 0 (`icon-chunks` crc cases).
+            FileHandle.standardOutput.write(Data("While reading \(files[0]) pngcrush caught libpng error:\n".utf8))
+            return
+        }
         try FileSystem.write(Data(output), to: FileSystem.absolute(files[1]))
     }
 
-    static func compressed(_ data: [UInt8], stripText: Bool, path: String) throws -> [UInt8] {
-        var image = try PNGImage(data: data, path: path)
+    static func compressed(_ data: [UInt8], stripText: Bool, path: String) throws -> [UInt8]? {
+        var image = try PNGImage(data: data, path: path, colorManaged: false)
+        if image.iconIsUnwritable { return nil }
         if stripText { image.ancillaryChunks.removeAll { ["tEXt", "iTXt", "zTXt"].contains($0.type) } }
         return try IconPNG.data(image, path: path, smallestWindow: true)
     }

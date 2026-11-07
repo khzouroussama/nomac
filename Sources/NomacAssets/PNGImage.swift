@@ -6,6 +6,13 @@ import NomacCore
 /// (docs/adr/0202-png-decoding.md): gray, RGB, palette, gray and alpha, RGBA; bit depths below 8
 /// for gray and palettes, scaled to 0–255; `tRNS` keys; Adam7 interlacing.
 struct PNGImage: Equatable {
+    /// A file ImageIO does not read: actool leaves its entry out without a word (`icon-entries`
+    /// not-an-image, `icon-chunks` alone-UnSf).
+    struct Unreadable: Error, CustomStringConvertible {
+        var description: String
+        var path: String
+    }
+
     let width: Int
     let height: Int
     /// BGRA with each color premultiplied by alpha as (c × a + 127) / 255, rows from the top.
@@ -15,17 +22,29 @@ struct PNGImage: Equatable {
     var ancillaryChunks: [Chunk] = []
     /// The `IHDR` color type: 0 gray, 2 RGB, 3 palette, 4 gray and alpha, 6 RGBA.
     var colorType: UInt8 = 6
-    /// An 8-bit gray or gray-and-alpha image's own samples, without `tRNS`, which actool's
-    /// icon PNGs keep (`IconPNG`).
-    var graySamples: [UInt8]?
+    /// The image data as the file has it, unfiltered, one row after another pass by pass, with
+    /// what actool's plain icon PNGs repeat (`IconPNG`).
+    var stored = Stored()
+    /// A chunk's checksum is wrong: the icon PNGs actool lists but does not write (`icon-chunks`
+    /// crc cases).
+    var iconIsUnwritable = false
     /// For an image converted from its color profile to sRGB (ADR 0204): the pixels before the
-    /// conversion, which the icon PNGs keep, and the profile's name and bytes.
+    /// conversion, which the icon PNGs keep.
     var unconvertedPixels: [UInt8]?
-    var profile: Profile?
 
-    struct Profile: Equatable {
-        var name: [UInt8]
-        var data: [UInt8]
+    struct Stored: Equatable {
+        var depth = 8
+        var interlaced = false
+        var palette: [UInt8] = []
+        var transparency: [UInt8] = []
+        /// The (row bytes, rows) of each pass.
+        var passes: [(rowBytes: Int, rows: Int)] = []
+        var samples: [UInt8] = []
+
+        static func == (a: Stored, b: Stored) -> Bool {
+            a.depth == b.depth && a.interlaced == b.interlaced && a.palette == b.palette && a.transparency == b.transparency
+                && a.samples == b.samples && a.passes.map(\.rowBytes) == b.passes.map(\.rowBytes) && a.passes.map(\.rows) == b.passes.map(\.rows)
+        }
     }
 
     var convertedColors: Bool { unconvertedPixels != nil }
@@ -38,6 +57,8 @@ struct PNGImage: Equatable {
     struct Chunk: Equatable {
         var type: String
         var data: [UInt8]
+        var afterPalette = false
+        var afterData = false
     }
 
     var isOpaque: Bool { stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 255 } }
@@ -77,12 +98,17 @@ struct PNGImage: Equatable {
         try self.init(data: [UInt8](data), path: path)
     }
 
-    init(data bytes: [UInt8], path: String) throws {
+    /// `colorManaged` false reads what the icon PNGs need, the samples and chunks as they are,
+    /// without what `Assets.car`'s pixels take from gamma and profiles (copypng).
+    init(data bytes: [UInt8], path: String, colorManaged: Bool = true) throws {
         func unsupported(_ what: String) -> NomacError {
             NomacError("PNG images with \(what) are not supported yet (BACKLOG B-209)", path: path)
         }
         let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-        guard bytes.count > 8, Array(bytes[0..<8]) == signature else { throw NomacError("not a PNG file", path: path) }
+        guard bytes.count > 8, Array(bytes[0..<8]) == signature else {
+            if bytes.starts(with: [0xFF, 0xD8]) { throw NomacError("JPEG files named .png are not supported yet (BACKLOG B-200)", path: path) }
+            throw Unreadable(description: "not a PNG file", path: path)
+        }
         func u32(_ offset: Int) -> Int {
             Int(bytes[offset]) << 24 | Int(bytes[offset + 1]) << 16 | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3])
         }
@@ -92,6 +118,7 @@ struct PNGImage: Equatable {
         var gamma: Int?
         var compressed: [UInt8] = []
         var ancillary: [Chunk] = []
+        var iconIsUnwritable = false
         var offset = 8
         while offset + 12 <= bytes.count {
             let length = u32(offset)
@@ -105,8 +132,12 @@ struct PNGImage: Equatable {
             case "IDAT": compressed += body
             case "IEND": offset = bytes.count
             default:
-                if type == "gAMA" && length == 4 { gamma = u32(offset + 8) }
-                ancillary.append(Chunk(type: type, data: body))
+                if type == "gAMA" && length == 4 && compressed.isEmpty { gamma = u32(offset + 8) }
+                let stated = u32(offset + 8 + length)
+                let actual = bytes[offset + 4..<offset + 8 + length].withUnsafeBufferPointer { crc32(0, $0.baseAddress, uInt($0.count)) }
+                if Int(actual) != stated { iconIsUnwritable = true }
+                if bytes[offset + 4] < 0x61 { throw Unreadable(description: "PNG with the unknown critical chunk \(type)", path: path) }
+                ancillary.append(Chunk(type: type, data: body, afterPalette: !palette.isEmpty, afterData: !compressed.isEmpty))
             }
             offset += 12 + length
         }
@@ -116,26 +147,14 @@ struct PNGImage: Equatable {
         let depth = Int(header[8]), colorType = header[9]
         guard let channels = Self.channels[colorType] else { throw unsupported("color type \(colorType)") }
         guard Self.depths[colorType]!.contains(depth) else { throw unsupported("bit depth \(depth)") }
-        guard depth != 16 || transparency.isEmpty else { throw unsupported("bit depth 16 and a tRNS chunk") }
-        if let gamma, !Self.ignoredGammas.contains(gamma) { throw unsupported("gamma \(gamma)") }
+        guard !colorManaged || depth != 16 || transparency.isEmpty else { throw unsupported("bit depth 16 and a tRNS chunk") }
+        if colorManaged, let gamma, !Self.ignoredGammas.contains(gamma) { throw unsupported("gamma \(gamma)") }
         // actool converts images with a profile other than sRGB IEC61966-2.1 to sRGB, then
         // premultiplies; gray images with a gray profile stay gray (`profiles` experiment).
-        var conversion: ICCProfile?
-        var profileBytes: [UInt8] = []
-        if let chunk = ancillary.first(where: { $0.type == "iCCP" }) {
-            profileBytes = try Self.profile(chunk.data, path: path)
-            if !ICCProfile.isStandardSRGB(profileBytes) {
-                do { conversion = try ICCProfile(profileBytes) } catch let error as ICCProfile.Unsupported {
-                    throw Self.unsupportedProfile(error.description, path: path)
-                }
-                guard conversion!.isGray == [0, 4].contains(colorType) else {
-                    throw Self.unsupportedProfile("a color space other than the image's", path: path)
-                }
-            }
-        }
+        let conversion = colorManaged ? try Self.conversion(ancillary, grayImage: [0, 4].contains(colorType), path: path) : nil
         // actool dithers 16-bit samples to 8 bits; nomac reads them only in images it converts
         // from their profile, whose pixels may differ (ADR 0204).
-        guard depth != 16 || conversion != nil else {
+        guard !colorManaged || depth != 16 || conversion != nil else {
             throw unsupported("bit depth 16 without a color profile other than sRGB (actool dithers them)")
         }
         let passes = header[12] == 1 ? Self.adam7 : [(x: 0, y: 0, dx: 1, dy: 1)]
@@ -147,12 +166,15 @@ struct PNGImage: Equatable {
         let raw = try Self.inflate(compressed, expected: expected, path: path)
         var samples = [UInt8](repeating: 0, count: width * height * channels)
         var position = 0
+        var stored = Stored(depth: depth, interlaced: header[12] == 1, palette: palette, transparency: transparency)
         for pass in passes {
             let size = passSize(pass)
             guard size.width > 0, size.height > 0 else { continue }
             let rows = try Self.unfilter(Array(raw[position..<position + (size.rowBytes + 1) * size.height]), rowBytes: size.rowBytes,
                                          height: size.height, pixelBytes: max(1, channels * depth / 8), path: path)
             position += (size.rowBytes + 1) * size.height
+            stored.passes.append((size.rowBytes, size.height))
+            stored.samples += rows
             if depth == 8 && passes.count == 1 {
                 samples = rows
                 break
@@ -181,7 +203,7 @@ struct PNGImage: Equatable {
             }
         }
 
-        if depth == 16, stride(from: 0, to: samples.count, by: channels).allSatisfy({ samples[$0] == samples[$0 + 1] && samples[$0 + 1] == samples[$0 + 2] }) {
+        if colorManaged, depth == 16, stride(from: 0, to: samples.count, by: channels).allSatisfy({ samples[$0] == samples[$0 + 1] && samples[$0 + 1] == samples[$0 + 2] }) {
             throw unsupported("bit depth 16 and only gray pixels (actool adds a GA16 rendition)")
         }
         let scale = depth == 16 ? 1 : 255 / ((1 << depth) - 1)
@@ -254,18 +276,23 @@ struct PNGImage: Equatable {
         }
         ancillaryChunks = ancillary
         self.colorType = colorType
+        self.stored = stored
+        self.iconIsUnwritable = iconIsUnwritable
         declaresAlpha = [4, 6].contains(colorType) || !transparency.isEmpty
-        if conversion != nil, let chunk = ancillary.first(where: { $0.type == "iCCP" }) {
-            unconvertedPixels = unconverted
-            profile = Profile(name: Array(chunk.data[..<chunk.data.firstIndex(of: 0)!]), data: profileBytes)
-            ancillaryChunks = ancillary.filter { $0.type != "iCCP" }
-        }
-        if [0, 4].contains(colorType) && depth == 8 && transparency.isEmpty {
-            graySamples = samples
-        }
+        if conversion != nil { unconvertedPixels = unconverted }
     }
 
     static let channels: [UInt8: Int] = [0: 1, 2: 3, 3: 1, 4: 2, 6: 4]
+
+    /// Four-byte pixels as filter 0 rows of Adam7's passes.
+    static func adam7Rows(_ pixels: [UInt8], width: Int, height: Int) -> [[UInt8]] {
+        adam7.flatMap { pass in
+            stride(from: pass.y, to: height, by: pass.dy).compactMap { y -> [UInt8]? in
+                let row = stride(from: pass.x, to: width, by: pass.dx).flatMap { x in pixels[(y * width + x) * 4..<(y * width + x) * 4 + 4] }
+                return row.isEmpty ? nil : [0] + row
+            }
+        }
+    }
 
     /// The bit depths of each color type nomac reads: actool dithers 16-bit samples to 8 bits, and
     /// gives gray images (by color type or by their pixels) a second, `GA16` rendition (`images`
@@ -278,14 +305,39 @@ struct PNGImage: Equatable {
         NomacError("PNG images whose color profile has \(what) are not supported yet (BACKLOG B-213)", path: path)
     }
 
-    /// An `iCCP` chunk's profile: its name, a NUL, the compression method and the zlib stream.
-    static func profile(_ chunk: [UInt8], path: String) throws -> [UInt8] {
-        guard let name = chunk.firstIndex(of: 0), name + 2 < chunk.count else { throw NomacError("malformed iCCP chunk", path: path) }
-        var input = Array(chunk[(name + 2)...])
-        var stream = z_stream()
-        guard inflateInit_(&stream, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
-            throw NomacError("could not start inflating the color profile", path: path)
+    /// The profile the pixels convert from (`bad-profiles`): an `sRGB` chunk before any `iCCP`
+    /// chunk means none; of those before `PLTE` and the image data, the last one ImageIO can read
+    /// and that fits the image. Others leave the image untagged: actool says nothing of them.
+    static func conversion(_ chunks: [Chunk], grayImage: Bool, path: String) throws -> ICCProfile? {
+        let candidates = chunks.filter { !$0.afterPalette && !$0.afterData && ["iCCP", "sRGB"].contains($0.type) }
+        guard candidates.first?.type == "iCCP" else { return nil }
+        for chunk in candidates.reversed() where chunk.type == "iCCP" {
+            guard let bytes = readableProfile(chunk.data) else { continue }
+            if ICCProfile.isStandardSRGB(bytes) { return nil }
+            do {
+                let profile = try ICCProfile(bytes)
+                if profile.isGray == grayImage { return profile }
+            } catch let error as ICCProfile.Unsupported {
+                if !error.isInvalid { throw unsupportedProfile(error.description, path: path) }
+            }
         }
+        return nil
+    }
+
+    /// An `iCCP` chunk's profile as ImageIO reads it: a name of 1 to 79 bytes, a NUL, compression
+    /// method 0 and a zlib stream whose checksum it does not look at, trailing bytes ignored.
+    static func readableProfile(_ chunk: [UInt8]) -> [UInt8]? {
+        guard let name = chunk.firstIndex(of: 0), (1...79).contains(name), name + 3 < chunk.count, chunk[name + 1] == 0 else { return nil }
+        let first = Int(chunk[name + 2]), second = Int(chunk[name + 3])
+        guard first & 0x0F == 8, (first * 256 + second) % 31 == 0 else { return nil }
+        return inflated(Array(chunk[(name + 4)...]), windowBits: -15)
+    }
+
+    /// The whole of a zlib or raw deflate stream's output; nil when the stream is damaged or cut.
+    static func inflated(_ data: [UInt8], windowBits: Int32) -> [UInt8]? {
+        var input = data
+        var stream = z_stream()
+        guard inflateInit2_(&stream, windowBits, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
         defer { inflateEnd(&stream) }
         var output: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 1 << 14)
@@ -302,8 +354,7 @@ struct PNGImage: Equatable {
                 output += buffer[..<(buffer.count - Int(stream.avail_out))]
             } while status == Z_OK
         }
-        guard status == Z_STREAM_END else { throw NomacError("malformed iCCP chunk", path: path) }
-        return output
+        return status == Z_STREAM_END ? output : nil
     }
 
     /// `gAMA` values actool leaves the pixels alone for (1/2.2); a gamma of 0.5 or 1.0 changes them.
