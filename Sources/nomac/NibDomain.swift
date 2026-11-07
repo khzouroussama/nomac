@@ -13,7 +13,11 @@ struct NibDomain: FeatureDomain {
     let name = "nib"
     var envelope: Envelope { Self.envelope }
 
-    static let envelope = Envelope(domain: "nib", entries: [], family: { feature in
+    static let missingDocument = "nib:document=missing"
+
+    static let envelope = Envelope(domain: "nib", entries: [
+        .unverified(missingDocument, "a resources phase lists a document the checkout does not have, and Xcode's build fails on it too (nib-experiments `missing-file`): commit the document, or install what provides it (Pods/)"),
+    ], family: { feature in
         guard feature.hasPrefix("nib:refused="), let item = feature.split(separator: "=").last else { return nil }
         return item.hasPrefix("B-") ? .unverified(feature, "nomac's ibtool refuses the document", backlog: String(item))
             : .unverified(feature, "nomac's ibtool fails on the document with an error that names no BACKLOG item")
@@ -26,6 +30,12 @@ struct NibDomain: FeatureDomain {
         for (document, compile) in Self.documents(of: workspace, options: options, unchecked: &scan.unchecked) {
             if options.descriptionOnly {
                 scan.unchecked.append(UncheckedPart(what: "Interface Builder document contents", file: document))
+                continue
+            }
+            guard FileManager.default.fileExists(atPath: document) else {
+                if seen.insert(document).inserted {
+                    scan.uses.append(FeatureUse(feature: Self.missingDocument, file: document, object: (document as NSString).lastPathComponent))
+                }
                 continue
             }
             guard let refusal = Self.refusal(document, compile), seen.insert(document + "\0" + refusal).inserted else { continue }
@@ -68,13 +78,9 @@ struct NibDomain: FeatureDomain {
                     for file in phase.files ?? [] {
                         guard let element = file.file else { continue }
                         if let variant = element as? PBXVariantGroup {
-                            // A localization's path is relative to the variant group's own folder when it has a path,
-                            // else to the folder of the group that holds it.
-                            let folder = variant.path != nil ? (try? variant.fullPath(sourceRoot: sourceRoot)) ?? sourceRoot
-                                : variant.parent.flatMap { try? $0.fullPath(sourceRoot: sourceRoot) } ?? sourceRoot
                             for child in variant.children {
-                                if let relative = child.path, isDocument(relative) {
-                                    paths.append(((folder as NSString).appendingPathComponent(relative) as NSString).standardizingPath)
+                                if let path = localizationPath(child, in: variant, sourceRoot: sourceRoot), isDocument(path) {
+                                    paths.append(path)
                                 }
                             }
                         } else if let path = try? element.fullPath(sourceRoot: sourceRoot), isDocument(path) {
@@ -117,6 +123,25 @@ struct NibDomain: FeatureDomain {
             }
         }
         return found
+    }
+
+    /// Where a variant group's localization is, as the PIF gives it to the build: relative to the
+    /// variant group's own `path` under the folder of the group that holds it. XcodeProj's
+    /// `fullPath` answers a variant group with its base localization's path instead, so it is not
+    /// asked (React Native's old template: `path = iOS`, `Base.lproj/LaunchScreen.xib` inside).
+    static func localizationPath(_ child: PBXFileElement, in variant: PBXVariantGroup, sourceRoot: String) -> String? {
+        guard child.sourceTree == .group else { return (try? child.fullPath(sourceRoot: sourceRoot))?.map { ($0 as NSString).standardizingPath } }
+        guard let relative = child.path else { return nil }
+        let folder: String?
+        switch variant.sourceTree {
+        case .absolute?: folder = variant.path
+        case .sourceRoot?: folder = (sourceRoot as NSString).appendingPathComponent(variant.path ?? "")
+        case .group?:
+            let parent = variant.parent.flatMap { try? $0.fullPath(sourceRoot: sourceRoot) } ?? sourceRoot
+            folder = (parent as NSString).appendingPathComponent(variant.path ?? "")
+        default: folder = nil
+        }
+        return folder.map { (($0 as NSString).appendingPathComponent(relative) as NSString).standardizingPath }
     }
 
     /// The deployment target a build passes when the target sets none: the iOS 27.0 SDK's default
