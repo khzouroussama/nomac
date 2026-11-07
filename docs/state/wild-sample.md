@@ -83,6 +83,7 @@ leftover checkouts first. After a stop for disk, free the space and delete `STOP
 
 ```sh
 docker start nomac-wild-run
+docker exec nomac-wild-run bash -c 'echo nameserver 1.1.1.1 > /etc/resolv.conf'
 docker exec -d nomac-wild-run bash -c 'python3 -I /work/driver/.github/scripts/wild_sample.py tools >> /out/tools.log 2>&1'
 docker exec -d -u builder -e HOME=/work/home -e PATH=/work/home/.local/bin:/usr/local/bin:/usr/bin:/bin -w /work \
     nomac-wild-run bash -c 'python3 -I /work/driver/.github/scripts/wild_sample.py run --root /out >> /out/run.log 2>&1'
@@ -94,11 +95,16 @@ project again, add its name after `run`. `--rounds 1` skips the waits between ro
 When the results are read, free the disk: `docker rm -f nomac-wild-run`, `docker volume rm nomac-wild`,
 then `~/nomac-out/wild-sample/xcode` and `~/nomac-out/wild-sample/scratch`, keeping `results`.
 
+A restart gives the container Docker's resolver back, hence the second line. On 2026-11-07 that
+resolver failed after 10 s for github.com, rubygems.org and nodejs.org while 1.1.1.1 answered in under
+1 s, so this container uses 1.1.1.1. TCP to github.com still timed out at times, and clones took
+minutes: the network, not the load, sets how long this run takes.
+
 ## How to rerun from nothing
 
 ```sh
 wild_sample.py pick --survey ~/nomac-out/survey-20261106   # the seeded sample, corpus/wild-sample.json
-docker run -d --name nomac-wild-run --cpus 8 --ulimit nofile=65536:65536 -v nomac-wild:/work \
+docker run -d --name nomac-wild-run --dns 1.1.1.1 --cpus 8 --ulimit nofile=65536:65536 -v nomac-wild:/work \
     -v nomac-build:/ref:ro -v <worktree>:/src-host:ro -v ~/nomac-out/wild-sample:/out \
     nomac-linux:6.4.1-noble sleep infinity
 ```
@@ -118,8 +124,9 @@ Use a subset fresh from `nomac sdk install`: on 2026-11-07 `/ref/xcode` held 10,
 subset 61,187. What `/ref/xcode` lacks is 42,014 files of the macOS platform, 7,492 of the watchOS
 platform, 1,586 of the toolchain folder and 46 under `Contents`; of the iOS platform only
 `device_traits.db`. This run's subset is `/ref/xcode` with the fresh subset's other files added.
-Those files, macOS last, were still being copied when the run began, so a project stopped by a
-missing macOS SDK file in the first hour should be taken again.
+Those files, macOS last, were still being copied when the run began and were complete by 04:23 on the
+Mac's clock, when the whole tree matched the clean subset, so a project stopped by a missing macOS
+SDK file before then should be taken again.
 
 Never kill a `tar` that is extracting into a developer directory. GNU tar writes each symlink as an
 empty `0600` file and swaps in the links when it finishes, so a killed one leaves those files behind.
@@ -127,7 +134,9 @@ That happened here on 2026-11-07: `usr/lib/swift/clang` stayed an empty file, cl
 directory, and a one-line Swift file failed with `module '_c_standard_library_obsolete' requires
 feature 'found_incompatible_headers__check_search_paths'`. So the first run's two projects were not
 measured: their results are in `void-subset-1`, not `results`, and say nothing about nomac. The
-preflight now catches this. After a killed copy, compare every path's type and size with the source.
+preflight now catches this for the iOS SDK. After a killed copy, compare every path's type and size
+with the source: the same `tar` left 54 more in the macOS SDK, where the later copy skipped them
+because they existed.
 
 ## Findings outside the build
 
