@@ -131,6 +131,9 @@ public struct CARWriter {
         metadata.appendFixed(deploymentPlatform, width: 256)
         metadata.appendFixed(deploymentPlatform == "watch" ? ActoolVersions.watchOSAuthoringTool : ActoolVersions.authoringTool, width: 256)
         let metadataBlock = store.add(metadata.bytes)
+        // A key format with the variant attribute before iOS 9.3 comes with a word per attribute,
+        // 25 for that one, the attribute it stands for (`old-targets`).
+        let keyFormatWorkaround = keyFormat.contains(.legacyTarget) ? store.add(keyFormat.flatMap { $0 == .legacyTarget ? [25, 0, 0, 0] : [UInt8](repeating: 0, count: 4) }) : nil
 
         let bitmapTree = try Self.addBitmapKeys(keyFormat: keyFormat, renditions: creationOrder.map { ($0.identifier, $0.values) }, to: &store)
 
@@ -160,6 +163,7 @@ public struct CARWriter {
         if let appearanceTree { store.addVariable("APPEARANCEKEYS", block: appearanceTree.headerBlock) }
         store.addVariable("KEYFORMAT", block: keyFormatBlock)
         store.addVariable("EXTENDED_METADATA", block: metadataBlock)
+        if let keyFormatWorkaround { store.addVariable("KEYFORMATWORKAROUND", block: keyFormatWorkaround) }
         store.addVariable("BITMAPKEYS", block: bitmapTree.headerBlock)
         return store.serialized()
     }
