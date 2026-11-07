@@ -57,6 +57,15 @@ Next actions:
      run on the release still stops there. It was observed on sentry-xcode.sh 8.34.0 itself, not yet in a
      whole app's Linux build: build that app with main's nomac (or `SENTRY_DISABLE_AUTO_UPLOAD=true` on the
      release's command line), then name that build in `ScriptRequirements.entries`' evidence.
+   - `bluesky`: its 964 errors were one crash of swift.org's frontend, on `switch consume result` with `let
+     error as any Error` in expo-modules-core 58. The patch `.github/swift` 0004 is on branch
+     `corpus/swift-cast-pattern`, not merged, as it moves the toolchain's stamp: with its frontend (built from
+     the overlay `~/nomac-out/scripts/sweep_frontend_build.sh`, in the volume's `frontend-test`, the hard-linked
+     developer directory `devdir-test`) bluesky compiles through and stops on six references no group holds
+     (fixed on this branch: "Recovered References"), the validation of the six targets those stopped, and its
+     own `./locales/an/messages` (`yarn intl:build`). A whole Linux build of bluesky with both fixes is still to do.
+   - The segfault of nomac at planning, once in expo-with-widgets (exit -11, 37 seconds in, not on a rerun):
+     not found yet. A crash now prints a stack and is run once more (`crashedOnce`, listed by `counts`).
    - `expo-with-router-menus` (`cannot find type 'RCTView'`, `AppContext` has no `reactBridge`, in
      react-native-ios-utilities): probably the app's own, as the package predates Expo 57. Build it with
      Xcode 27.0 and record it under `failsWithXcode` if it fails the same way.
@@ -65,6 +74,13 @@ Next actions:
    - `expo-with-rsc` is the app's own: `npm` ERESOLVE on react-server-dom-webpack's peer `react`, on any machine.
 2. `rn_sweep.py report` pasted here when the run ends, each class routed to its workstream.
 3. B-043.
+
+The sweep signs ad hoc, having no Apple account. Xcode refuses that for a target with entitlements in its file
+(docs/formats/code-signature.md), and nomac with it, so such a project builds with `CODE_SIGN_ENTITLEMENTS=` on
+the command line, recorded as `entitlementsLeftOut` in the `fixes` step: what is measured is the build, archive and
+export, not those apps' entitlements. `rn_sweep.py bundle-on-mac <app>` runs a JavaScript failure's bundling on the Mac
+from the kept checkout, and `~/nomac-out/scripts/sweep_own_failure.py` records one observed not to be nomac's.
+`~/nomac-out/scripts/sweep_repro.sh` runs an app's build again on its kept checkout.
 
 The manifest records what an app asks of a build machine (`env`, `{checkout}` standing for its
 checkout: bluesky's `SENTRY_XCFRAMEWORK_CACHE_DIR`, inside the checkout so that the container sees

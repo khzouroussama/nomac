@@ -418,7 +418,13 @@
       "source": "expo-examples",
       "path": "with-tailwindcss",
       "react-native": "0.86.0",
-      "expo": "57.0.31"
+      "expo": "57.0.31",
+      "failsWithXcode": [
+        {
+          "match": "addedFiles",
+          "reason": "react-native-css 0.0.0-nightly.5ce6396 emits Metro's old change event to Metro 0.84.5, which expects {changes, rootDir}; the bundling fails alike on a Mac (rn_sweep.py bundle-on-mac)"
+        }
+      ]
     },
     {
       "id": "expo-with-tfjs-camera",
@@ -467,7 +473,13 @@
       "source": "expo-examples",
       "path": "with-video-background",
       "react-native": "0.86.3",
-      "expo": "57.0.31"
+      "expo": "57.0.31",
+      "failsWithXcode": [
+        {
+          "match": "EXEventEmitter.h",
+          "reason": "expo-av 16.0.8 includes ExpoModulesCore/EXEventEmitter.h, which expo-modules-core 57.0.24 does not have on any machine; expo-av is not among Expo 57's bundled modules"
+        }
+      ]
     },
     {
       "id": "expo-with-webbrowser-redirect",
@@ -509,7 +521,8 @@
       "source": "expo-examples",
       "path": "with-yarn-workspaces",
       "react-native": "0.88.1",
-      "expo": "57.0.31"
+      "expo": "57.0.31",
+      "app": "apps/mobile"
     },
     {
       "id": "expo-with-zustand",

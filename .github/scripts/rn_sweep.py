@@ -15,7 +15,9 @@ for. Each app goes through these steps in order, stopping at the first failure:
            command line with the Linux build of the same tool (`build:setting=mach-o-executable`'s
            note; nomac overrides those with a build beside the tool itself, ADR 0184). Requirements
            left without a fix are recorded and the build is tried anyway: it decides
-  build    `nomac archive` Release for generic/platform=iOS, ad-hoc signed (capture_reference.py's ADHOC),
+  build    `nomac archive` Release for generic/platform=iOS, ad-hoc signed (capture_reference.py's ADHOC; a
+           project whose targets have entitlements builds without them, as Xcode refuses ad-hoc signing with
+           them and the sweep has no Apple account: entitlements_needing_profile),
            continuing after errors so that one run shows every independent failure (with
            --separate-build: `nomac build` without signing, then the archive from a new build folder)
   archive  the build's archive
@@ -45,6 +47,9 @@ Usage (Mac):
   rn_sweep.py counts [--root R]              one line: built, the app's own errors, nomac's errors, stopped by the
                                              network, not run; exits with 1 while `run --resume` has apps left
   rn_sweep.py reclassify [app ...]           the kept logs' failures classified again
+  rn_sweep.py bundle-on-mac app              an Expo app's Metro bundling on this Mac, from the checkout kept in the
+                                             container, for a failure in JavaScript: the same error here means
+                                             neither Linux nor nomac caused it (B-043); recorded in the result
 In the container: rn_sweep.py linux [--root R] [--slot S] app
 
 The volume (nomac-sweep) holds bin/current/nomac (a Linux build of nomac, or a release's bin folder as
@@ -62,6 +67,7 @@ import queue
 import hashlib
 import json
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -196,7 +202,12 @@ def checkout(root, entry):
 
 
 def app_folder(root, entry):
-    return checkout(root, entry) / entry.get("path", ".") if entry.get("source") is None else checkout(root, entry)
+    """The folder with the app's package.json and ios folder: for an example of a source, inside its folder
+    (`app`; with-yarn-workspaces' is apps/mobile, and the monorepo's root is no app); for a repository, `path`."""
+    if entry.get("source"):
+        return checkout(root, entry) / entry.get("app", ".")
+    return checkout(root, entry) / entry.get("path", ".")
+
 
 
 def node_module_owners(folder, top):
@@ -603,8 +614,15 @@ def survey(root, entry, script):
 
 # The Linux steps (in the container).
 
+def backtracer():
+    """install.sh keeps Swift beside nomac: a crash of nomac prints its stack through this tool."""
+    binary = Path(os.path.realpath(NOMAC))
+    tool = binary.parent.parent / "swift/usr/libexec/swift/linux/swift-backtrace-static"
+    return {"SWIFT_BACKTRACE": f"enable=yes,color=no,threads=crashed,limit=60,swift-backtrace={tool}"} if tool.exists() else {}
+
+
 def linux_environment(root, slot):
-    return {"PATH": f"{root}/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root",
+    return {**backtracer(), "PATH": f"{root}/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root",
             "LANG": "C.UTF-8", "TMPDIR": "/tmp", "DEVELOPER_DIR": str(DEVELOPER_DIR), "NOMAC_DEVELOPER_DIR": str(DEVELOPER_DIR),
             "NOMAC_HOME": str(WORK / f"nomac-home-{slot}"),
             "CI": "1", "EXPO_NO_TELEMETRY": "1"}
@@ -614,6 +632,30 @@ def nomac_build():
     """The name of the folder that holds nomac: nomac-<commit> for a build, nomac-<version> for a release."""
     binary = Path(os.path.realpath(NOMAC))
     return (binary.parent.parent if binary.parent.name == "bin" else binary.parent).name.removeprefix("nomac-")
+
+
+def entitlements_needing_profile(container):
+    """The entitlements files with something in them that the project's own targets name. Xcode refuses
+    ad-hoc signing for those ("requires a provisioning profile", status 65; signing-experiments
+    `entitlements-groups`, `-push`, `-keychain`, and an empty dictionary signs, `entitlements-empty`), and nomac
+    with it, so with no Apple account here the build, archive and export can only be measured without them."""
+    found = []
+    for project in container.parent.glob("*.xcodeproj"):
+        if project.name == "Pods.xcodeproj" or not (project / "project.pbxproj").exists():
+            continue
+        text = (project / "project.pbxproj").read_text(errors="replace")
+        for value in sorted(set(re.findall(r'CODE_SIGN_ENTITLEMENTS = "?([^";]+)"?;', text))):
+            written = re.sub(r"\$[({](?:SRCROOT|PROJECT_DIR|SOURCE_ROOT)[)}]/?", "", value)
+            path = project.parent / written
+            if "$" in written:
+                found.append(value)
+            elif path.exists():
+                try:
+                    if plistlib.loads(path.read_bytes()):
+                        found.append(written)
+                except (ValueError, plistlib.InvalidFileException):
+                    found.append(written)
+    return found
 
 
 def container_of(app):
@@ -672,7 +714,10 @@ def linux(root, entry, slot, separate_build=False):
 
     started = time.time()
     overrides, applied, unfixed = project_fixes(top, container, report)
-    step(result, "fixes", True, started, applied=applied, overrides=overrides, unfixed=unfixed)
+    left_out = entitlements_needing_profile(container)
+    if left_out:
+        overrides["CODE_SIGN_ENTITLEMENTS"] = ""
+    step(result, "fixes", True, started, applied=applied, overrides=overrides, unfixed=unfixed, entitlementsLeftOut=left_out)
     save_result(root, result)
 
     scratch = WORK / "dd" / entry["id"]
@@ -710,6 +755,35 @@ def linux(root, entry, slot, separate_build=False):
                 subprocess.run(["gzip", "-f", str(out / f"{name}.log")])
 
 
+def bundle_on_mac(root, entry, args, env):
+    """Runs the step of the bundling phase that fails, `expo export:embed` for the entry
+    resolveAppEntry.js names, on the app's kept checkout copied to the Mac, whose packages the Mac
+    installed, without its Pods and build folders. No Xcode and no network are involved."""
+    top, result = checkout(root, entry), load_result(root, entry["id"])
+    scratch = root / "scratch" / "bundle-on-mac"
+    shutil.rmtree(scratch, ignore_errors=True)
+    scratch.mkdir(parents=True)
+    tar = subprocess.Popen(["docker", "exec", args.container, "tar", "-C", str(top.parent), "--exclude=ios/Pods", "--exclude=ios/build",
+                            "-cf", "-", top.name], stdout=subprocess.PIPE)
+    subprocess.run(["tar", "-xf", "-", "-C", str(scratch)], stdin=tar.stdout, check=True, stderr=subprocess.DEVNULL)
+    if tar.wait() != 0:
+        sys.exit(f"error: {entry['id']} has no checkout in {args.container}: it was deleted (--keep-failed)")
+    try:
+        app = scratch / top.name / app_folder(root, entry).relative_to(top)
+        resolve = "require('path').dirname(require.resolve('expo/package.json')) + '/scripts/resolveAppEntry.js'"
+        script = subprocess.run(["node", "--print", resolve], cwd=app, env=env, capture_output=True, text=True).stdout.strip()
+        entry_file = subprocess.run(["node", script, ".", "ios", "absolute"], cwd=app, env=env, capture_output=True, text=True).stdout.strip()
+        log_path = root / "results" / entry["id"] / "bundle-on-mac.log"
+        status = run(["npx", "expo", "export:embed", "--platform", "ios", "--dev", "false", "--entry-file", entry_file,
+                      "--bundle-output", scratch / "main.jsbundle", "--assets-dest", scratch / "assets", "--reset-cache"],
+                     app, env, log_path, timeout=3600)
+        result["bundleOnMac"] = {"exit": status, "error": tail_error(log_path) if status else ""}
+        save_result(root, result)
+        log(f"{entry['id']}: {'bundles on the Mac' if status == 0 else 'fails on the Mac too: ' + result['bundleOnMac']['error'][:200]}")
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 def reclassify(root, names):
     """Reads the kept logs again, after a change to classify or missing_commands."""
     for entry in entries(names):
@@ -733,14 +807,22 @@ def guarded_step(result, name, argv, cwd, env, log_path, produced=None, known=()
     if not wait_for_space(lambda: free_bytes(WORK), "in the volume"):
         return step(result, name, False, time.time(), **{"class": f"not run: less than {MIN_FREE >> 30} GB free in the volume"})
     started = time.time()
+    offset = log_path.stat().st_size if log_path.exists() else 0
     status = run(argv, cwd, env, log_path, timeout=4 * 3600)
+    crash = status in CRASHES or CRASH_MESSAGE.search(output_after(log_path, offset))
+    if crash:
+        log(f"a crash (exit {status}), once more: it can depend on timing, and the app's result should not")
+        status = run(argv, cwd, env, log_path, timeout=4 * 3600)
     outputs = produced() if produced else []
     ok = status == 0 and (produced is None or bool(outputs))
     details = {"exit": status, "missingCommands": missing_commands(log_path)}
+    if crash:
+        details["crashedOnce"] = True
     if outputs:
         details["ipaBytes"] = outputs[0].stat().st_size
     if not ok:
-        failures = classify(log_path) if status != -9 else [{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}]
+        failures = ([{"class": KILLED, "detail": "nomac exited on SIGKILL", "task": "nomac"}] if status == -9
+                    else [{"class": f"nomac crashed (signal {-status})", "task": "nomac"}] if status in CRASHES else classify(log_path))
         failures = [with_known_failures(f, known) for f in failures]
         details.update(failures[0] if failures else {"class": f"exit {status}", "error": tail_error(log_path)})
         details["failures"] = failures[:30]
@@ -842,6 +924,10 @@ def elf_machine(path):
 # Classification of a failed step's log.
 
 DIAGNOSTIC = re.compile(r"(^|: )(fatal )?error: ")
+# SIGILL, SIGTRAP, SIGABRT, SIGBUS, SIGFPE, SIGSEGV: a Swift trap or a crash of nomac itself.
+CRASHES = {-4, -5, -6, -7, -8, -11}
+# Swift's backtracer (backtracer()), under which a crashed process can exit with 1.
+CRASH_MESSAGE = re.compile(r"\*\*\* Program crashed: ([^*\n]+?)(?: at 0x[0-9a-f]+)? \*\*\*")
 KILLED = "killed: the build machine ran out of memory (a process ended on SIGKILL without its diagnostics)"
 GENERIC = re.compile(r"(?i)linker command failed with exit code|failed with a nonzero exit code")
 
@@ -939,7 +1025,9 @@ def classify(log_path):
         if diagnostics:
             failures.append(classify_task("nomac", [lines[i] for i in diagnostics[:5]]))
         elif lines:
-            failures.append({"class": "no error message", "detail": normalize(" | ".join(lines[-3:])), "task": "nomac"})
+            crash = CRASH_MESSAGE.search("\n".join(lines))
+            failures.append({"class": f"a crash: {crash.group(1)}" if crash else "no error message",
+                             "detail": normalize(" | ".join(lines[-3:])), "task": "nomac"})
     return failures
 
 
@@ -971,6 +1059,8 @@ def classify_task(task, output, evidence=()):
 def known_class(text):
     """The class of a failure whose messages show a known cause, else None. The attributed
     error lines are tried before the task's whole output, which holds other tasks' lines too."""
+    if m := CRASH_MESSAGE.search(text):
+        return f"a crash: {m.group(1)}"
     if m := re.search(r"(\S+): cannot execute binary file|exec format error|Exec format error", text):
         return "prebuilt Mach-O tool" + (f" ({Path(m.group(1)).name})" if m.group(1) else "")
     if re.search(r"Could not read serialized diagnostics file", text) and not re.search(r"(^|: )error: ", text, re.M):
@@ -990,7 +1080,14 @@ def known_class(text):
     if re.search(r"invalid ELF header|not a valid ELF|slice is not valid mach-o|wrong ELF class|mach-o file", text, re.I):
         return "native Node module or tool built for macOS"
     if m := re.search(r"Cannot find module '([^']+)'", text):
+        # Node resolves a package's name alike on both systems, except for npm's per-platform packages,
+        # which the install adds for Linux. expo-with-svg: its metro.config.js requires a path of
+        # react-native-svg-transformer that the 0.14.3 of its package.json does not have.
+        if not re.match(r"[./]", m.group(1)) and not re.search(r"linux|darwin|arm64|x64|\.node$", m.group(1)):
+            return f"app: a module the app's own scripts or config require is not installed ({m.group(1)}; fails with Xcode too)"
         return f"Node module missing ({m.group(1)})"
+    if re.search(r"requires a provisioning profile", text):
+        return "app: its entitlements need a provisioning profile, and Xcode refuses ad-hoc signing with them too"
     if re.search(r"(?i)auth(entication)? token is required|not logged in|please run `?\S+ login", text):
         return "app: a script uploads to a service and needs credentials (fails with Xcode too)"
     if re.search(r"Unable to resolve module \S+ from", text):
@@ -1171,10 +1268,12 @@ def counts(root):
         else:
             tally["nomac"] += 1
     stopped = sum(1 for r in results if r.get("finished") and unresolved(r))
+    crashes = [r["id"] for r in decided if any(s.get("crashedOnce") for s in r["steps"].values())]
     builds = sorted({r.get("nomac", "") for r in decided} - {""})
     print(f"{len(decided)} of {len(apps)} apps decided on nomac {', '.join(builds) or '(none yet)'}: {tally['built']} built (archive and "
           f"export too), {tally['app']} the app's own errors, {tally['nomac']} nomac's errors, {tally['install']} did not install; "
-          f"{stopped} stopped by the network or the machine, to run again; {len(apps) - len(decided) - stopped} not run yet.")
+          f"{stopped} stopped by the network or the machine, to run again; {len(apps) - len(decided) - stopped} not run yet."
+          + (f" nomac crashed once, then went on, in: {', '.join(crashes)}." if crashes else ""))
     return 1 if len(decided) < len(apps) else 0
 
 
@@ -1259,7 +1358,7 @@ def report(root, names):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["container", "run", "prepare", "install", "survey", "linux", "report", "counts", "reclassify"])
+    parser.add_argument("command", choices=["container", "run", "prepare", "install", "survey", "linux", "report", "counts", "reclassify", "bundle-on-mac"])
     parser.add_argument("apps", nargs="*")
     parser.add_argument("--root", type=Path, default=Path.home() / "nomac-out" / "sweep")
     parser.add_argument("--volume", default=VOLUME)
@@ -1290,6 +1389,10 @@ def main():
             linux(root, entry, args.slot, args.separate_build)
         return
     env = mac_environment(root)
+    if args.command == "bundle-on-mac":
+        for entry in entries(args.apps):
+            bundle_on_mac(root, entry, args, app_environment(root, entry, env))
+        return
     if args.command == "run":
         return run_all(root, entries(args.apps), args, env)
     for entry in entries(args.apps):
