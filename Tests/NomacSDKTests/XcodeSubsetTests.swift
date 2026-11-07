@@ -59,6 +59,18 @@ import NomacSDK
         #expect(decide("Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib", directory: true) == .skip)
     }
 
+    /// A UI test target's build copies it; the other agents stay out.
+    @Test func keepsTheUITestRunnerOfPayloadPlatforms() {
+        let agents = "Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Xcode/Agents"
+        #expect(decide("Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Xcode", directory: true) == .descend)
+        #expect(decide(agents, directory: true) == .descend)
+        #expect(decide("\(agents)/XCTRunner.app", directory: true) == .keep)
+        #expect(decide("\(agents)/XCPreviewAgent.app", directory: true) == .skip)
+        #expect(decide("\(agents)/xctest") == .skip)
+        #expect(decide("Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Xcode/Templates", directory: true) == .skip)
+        #expect(decide("Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Xcode/Agents/XCTRunner.app", directory: true) == .skip)
+    }
+
     @Test func keepsTestingBinariesOfEveryPlatform() {
         let frameworks = "Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks"
         #expect(decide(frameworks, directory: true) == .descend)

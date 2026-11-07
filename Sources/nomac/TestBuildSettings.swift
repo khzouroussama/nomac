@@ -8,6 +8,20 @@ import NomacProject
 
 /// What a `build-for-testing` built, from the targets' build settings, for the `.xctestrun`.
 enum TestBuildSettings {
+    /// A UI test target's build copies the platform's `XCTRunner.app`, which an SDK that an older
+    /// nomac installed lacks; Swift Build's own error ("not a directory") names no next step.
+    static func checkRunner(targets: [WorkspaceTarget], inspector: BuildSettingsInspector, request: SettingsRequest) async throws {
+        for target in targets where try await inspector.session.evaluate("$(PRODUCT_TYPE)", targetGUID: target.guid, request: request) == "com.apple.product-type.bundle.ui-testing" {
+            let runner = try await inspector.session.evaluate("$(PLATFORM_DIR)", targetGUID: target.guid, request: request) + "/Developer/Library/Xcode/Agents/XCTRunner.app"
+            guard FileSystem.isDirectory(runner) else {
+                throw NomacError("the installed SDK has no UI test runner, which the UI test target \(target.name) needs", path: runner, notes: [
+                    "an older nomac left it out: run 'nomac sdk install <Xcode.xip or Xcode.app>' again, then 'nomac toolchain install'",
+                ])
+            }
+            return
+        }
+    }
+
     /// The description of the build and the folder the `.xctestrun` goes in (`BUILD_DIR`).
     static func describe(scheme: XcodeScheme, targets: [WorkspaceTarget], inspector: BuildSettingsInspector, request: SettingsRequest,
                          workspace: XcodeWorkspace, pif: PIFDocument) async throws -> (TestBuildDescription, String)? {

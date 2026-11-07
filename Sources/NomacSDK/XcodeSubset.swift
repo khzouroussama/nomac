@@ -11,7 +11,7 @@ import Foundation
 ///   `AVAILABLE_PLATFORMS`), so the metadata of all platforms is needed even when building
 ///   for one. These files are small.
 /// * **Payload of the selected platforms.** The SDK itself (headers, `.tbd` stubs, Swift
-///   modules), the platform's testing frameworks, and the toolchain's per-platform runtime
+///   modules), the platform's testing frameworks and UI test runner, and the toolchain's per-platform runtime
 ///   libraries and Clang resource headers (with the `usr/lib/swift/clang` link to them), and the
 ///   toolchain modules' API notes (`usr/lib/swift/apinotes`), and the stub executables Swift
 ///   Build copies into Messages extensions and apps (``messagesStubs``).
@@ -102,7 +102,10 @@ public struct XcodeSubset: Sendable, Equatable {
         case "Library":
             let library = Array(developer.dropFirst())
             guard let kind = library.first else { return .descend }
-            if isPayload { return (kind == "Frameworks" || kind == "PrivateFrameworks") ? .keep : .skip }
+            if isPayload {
+                if kind == "Xcode" { return decideTestRunner(Array(library.dropFirst())) }
+                return (kind == "Frameworks" || kind == "PrivateFrameworks") ? .keep : .skip
+            }
             return kind == "Frameworks" ? decideTestingBinary(Array(library.dropFirst())) : .skip
         case "usr":
             guard isPayload else { return .skip }
@@ -112,6 +115,15 @@ public struct XcodeSubset: Sendable, Equatable {
         default:
             return .skip
         }
+    }
+
+    /// `Library/Xcode/Agents/XCTRunner.app`, which a UI test target's build copies as
+    /// `<Target>-Runner.app` (docs/formats/xctestrun.md "What the build products are").
+    private func decideTestRunner(_ path: [String]) -> Decision {
+        guard let first = path.first else { return .descend }
+        guard first == "Agents" else { return .skip }
+        guard let agent = path.dropFirst().first else { return .descend }
+        return agent == "XCTRunner.app" ? .keep : .skip
     }
 
     /// The folders of `<Name>.platform/Library/Application Support` whose stub executable Swift

@@ -206,6 +206,7 @@ struct BuildOptions: ParsableArguments {
                 derivedDataPath: derivedDataPath.map(FileSystem.xcodebuildSpelling),
                 overrides: overrides,
                 action: archivePath != nil ? .archive : forTesting ? .buildForTesting : .build))
+            if forTesting { try await TestBuildSettings.checkRunner(targets: resolution.buildTargets, inspector: inspector, request: resolution.request) }
             var settings = resolution.request
             // xcodebuild sets SDKROOT to the canonical name of -sdk's SDK, and the TOOLCHAINS of
             // its environment as an override and the toolchain override (expo-default's nested
