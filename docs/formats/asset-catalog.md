@@ -1320,11 +1320,13 @@ actool lists the PNG and does not write it, and `copypng -compress` prints pngcr
 writes nothing and exits with 0. An unknown critical chunk: ImageIO cannot read the file and the
 entry is left out without a word.
 
-8-bit RGB and RGBA inputs give CgBI PNGs (RGB with `tRNS` still has the opaque flag); every other
-form gives a plain PNG of its own samples at its own depth, palette and `tRNS` included, each row
-with filter 0. Interlaced inputs stay interlaced, CgBI ones too, rows pass by pass. Images of at
-least 4,096 pixels in two rows or more are written in halves, 8-bit and not interlaced only (65 ×
-63 no, 64 × 64 and 2,048 × 2 yes, 4,097 × 1 no). The smaller zlib window is for 8-bit samples only.
+8-bit RGB and RGBA inputs give CgBI PNGs (RGB with `tRNS` still has the opaque flag); other 8-bit
+inputs give a plain PNG of their own samples, palette and `tRNS` included, each row with filter 0.
+Every other depth, 1, 2, 4 or 16 bits in any color type, and APNGs (an `acTL` chunk before the image
+data) stay the file they are, byte for byte. Interlaced inputs stay interlaced, CgBI ones too, rows
+pass by pass. Images of at least 4,096 pixels in two rows or more are written in halves, not when
+interlaced (65 × 63 no, 64 × 64 and 2,048 × 2 yes, 4,097 × 1 no), and a stream's `IDAT` chunks hold at
+most 524,288 bytes, which the `iDOT` offset counts.
 
 ### Damaged color profiles (`bad-profiles`)
 
@@ -1437,6 +1439,14 @@ alone changes nothing. Two `gAMA` chunks, a chunk of another length or one after
 none. Icon PNGs keep the file's pixels and the chunk. Converted pixels are equivalent (ADR 0204).
 
 ### Loose PNGs (`copypng`)
+
+With `-compress` or `-strip-PNG-text`, copypng always exits with 0. Other depths and APNGs are copied,
+with `libpng warning: Warning: Input PNG does not have an 8 bit input depth.  Please convert your PNG
+to 8-bit for optimal performance on iPhone OS.` or `libpng warning: Input PNG is an APNG.  Copying
+source file to destination...` on standard error. A file libpng cannot read gives no output and
+`While reading <in> pngcrush caught libpng error:`, `Not a PNG file..` or `Read Error` (cut, or
+empty) or nothing for a damaged image or chunk checksum, then `Could not find file: <out>`, on
+standard output. `-strip-PNG-text` removes text chunks after the image data too.
 
 Swift Build copies a bundle's loose PNGs with Xcode's `copypng` (`COMPRESS_PNG_FILES`,
 `STRIP_PNG_TEXT`, both on for iOS). Without options it copies the file as it is; with

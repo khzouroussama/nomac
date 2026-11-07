@@ -140,15 +140,31 @@ import Testing
         #expect((after.early + after.late).isEmpty)
     }
 
+    /// pngcrush copies other depths and APNGs, and reports files libpng cannot read (`copypng`).
+    @Test func copypngCopiesOtherDepthsAndReportsDamage() {
+        func header(depth: UInt8) -> [UInt8] {
+            [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13] + Array("IHDR".utf8) + [0, 0, 0, 1, 0, 0, 0, 1, depth, 6, 0, 0, 0, 0, 0, 0, 0]
+        }
+        let end: [UInt8] = [0, 0, 0, 0] + Array("IEND".utf8) + [0, 0, 0, 0]
+        #expect(PNGImage.copiedAsIs(header(depth: 16) + end)?.contains("8 bit input depth") == true)
+        #expect(PNGImage.copiedAsIs(header(depth: 8) + end) == nil)
+        #expect(PNGImage.copiedAsIs(header(depth: 8) + [0, 0, 0, 0] + Array("acTL".utf8) + [0, 0, 0, 0] + end)?.contains("APNG") == true)
+        #expect(CopyPNG.unreadable([]) == "Read Error")
+        #expect(CopyPNG.unreadable(Array("not an image".utf8)) == "Not a PNG file..")
+        #expect(CopyPNG.unreadable(header(depth: 8)) == "Read Error")
+        #expect(CopyPNG.unreadable(header(depth: 8) + end) == nil)
+    }
+
     @Test func halvesFromFourThousandNinetySixPixels() {
-        func image(_ width: Int, _ height: Int, depth: Int = 8, interlaced: Bool = false) -> PNGImage {
+        func image(_ width: Int, _ height: Int, interlaced: Bool = false) -> PNGImage {
             var image = PNGImage(width: width, height: height, pixels: [])
-            image.stored.depth = depth
             image.stored.interlaced = interlaced
             return image
         }
         #expect(IconPNG.isHalved(image(64, 64)) && IconPNG.isHalved(image(2048, 2)) && IconPNG.isHalved(image(69, 60)))
         #expect(!IconPNG.isHalved(image(65, 63)) && !IconPNG.isHalved(image(4097, 1)) && !IconPNG.isHalved(image(68, 60)))
-        #expect(!IconPNG.isHalved(image(300, 300, depth: 4)) && !IconPNG.isHalved(image(300, 300, depth: 16)) && !IconPNG.isHalved(image(300, 300, interlaced: true)))
+        #expect(!IconPNG.isHalved(image(300, 300, interlaced: true)))
+        #expect(IconPNG.chunked([UInt8](repeating: 0, count: 621_170)).map(\.count) == [524_288, 96_882])
+        #expect(IconPNG.chunkedSize([UInt8](repeating: 0, count: 621_170)) == 621_194)
     }
 }

@@ -37,6 +37,8 @@ struct PNGImage: Equatable {
         var interlaced = false
         var palette: [UInt8] = []
         var transparency: [UInt8] = []
+        /// The file itself when it is not 8-bit or is an APNG: pngcrush copies those as they are.
+        var verbatim: [UInt8]?
         /// The (row bytes, rows) of each pass.
         var passes: [(rowBytes: Int, rows: Int)] = []
         var samples: [UInt8] = []
@@ -96,6 +98,20 @@ struct PNGImage: Equatable {
             throw NomacError("could not read the image", path: path)
         }
         try self.init(data: [UInt8](data), path: path)
+    }
+
+    /// What libpng says when pngcrush copies a file as it is: not 8-bit, or an APNG (`copypng` forms).
+    static func copiedAsIs(_ bytes: [UInt8]) -> String? {
+        guard bytes.count > 33 else { return nil }
+        if bytes[24] != 8 { return "Warning: Input PNG does not have an 8 bit input depth.  Please convert your PNG to 8-bit for optimal performance on iPhone OS." }
+        var offset = 8
+        while offset + 12 <= bytes.count {
+            let type = bytes[offset + 4..<offset + 8]
+            if type.elementsEqual(Array("IDAT".utf8)) { return nil }
+            if type.elementsEqual(Array("acTL".utf8)) { return "Input PNG is an APNG.  Copying source file to destination..." }
+            offset += 12 + bytes[offset..<offset + 4].reduce(0) { $0 << 8 | Int($1) }
+        }
+        return nil
     }
 
     /// `colorManaged` false reads what the icon PNGs need, the samples and chunks as they are,
@@ -164,6 +180,7 @@ struct PNGImage: Equatable {
         var samples = [UInt8](repeating: 0, count: width * height * channels)
         var position = 0
         var stored = Stored(depth: depth, interlaced: header[12] == 1, palette: palette, transparency: transparency)
+        if Self.copiedAsIs(bytes) != nil { stored.verbatim = bytes }
         for pass in passes {
             let size = passSize(pass)
             guard size.width > 0, size.height > 0 else { continue }

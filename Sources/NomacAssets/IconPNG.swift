@@ -6,17 +6,31 @@ import NomacCore
 /// (docs/formats/asset-catalog.md, "Icon PNGs next to Assets.car"; 19 corpus icons and 33
 /// self-written ones identical).
 enum IconPNG {
-    /// 8-bit images of at least this many pixels in two rows or more, not interlaced, are written
-    /// in two halves, announced by an `iDOT` chunk (`copypng` halves cases: 65 × 63 are not, 64 × 64
-    /// and 2,048 × 2 are, 4,097 × 1 is not, whatever the color type).
+    /// Images of at least this many pixels in two rows or more, not interlaced, are written in two
+    /// halves, announced by an `iDOT` chunk (`copypng` halves cases: 65 × 63 are not, 64 × 64 and
+    /// 2,048 × 2 are, 4,097 × 1 is not, whatever the color type).
     static func isHalved(_ image: PNGImage) -> Bool {
-        image.width * image.height >= 4_096 && image.height > 1 && image.stored.depth == 8 && !image.stored.interlaced
+        image.width * image.height >= 4_096 && image.height > 1 && !image.stored.interlaced
     }
 
-    /// 8-bit RGB and RGBA inputs give CgBI PNGs; every other form a plain PNG of its own samples
-    /// (wikipedia's sticker icons, `app-icons` icons-gray-type cases, `icon-chunks` form cases).
+    /// A deflate stream's `IDAT` chunks hold at most this many bytes (rhel.png of Pisth, 2,000 × 2,031).
+    static let chunkLimit = 524_288
+
+    /// What a stream takes in the file with its chunks' lengths, types and checksums.
+    static func chunkedSize(_ stream: [UInt8]) -> Int {
+        stream.count + 12 * max(1, (stream.count + chunkLimit - 1) / chunkLimit)
+    }
+
+    static func chunked(_ stream: [UInt8]) -> [ArraySlice<UInt8>] {
+        stream.isEmpty ? [stream[...]] : stride(from: 0, to: stream.count, by: chunkLimit).map { stream[$0..<min($0 + chunkLimit, stream.count)] }
+    }
+
+    /// 8-bit RGB and RGBA inputs give CgBI PNGs, other 8-bit ones a plain PNG of their own samples
+    /// (wikipedia's sticker icons, `app-icons` icons-gray-type cases, `icon-chunks` form cases), and
+    /// other depths and APNGs stay the file they are (`icon-chunks`, `copypng` forms).
     static func data(_ image: PNGImage, path: String, smallestWindow: Bool = false) throws -> [UInt8] {
-        guard [2, 6].contains(image.colorType), image.stored.depth == 8 else {
+        if let file = image.stored.verbatim { return file }
+        guard [2, 6].contains(image.colorType) else {
             return try plainData(image, path: path, smallestWindow: smallestWindow)
         }
         var out: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
@@ -34,22 +48,21 @@ enum IconPNG {
         let rows = image.stored.interlaced ? PNGImage.adam7Rows(pixels, width: image.width, height: image.height)
             : (0..<image.height).map { [0] + pixels[$0 * rowBytes..<($0 + 1) * rowBytes] }
         if !isHalved(image) {
-            chunk("IDAT", try deflate([rows.flatMap { $0 }])[0])
+            for part in chunked(try deflate([rows.flatMap { $0 }])[0]) { chunk("IDAT", Array(part)) }
         } else {
-            let top = (image.height + 1) / 2
+            let top = (rows.count + 1) / 2
             let halves = try deflate([rows[..<top].flatMap { $0 }, rows[top...].flatMap { $0 }])
-            let offsets = [2, 0, top, 40, top, image.height - top, 40 + 12 + halves[0].count]
+            let offsets = [2, 0, top, 40, top, rows.count - top, 40 + chunkedSize(halves[0])]
             chunk("iDOT", offsets.flatMap { bigEndian(UInt32($0)) })
-            chunk("IDAT", halves[0])
-            chunk("IDAT", halves[1])
+            for part in chunked(halves[0]) + chunked(halves[1]) { chunk("IDAT", Array(part)) }
         }
         for ancillary in chunks.tail { chunk(ancillary.type, ancillary.data) }
         chunk("IEND", [])
         return out
     }
 
-    /// A plain PNG: `IHDR` with the input's form, the ancillary chunks around its `PLTE` and
-    /// `tRNS`, then every row of its samples with filter 0 in a zlib stream (level 9, `Z_FILTERED`,
+    /// A plain PNG of 8-bit samples: `IHDR` with the input's form, the ancillary chunks around its
+    /// `PLTE` and `tRNS`, then every row of its samples with filter 0 in a zlib stream (level 9, `Z_FILTERED`,
     /// the window reduced as libpng does for small images), in halves after `iDOT` as CgBI PNGs
     /// are. With `smallestWindow` (copypng) the zlib header names the smallest window of at least
     /// 256 bytes that holds the rows, the stream unchanged (experiment `copypng`).
@@ -75,9 +88,8 @@ enum IconPNG {
             }
         }
         let size = rows.reduce(0) { $0 + $1.count }
-        // Only 8-bit samples get the smaller window (`icon-chunks` form-palette-4, form-gray-1).
         var windowBits: Int32 = 15
-        while stored.depth == 8 && windowBits > 8 && size + 262 <= 1 << (windowBits - 1) { windowBits -= 1 }
+        while windowBits > 8 && size + 262 <= 1 << (windowBits - 1) { windowBits -= 1 }
         func stream(_ parts: [[UInt8]]) throws -> [[UInt8]] {
             var streams = try deflate(parts, windowBits: windowBits)
             if smallestWindow {
@@ -89,13 +101,12 @@ enum IconPNG {
             return streams
         }
         if !isHalved(image) {
-            chunk("IDAT", try stream([rows.flatMap { $0 }])[0])
+            for part in chunked(try stream([rows.flatMap { $0 }])[0]) { chunk("IDAT", Array(part)) }
         } else {
             let top = (rows.count + 1) / 2
             let halves = try stream([rows[..<top].flatMap { $0 }, rows[top...].flatMap { $0 }])
-            chunk("iDOT", [2, 0, top, 40, top, rows.count - top, 40 + 12 + halves[0].count].flatMap { bigEndian(UInt32($0)) })
-            chunk("IDAT", halves[0])
-            chunk("IDAT", halves[1])
+            chunk("iDOT", [2, 0, top, 40, top, rows.count - top, 40 + chunkedSize(halves[0])].flatMap { bigEndian(UInt32($0)) })
+            for part in chunked(halves[0]) + chunked(halves[1]) { chunk("IDAT", Array(part)) }
         }
         for ancillary in chunks.tail { chunk(ancillary.type, ancillary.data) }
         chunk("IEND", [])
