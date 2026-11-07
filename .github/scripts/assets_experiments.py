@@ -3335,10 +3335,18 @@ EXPERIMENTS = {
 }
 
 
+def more_experiments():
+    from catalog_rules_experiments import EXPERIMENTS as rules
+    from jpeg_exif_experiment import exp_jpeg_exif
+    from large_tables_experiment import exp_large_tables
+    return {**rules, "jpeg-exif": exp_jpeg_exif, "large-tables": exp_large_tables}
+
+
 def main():
     args = sys.argv[1:]
     if not args:
         sys.exit(__doc__)
+    EXPERIMENTS.update(more_experiments())
     out = Path(args.pop(0)).resolve()
     nomac = None
     if args[:1] == ["--nomac"]:

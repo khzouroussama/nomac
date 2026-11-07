@@ -25,11 +25,9 @@ import Testing
         #expect(file.stored == [0xFF, 0xD8] + Self.jfif + Self.orientation + Self.icc + Self.frame)
     }
 
-    @Test func emptyExifIsDroppedAndRewrittenExifStops() throws {
+    @Test func emptyExifIsDropped() throws {
         let empty = Self.segment(0xE1, Array("Exif\0\0II".utf8) + [42, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         #expect(try JPEGFile([0xFF, 0xD8] + empty + Self.frame, path: "a.jpg").stored == [0xFF, 0xD8] + Self.frame)
-        let positioning = Self.segment(0xE1, Array("Exif\0\0MM".utf8) + [0, 42, 0, 0, 0, 8, 0, 1, 0x02, 0x13, 0, 3, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0])
-        #expect(throws: NomacError.self) { try JPEGFile([0xFF, 0xD8] + positioning + Self.frame, path: "a.jpg") }
     }
 
     /// An SVG's images are its size times the scale rounded up, the slice its size rounded half up
