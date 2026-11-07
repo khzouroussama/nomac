@@ -147,6 +147,8 @@ public struct TestCaseResult: Equatable, Sendable {
     /// `passed`, `failed`, `skipped` or `expected failure`.
     public var status: String
     public var duration: Double
+    /// What XCTest printed about the case, from `ResultBundle.notes(in:)`.
+    public var notes: [ResultBundle.Note] = []
 }
 
 public struct TestRunResult: Sendable {

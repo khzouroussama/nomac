@@ -48,6 +48,16 @@ Image (B-403).
 
 ## Just finished
 
+- `.xcresult`: `nomac test -resultBundlePath` writes a bundle `xcresulttool get test-results`, `get
+  object --legacy` and `get content-availability` read, with failures and skips from XCTest's printed
+  lines (docs/formats/xcresult.md; what it lacks, B-408). Tested with supplied results; no device run.
+- A project set up for automatic signing, measured on Linux (2026-11-07, one small project with a
+  team, with and without entitlements, nomac built in a container): `build` and `archive` sign ad hoc,
+  `install` refuses with the next step; entitlements stop the build with Xcode's message, and export
+  without `signingCertificate` stopped with no next step: both now say what to do. `nomac export` also
+  refused `development`, `ad-hoc` and `app-store`, which Xcode takes as deprecated names: it takes them
+  now. `nomac install` of an ad hoc IPA asked the device: it now says why first, as for a `.app`.
+  docs/INSTALL-ON-IPHONE.md has a section on it. The Mac's unsigned result is left: low priority.
 - `.xctestrun` of code coverage and test plans (the former B-433, B-434): `nomac build
   build-for-testing` no longer refuses such schemes, which include every scheme with
   `shouldAutocreateTestPlan`. Rules from `xctest_experiments.py` `xctestrun-coverage-*`,
@@ -212,24 +222,11 @@ Xcode never saw lists no app service. From pymobiledevice3's `mobile_image_mount
 
 Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free.
 
-0. The automatic-signing measurement, on Linux, once the Mac has 25 GB free (the owner's request,
-   2026-11-07; this workstream owns it, the coverage agent skips it). One small project with
-   `CODE_SIGN_STYLE=Automatic`, a team and entitlements: `nomac build` or `nomac archive`, then
-   `nomac export` and `nomac install`. From the code (`LinuxSigning.overrides`, `identity(for:)`) a
-   Linux build signs ad hoc and `nomac install` refuses it with the next step; nobody has run it. If
-   the user ends with an app that installs or is told the next step, no code change: a note in
-   docs/INSTALL-ON-IPHONE.md if it helps. The Mac's unsigned result is low priority.
-1. `.xcresult` for `nomac test` (no phone): `xctest_experiments.py` `xcresult-pass` and
-   `xcresult-mixed` make Xcode's result bundles on a simulator created and deleted for the run;
-   dissect `Info.plist`, `database.sqlite3` (schema, rows) and `Data/` (compression, objects); aim
-   for a bundle `xcresulttool get test-results summary/tests` reads as it reads Xcode's (ids and
-   times aside). The earlier device bundle was deleted; only `xcresulttool` JSON of it is in
-   `~/nomac-out/xctest/out/test-pass` (holds the UDID: never commit).
-3. With the phone, when the owner allows: the UI tests with `nomac test`; the mixed project
+1. With the phone, when the owner allows: the UI tests with `nomac test`; the mixed project
    (failing, skipped, expected failure: status and output against Xcode's `test-mixed`).
-4. B-403 mount on a device: needs a restart on a host whose CoreDevice does not remount the
+2. B-403 mount on a device: needs a restart on a host whose CoreDevice does not remount the
    image (a Linux host, B-407); the iPhone refuses to unmount Xcode's cryptex image.
-5. B-404: the network route (pairing over Wi-Fi, no USB).
+3. B-404: the network route (pairing over Wi-Fi, no USB).
 
 Staged for these: nomac-built unit-test products in `~/nomac-out/device/apps/xctest-unit`, the
 iOS_DDI copy in `~/nomac-out/device/apps/iOS_DDI`, the crash demo archive in

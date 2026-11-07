@@ -94,6 +94,10 @@ Test session results, code coverage, and logs:
 XCTest writes `XCTestOutputBarrier` (no newline) before its lines; xcodebuild's output has none,
 and `nomac test` removes it, also when a read splits it.
 
+`nomac test -resultBundlePath` prints the same two blocks and writes the bundle of
+docs/formats/xcresult.md. A path that exists stops it as xcodebuild stops, with status 64 and
+`Existing file at -resultBundlePath "<path>"`.
+
 `nomac test` on the owner's iPhone (iOS 27.0.1), from Linux, 2026-11-03: the unit-only variant of
 `xctest_experiments.py`'s project, built and signed by `nomac build ... build-for-testing`, ran
 its 2 tests through this sequence, both passed, status 0 and `** TEST EXECUTE SUCCEEDED **`.

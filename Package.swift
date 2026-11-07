@@ -208,7 +208,7 @@ let package = Package(
         ),
         .target(
             name: "NomacDeviceTest",
-            dependencies: ["NomacCore", "NomacDevice", "NomacPlist", "NomacSigning"]
+            dependencies: ["NomacCore", "NomacDevice", "NomacPlist", "NomacSigning", "CSQLite"]
         ),
         .systemLibrary(name: "CZlib", providers: [.apt(["zlib1g-dev"])]),
         .systemLibrary(name: "CSQLite", providers: [.apt(["libsqlite3-dev"])]),

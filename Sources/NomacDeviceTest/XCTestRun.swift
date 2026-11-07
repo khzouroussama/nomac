@@ -33,6 +33,9 @@ public struct XCTestRun: Sendable {
         public var hostBundleIdentifier: String? { string("TestHostBundleIdentifier") }
         public var hostPath: String? { string("TestHostPath") }
         public var dependentProductPaths: [String] { strings("DependentProductPaths") }
+        public var projectRelativePath: String { string("BlueprintProviderRelativePath") ?? "" }
+        public var language: String { string("TestLanguage") ?? "" }
+        public var region: String { string("TestRegion") ?? "" }
 
         /// What a test plan asks of the run that `nomac test` does not do yet (BACKLOG B-408).
         public var unappliedOptions: [String] {
@@ -49,6 +52,12 @@ public struct XCTestRun: Sendable {
     public var entries: [Entry]
     /// The folder `__TESTROOT__` stands for.
     public var root: String
+    public var schemeName = ""
+    public var containerName = ""
+    /// The test plan's name, in format 2.
+    public var planName: String?
+    /// The SDK's version in the file's name (`App_iphoneos27.0-arm64.xctestrun`).
+    public var sdkVersion = ""
 
     public init(path: String) throws {
         let top = try Self.dictionary(at: path)
@@ -57,6 +66,16 @@ public struct XCTestRun: Sendable {
             formatVersion = Int(version)
         } else {
             formatVersion = 1
+        }
+        let information: PropertyListValue? = if case .dictionary(let metadata)? = top["__xctestrun_metadata__"], let inner = metadata["ContainerInfo"] { inner } else { top["ContainerInfo"] }
+        if case .dictionary(let container)? = information {
+            if case .string(let name)? = container["SchemeName"] { schemeName = name }
+            if case .string(let name)? = container["ContainerName"] { containerName = name }
+        }
+        if case .dictionary(let plan)? = top["TestPlan"], case .string(let name)? = plan["Name"] { planName = name }
+        if let range = (path as NSString).lastPathComponent.range(of: "iphoneos") {
+            let rest = (path as NSString).lastPathComponent[range.upperBound...]
+            sdkVersion = String(rest.prefix { $0 != "-" })
         }
         switch formatVersion {
         case 1:

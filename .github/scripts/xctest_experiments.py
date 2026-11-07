@@ -24,8 +24,11 @@ runs offline; the test run itself only talks to the device.
   option the corpus's plans use, and two plans in one scheme.
   With --nomac, `nomac build ... build-for-testing` runs on the same project and its `.xctestrun`
   and products are compared with Xcode's.
-- xcresult-pass, xcresult-mixed: `xcodebuild test` of the unit-test-only project on a simulator made
-  and deleted for the run, keeping the result bundle in the experiment's folder, to dissect it.
+- xcresult-pass, xcresult-mixed, xcresult-ui, xcresult-configurations: `xcodebuild test` of the
+  unit-test-only project, of a UI test, and of a plan of two configurations, on a simulator made and
+  deleted for the run, keeping the result bundle in the experiment's folder, to dissect it.
+- xcresult-without-building: the same through `build-for-testing` and `test-without-building`, what
+  `nomac test` follows.
 - installed: the bundle identifiers on the device after a run (installed apps whose identifier
   starts with --bundle-prefix), then their removal.
 
@@ -501,16 +504,23 @@ def test_without_building(work, out, device):
     print(f"{out.name}: status {result.returncode}; {'; '.join(summary[-2:])}")
 
 
-def simulator_result_bundle(work, out):
+def simulator_result_bundle(work, out, without_building=False):
     """`xcodebuild test` on a new simulator; the result bundle stays in `out`, outside the repository."""
     simulator = subprocess.run(["xcrun", "simctl", "create", "nomac-xcresult", "com.apple.CoreSimulator.SimDeviceType.iPhone-17", "com.apple.CoreSimulator.SimRuntime.iOS-27-0"],
                                env=environment(), capture_output=True, text=True, check=True).stdout.strip()
     bundle = out / "App.xcresult"
     out.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(bundle, ignore_errors=True)
+    destination = f"platform=iOS Simulator,id={simulator}"
+    derived = work / "DerivedData"
     try:
-        result = subprocess.run(OFFLINE + ["xcodebuild", "test", "-project", "App.xcodeproj", "-scheme", "App", "-destination", f"platform=iOS Simulator,id={simulator}",
-                                           "-derivedDataPath", str(work / "DerivedData"), "-resultBundlePath", str(bundle)],
+        if without_building:
+            subprocess.run(OFFLINE + ["xcodebuild", "build-for-testing", "-project", "App.xcodeproj", "-scheme", "App", "-destination", destination, "-derivedDataPath", str(derived)],
+                           cwd=work, env=environment(), capture_output=True, text=True)
+            test = ["test-without-building", "-xctestrun", str(next((derived / "Build/Products").glob("*.xctestrun")))]
+        else:
+            test = ["test", "-project", "App.xcodeproj", "-scheme", "App", "-derivedDataPath", str(derived)]
+        result = subprocess.run(OFFLINE + ["xcodebuild", *test, "-destination", destination, "-resultBundlePath", str(bundle)],
                                 cwd=work, env=environment(), capture_output=True, text=True)
         (out / "stdout.txt").write_text(scrub(result.stdout, simulator))
         (out / "stderr.txt").write_text(scrub(result.stderr, simulator))
@@ -634,8 +644,14 @@ def main():
             continue
         if experiment.startswith("xcresult-"):
             work = arguments.work / experiment
-            write_project(work, arguments.bundle_prefix, arguments.team, arguments.profile, experiment == "xcresult-mixed", {"unsigned": True, "no_ui": True})
-            simulator_result_bundle(work, arguments.output / experiment)
+            variant = {"unsigned": True, "no_ui": True}
+            if experiment == "xcresult-ui":
+                variant = {"unsigned": True, "no_unit": True}
+            if experiment == "xcresult-configurations":
+                variant = {"unsigned": True, "test_plan": True, "plan": {"default": {"codeCoverage": False}, "targets": {"AppUITests": {"enabled": False}}, "configurations": [
+                    {"name": "One", "options": {"language": "de"}}, {"name": "Two", "options": {"region": "GB"}}]}}
+            write_project(work, arguments.bundle_prefix, arguments.team, arguments.profile, experiment == "xcresult-mixed", variant)
+            simulator_result_bundle(work, arguments.output / experiment, experiment == "xcresult-without-building")
             continue
         mixed = experiment == "test-mixed"
         work = arguments.work / ("mixed" if mixed else "pass")
