@@ -21,8 +21,9 @@ public enum MobileImageMounter {
     public static func entries(on stream: ByteStream) throws -> [[String: PropertyListValue]] {
         try PropertyListMessages.send(["Command": .string("CopyDevices")], on: stream)
         let reply = try PropertyListMessages.receive(from: stream, source: "mobile_image_mounter")
-        if case .string(let error)? = reply["Error"] { throw NomacError("mobile_image_mounter refused CopyDevices: \(error)") }
-        guard case .array(let entries)? = reply["EntryList"] else { throw NomacError("mobile_image_mounter's CopyDevices reply has no EntryList") }
+        if reply["Error"] != nil { throw failure(reply, "CopyDevices") }
+        // No list means nothing mounted, as pymobiledevice3 reads it: only ever seen with an image mounted here.
+        guard case .array(let entries)? = reply["EntryList"] else { return [] }
         return entries.compactMap { if case .dictionary(let fields) = $0 { fields } else { nil } }
     }
 
@@ -77,16 +78,18 @@ public enum MobileImageMounter {
 
     /// Mounts the uploaded personalized image with its ticket and trust cache (`MountImage`).
     public static func mount(ticket: [UInt8], trustCache: [UInt8], on stream: ByteStream) throws {
-        let reply = try exchange(["Command": .string("MountImage"), "ImageType": .string("Personalized"),
-                                  "ImageSignature": .data(ticket), "ImageTrustCache": .data(trustCache)], on: stream)
-        guard reply["Status"] == .string("Complete") else { throw failure(reply, "MountImage") }
+        // Already mounted is what was wanted (pymobiledevice3's AlreadyMountedError, success in its command).
+        try PropertyListMessages.send(["Command": .string("MountImage"), "ImageType": .string("Personalized"),
+                                       "ImageSignature": .data(ticket), "ImageTrustCache": .data(trustCache)], on: stream)
+        let reply = try PropertyListMessages.receive(from: stream, source: "mobile_image_mounter")
+        if case .string(let detail)? = reply["DetailedError"], detail.contains("is already mounted") { return }
+        guard reply["Error"] == nil, reply["Status"] == .string("Complete") else { throw failure(reply, "MountImage") }
     }
 
     /// Unmounts the image mounted at `mountPath` (`UnmountImage`; the Developer Disk Image's is
     /// `/System/Developer`).
     public static func unmount(mountPath: String, on stream: ByteStream) throws {
-        let reply = try exchange(["Command": .string("UnmountImage"), "MountPath": .string(mountPath)], on: stream)
-        guard reply["Status"] == .string("Complete") else { throw failure(reply, "UnmountImage") }
+        _ = try exchange(["Command": .string("UnmountImage"), "MountPath": .string(mountPath)], on: stream)
     }
 
     static func exchange(_ request: [String: PropertyListValue], on stream: ByteStream) throws -> [String: PropertyListValue] {
@@ -101,6 +104,9 @@ public enum MobileImageMounter {
 
     static func failure(_ reply: [String: PropertyListValue], _ request: String) -> NomacError {
         let text = { (key: String) -> String? in if case .string(let value)? = reply[key] { value } else { nil } }
-        return NomacError("mobile_image_mounter refused \(request): " + ([text("Error"), text("DetailedError"), text("Status")].compactMap { $0 }.joined(separator: "; ")))
+        var notes: [String] = []
+        if text("Error") == "DeviceLocked" { notes.append("the device is locked: unlock it and run the command again") }
+        if text("DetailedError")?.contains("Developer mode is not enabled") == true { notes.append("Developer Mode is off: 'nomac device developer-mode --device <UDID>' says what to do") }
+        return NomacError("mobile_image_mounter refused \(request): " + ([text("Error"), text("DetailedError"), text("Status")].compactMap { $0 }.joined(separator: "; ")), notes: notes)
     }
 }

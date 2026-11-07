@@ -219,6 +219,7 @@ struct DeviceCommand: ParsableCommand {
         func run() throws {
             let session = try DeviceSession(usbmux: USBMuxClient(address: try USBMux.address(environment: ProcessInfo.processInfo.environment)), udid: device)
             guard try !session.developerDiskImageMounted() else { return print("the Developer Disk Image is already mounted") }
+            _ = try session.checkDeveloperMode()
             try session.mount(try DeveloperDiskImage.locate(developerDiskImagePath(ddi)), progress: { print($0) })
             print("mounted the Developer Disk Image on \(device)")
         }

@@ -51,14 +51,16 @@ No iPhone has answered nomac's yet (B-407).
    2048 key, valid ten years: a root (`basicConstraints` critical `CA:TRUE`), the host's for a new
    RSA 2048 key and the device's for its key (`basicConstraints` critical `CA:FALSE`, `keyUsage`
    critical `digitalSignature, keyEncipherment`; the device's also `subjectKeyIdentifier`, the
-   SHA-1 of the key's bits). libimobiledevice writes serial number 0 and, not knowing the device's
-   version at this point, SHA-1; pymobiledevice3 writes 1 and SHA-256; nomac follows pymobiledevice3,
-   and starts the validity a minute early as it does.
+   SHA-1 of the key's bits). libimobiledevice writes serial number 0, and version 1.3.0 SHA-1 (observed:
+   Ubuntu 24.04's; its current source SHA-256); pymobiledevice3 writes 1 and SHA-256; nomac follows
+   pymobiledevice3, and starts the validity a minute early as it does.
 3. `Pair` with `PairRecord` (`DeviceCertificate`, `HostCertificate`, `RootCertificate` as PEM in
    data, `HostID` a new upper-case UUID, `SystemBUID`), `ProtocolVersion` `2` and `PairingOptions`
    `{ExtendedPairingErrors: true}`. The answers: `Error` `PairingDialogResponsePending` (the
    dialog is up), `PasswordProtected` (locked), `UserDeniedPairing`, or success with `EscrowBag`.
-   Asked again every second, as pymobiledevice3 does; each attempt a new connection.
+   Asked again every second, as pymobiledevice3 does; each attempt a new connection, looking first
+   for a record usbmuxd saved: on Linux its preflight pairs as soon as the user taps Trust. Whether
+   the device keeps two pairings of one BUID is not known.
 4. `SavePairRecord` to usbmuxd with the request's fields plus `HostPrivateKey`, `RootPrivateKey`,
    `EscrowBag` and `WiFiMACAddress`, the nine keys libimobiledevice saves.
 

@@ -11,13 +11,14 @@ import Testing
 @Suite struct PairingTests {
     static let udid = ScriptedDevice.udid
 
-    func pair(_ device: ScriptedDevice, timeout: TimeInterval = 120) throws -> (outcome: Pairing.Outcome, lines: [String], waits: Int) {
+    func pair(_ device: ScriptedDevice, timeout: TimeInterval = 120, onWait: (Int) -> Void = { _ in }) throws -> (outcome: Pairing.Outcome, lines: [String], waits: Int) {
         var lines: [String] = []
         var waits = 0
         var now = Date(timeIntervalSince1970: 1_800_000_000)
         let outcome = try Pairing.pair(usbmux: device.client, udid: Self.udid, timeout: timeout, at: { now }, wait: {
             waits += 1
             now.addTimeInterval($0)
+            onWait(waits)
         }, progress: { lines.append($0) })
         return (outcome, lines, waits)
     }
@@ -93,6 +94,43 @@ import Testing
         let (outcome, _, _) = try pair(device)
         #expect(outcome == .paired)
         #expect(try PropertyListMessages.dictionary(try #require(device.records[Self.udid]), source: "test")["HostID"] == .string("USBMUXD"))
+    }
+
+    /// The record usbmuxd saved after Trust serves before nomac would pair a second time.
+    @Test func aRecordThatAppearsStopsThePairingBeforeAnotherRequest() throws {
+        let device = ScriptedDevice()
+        device.pairAnswers = ["pending"]
+        let outcome = try pair(device) { _ in
+            device.trustedHosts.insert("USBMUXD")
+            device.records[Self.udid] = ScriptedDevice.record(hostID: "USBMUXD")
+        }
+        #expect(outcome.outcome == .paired)
+        #expect(device.pairRequests.count == 1)
+    }
+
+    /// nomac's own advice: unplug and plug in. The device comes back under a new ID.
+    @Test func aDeviceThatLeavesAndComesBackIsWaitedFor() throws {
+        let device = ScriptedDevice()
+        device.pairAnswers = ["pending", "ok"]
+        let serial = device.listed
+        let (outcome, lines, _) = try pair(device) { waits in device.listed = waits == 1 ? [] : ["00000000-0000000000000001"] + serial }
+        #expect(outcome == .paired)
+        #expect(lines.contains("waiting for the device to come back: plug it in and unlock it"))
+    }
+
+    /// A locked device with a good record is no reason to replace the record.
+    @Test func aLockedPairedDeviceKeepsItsRecord() throws {
+        let device = ScriptedDevice()
+        device.records[Self.udid] = ScriptedDevice.record(hostID: "KNOWN")
+        device.sessionError = "PasswordProtected"
+        do {
+            _ = try pair(device)
+            Issue.record("a locked device paired")
+        } catch let error as NomacError {
+            #expect(error.message == "lockdownd refused StartSession: PasswordProtected")
+            #expect(error.notes.first?.contains("unlock") == true)
+        }
+        #expect(device.pairRequests.isEmpty)
     }
 
     @Test func aRefusalSaysHowToAskAgain() throws {
@@ -172,6 +210,14 @@ import Testing
         #expect(try session(device).checkDeveloperMode() == nil)
     }
 
+    /// A refusal other than a missing value is not a device from before Developer Mode.
+    @Test func anotherRefusalIsSaid() throws {
+        let device = ScriptedDevice()
+        let session = try session(device)
+        device.developerModeError = "SessionInactive"
+        #expect(throws: NomacError("lockdownd refused GetValue: SessionInactive", notes: ["the lockdown session ended: run the command again"])) { try session.checkDeveloperMode() }
+    }
+
     /// A broken connection is not a device that does not report Developer Mode.
     @Test func aBrokenConnectionIsNotNotReported() throws {
         final class Broken: ByteStream {
@@ -196,6 +242,71 @@ import Testing
         #expect(throws: NomacError("the device refused to show Developer Mode: nope")) { try session(device).revealDeveloperMode() }
         device.amfiReply = ["status": .boolean(false)]
         #expect(throws: NomacError("AMFI did not say it showed Developer Mode")) { try session(device).revealDeveloperMode() }
+        device.amfiReply = ["success": .boolean(false)]
+        #expect(throws: NomacError("AMFI did not say it showed Developer Mode")) { try session(device).revealDeveloperMode() }
+    }
+}
+
+/// `mobile_image_mounter`'s replies as pymobiledevice3 and libimobiledevice read them.
+@Suite struct MountRepliesTests {
+    @Test func noListMeansNothingMounted() throws {
+        #expect(try MobileImageMounter.entries(on: ReplayStream(replies: [["Status": .string("Complete")]])).isEmpty)
+    }
+
+    @Test func aLockedDeviceSaysToUnlock() {
+        let error = MobileImageMounter.failure(["Error": .string("DeviceLocked")], "ReceiveBytes")
+        #expect(error.message == "mobile_image_mounter refused ReceiveBytes: DeviceLocked")
+        #expect(error.notes == ["the device is locked: unlock it and run the command again"])
+    }
+
+    @Test func developerModeOffNamesTheCommand() {
+        let error = MobileImageMounter.failure(["Error": .string("InternalError"), "DetailedError": .string("Developer mode is not enabled.")], "MountImage")
+        #expect(error.notes.first?.contains("nomac device developer-mode") == true)
+    }
+
+    /// pymobiledevice3 takes this for success.
+    @Test func alreadyMountedIsWhatWasWanted() throws {
+        let stream = ReplayStream(replies: [["Error": .string("InternalError"), "DetailedError": .string("A Personalized image is already mounted at /System/Developer.")]])
+        try MobileImageMounter.mount(ticket: [1], trustCache: [2], on: stream)
+        let other = ReplayStream(replies: [["Error": .string("InternalError"), "DetailedError": .string("Other")]])
+        #expect(throws: NomacError.self) { try MobileImageMounter.mount(ticket: [1], trustCache: [2], on: other) }
+    }
+
+    /// Both references read only `Error` here; no successful reply has been seen.
+    @Test func unmountAsksOnlyThatThereIsNoError() throws {
+        try MobileImageMounter.unmount(mountPath: "/System/Developer", on: ReplayStream(replies: [[:].merging(["Status": .string("Unmounted")]) { $1 }]))
+    }
+
+    /// A Linux trust store refuses gs.apple.com's chain; plain HTTP answers the same.
+    @Test func theTSSServerOffMacOS() {
+        #if os(macOS)
+        #expect(Personalization.server.scheme == "https")
+        #else
+        #expect(Personalization.server.scheme == "http")
+        #endif
+        #expect(Personalization.server.host == "gs.apple.com" && Personalization.server.query == "action=2")
+    }
+
+    @Test func aBoardNoImageListsSaysWhatItCanStillDo() {
+        do {
+            _ = try Personalization.buildIdentity(manifest: ["BuildIdentities": .array([])], identifiers: ["BoardId": .integer(4), "ChipID": .integer(0x8150)])
+            Issue.record("a board with no image passed")
+        } catch let error as NomacError {
+            #expect(error.message == "the Developer Disk Image has no personalized disk image for board 0x04 and chip 0x8150")
+            #expect(error.notes.contains { $0.contains("--no-launch") } && error.notes.contains { $0.contains("cryptex") })
+        } catch {
+            Issue.record("\(error)")
+        }
+    }
+
+    /// An upload is several TLS records: the size of a Developer Disk Image's is 16 MB.
+    @Test func aLargeWriteThroughTLS() throws {
+        let pipe = try TLSStreamTests.ServerPipe()
+        let identity = Array(TestIdentities.appleShaped.utf8)
+        let tls = try TLSStream(over: pipe, certificate: identity, privateKey: identity)
+        let bytes = (0..<(3 * 1024 * 1024)).map { UInt8(truncatingIfNeeded: $0 &* 31) }
+        try tls.write(bytes)
+        #expect(try pipe.received() == bytes)
     }
 }
 

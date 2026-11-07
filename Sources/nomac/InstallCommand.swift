@@ -228,6 +228,8 @@ func launch(_ bundleIdentifier: String, arguments: [String], on device: String, 
 /// the device has none mounted.
 func mountDeveloperDiskImageIfNeeded(_ session: DeviceSession, ddi: String?) throws {
     guard try !session.developerDiskImageMounted() else { return }
+    // Before a request to Apple and an upload, as pymobiledevice3 and ideviceimagemounter check.
+    _ = try session.checkDeveloperMode()
     print("mounting the Developer Disk Image")
     try session.mount(try DeveloperDiskImage.locate(developerDiskImagePath(ddi)), progress: { print($0) })
 }

@@ -23,6 +23,9 @@ final class ScriptedDevice {
     var pairRequests: [[String: PropertyListValue]] = []
     var serviceMessages: [[String: PropertyListValue]] = []
     var amfiReply: [String: PropertyListValue] = ["success": .boolean(true)]
+    /// What `StartSession` and Developer Mode's `GetValue` always answer, when set.
+    var sessionError: String?
+    var developerModeError: String?
 
     var host = USBMuxHost(isLinux: true, exists: { _ in true }, isWritable: { _ in true }, daemon: { "/usr/sbin/usbmuxd" }, appleDevices: { [] })
 
@@ -126,7 +129,13 @@ final class ScriptedDevice {
                 case .string("WiFiAddress")?: reply["Value"] = .string("00:00:00:00:00:01")
                 case .string("ProductVersion")?: reply["Value"] = .string("27.0.1")
                 case .string("DeveloperModeStatus")?:
-                    if let status = device.developerMode { reply["Value"] = status } else { reply["Error"] = .string("MissingValue") }
+                    if let error = device.developerModeError {
+                        reply["Error"] = .string(error)
+                    } else if let status = device.developerMode {
+                        reply["Value"] = status
+                    } else {
+                        reply["Error"] = .string("MissingValue")
+                    }
                 default: reply["Error"] = .string("MissingValue")
                 }
             case "Pair":
@@ -145,6 +154,10 @@ final class ScriptedDevice {
                     device.records[ScriptedDevice.udid] = ScriptedDevice.record(hostID: "USBMUXD")
                 }
             case "StartSession":
+                if let error = device.sessionError {
+                    reply["Error"] = .string(error)
+                    break
+                }
                 guard case .string(let hostID)? = message["HostID"], device.trustedHosts.contains(hostID) else {
                     reply["Error"] = .string("InvalidHostID")
                     break

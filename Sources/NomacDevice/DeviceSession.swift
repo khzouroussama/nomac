@@ -58,7 +58,7 @@ public final class DeviceSession {
         let status: PropertyListValue
         do {
             status = try value(domain: "com.apple.security.mac.amfi", key: "DeveloperModeStatus")
-        } catch let error as NomacError where error.message.hasPrefix("lockdownd refused") {
+        } catch let error as NomacError where error.message.hasSuffix(": MissingValue") {
             return nil
         }
         switch status {
@@ -77,7 +77,7 @@ public final class DeviceSession {
         try PropertyListMessages.send(["action": .integer(0)], on: amfi)
         let reply = try PropertyListMessages.receive(from: amfi, source: "AMFI")
         if case .string(let error)? = reply["Error"] { throw NomacError("the device refused to show Developer Mode: \(error)") }
-        guard reply["success"] != nil else { throw NomacError("AMFI did not say it showed Developer Mode") }
+        guard reply["success"] != nil, reply["success"] != .boolean(false) else { throw NomacError("AMFI did not say it showed Developer Mode") }
     }
 
     public static let amfiServiceName = "com.apple.amfi.lockdown"
@@ -171,6 +171,7 @@ public final class DeviceSession {
     /// reports.
     public static let developerDiskImageNote =
         "its Developer Disk Image is not mounted: 'nomac device mount' mounts it"
+    static let justMountedNote = "its Developer Disk Image is mounted: if that just happened, run the command again in a few seconds"
 
     /// Sends `signal` to every process of the installed app (its executable inside the app's
     /// path), through the app service's `listprocesses` and `sendsignaltoprocess`; returns the
@@ -224,7 +225,7 @@ public final class DeviceSession {
         let (network, ports) = try openCoreDevice()
         guard let port = ports[AppService.serviceName] else {
             let mounted = (try? developerDiskImageMounted()) ?? false
-            throw NomacError("the device lists no \(AppService.serviceName)", notes: mounted ? [] : [DeviceSession.developerDiskImageNote])
+            throw NomacError("the device lists no \(AppService.serviceName)", notes: [mounted ? DeviceSession.justMountedNote : DeviceSession.developerDiskImageNote])
         }
         return (network, port)
     }
@@ -242,7 +243,7 @@ public final class DeviceSession {
         let (network, ports) = try openCoreDevice()
         guard let port = ports[AppService.serviceName] else {
             let mounted = (try? developerDiskImageMounted()) ?? false
-            throw NomacError("the device lists no \(AppService.serviceName)", notes: mounted ? [] : [DeviceSession.developerDiskImageNote])
+            throw NomacError("the device lists no \(AppService.serviceName)", notes: [mounted ? DeviceSession.justMountedNote : DeviceSession.developerDiskImageNote])
         }
         var standardIO: ProcessConsole?
         if console {
