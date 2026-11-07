@@ -6,8 +6,8 @@ Branch `res/nibs`. BACKLOG B-250–B-269 and B-280–B-289, ADRs 0250–0259 (B-
 ## Current step
 
 Working from the coverage survey's split below, weighted toward live projects (those Xcode 27 accepts
-as they are), with the corpus ranking beside it. Colors first (B-281): the route and the pipeline are
-known, the power function's log2 is what remains. Earlier state, kept for reference:
+as they are), with the corpus ranking beside it. Colors are done but for one route (B-281); next are the
+other families of the split. Earlier state, kept for reference:
 
 Storyboards are split between two agents since 2026-10-31: this one (`res/nibs`) keeps tofu's list
 (text fields, switches, control actions, cell styles, `<mask>`, `firstBaseline`) with BACKLOG
@@ -67,6 +67,12 @@ Causes in this workstream's families (sums of a family's messages; a project can
   is really absent (`Pods/` not installed, files never committed), 0.9%: `nib:document=missing`.
 
 ## Just finished
+
+- Colors (`ColorManagement`, docs/formats/nib.md "Color conversions"): every route but one reproduces
+  CoreGraphics to the bit, found by observing `CGColor` and `ColorSyncTransformCopyProperty`. The table of
+  the corpus's 60 colors is gone. calibratedWhite without colorMatched stays a table of the survey's 97
+  values, its route unexplained (B-281). Scratch: `~/nomac-out/wt-scratch/nibs/color` (`val_d`: the
+  validation harness against `CGColor`; `gg_d`: the unexplained route).
 
 - Second survey batch: text fields' traits by every value (`tf-trait-*`), disabled text fields and their
   tints, cells' view attributes (`cell-attr-*`, `cell-mode-*`), `propertyAccessControl` and `<animations/>`
