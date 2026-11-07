@@ -61,8 +61,9 @@ extension DocumentCompiler {
             }
             contentID = "\(id).contentView"
             contentElement = XIBElement(name: "view", attributes: ["id": contentID])
-            let moved = element.children(named: "constraints").flatMap(\.children).map { constraint in
-                XIBElement(name: constraint.name, attributes: constraint.attributes.mapValues { $0 == id ? contentID : $0 })
+            let moved = try element.children(named: "constraints").flatMap(\.children).map { constraint in
+                guard constraint.children.isEmpty else { throw unsupported("a variation of a constraint of an older collection view cell") }
+                return XIBElement(name: constraint.name, attributes: constraint.attributes.mapValues { $0 == id ? contentID : $0 })
             }
             let constraints = XIBElement(name: "constraints", attributes: [:])
             constraints.children = moved

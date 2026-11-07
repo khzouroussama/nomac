@@ -44,7 +44,7 @@ struct LabelContent {
         if !enabled { encoder.encode(.boolean(false), forKey: "UIEnabled") }
         if let minimumScaleFactor { encoder.encode(.float(minimumScaleFactor), forKey: "UIMinimumScaleFactor") }
         if adjustsLetterSpacingToFit { encoder.encode(.boolean(true), forKey: "UIAdjustsLetterSpacingToFit") }
-        if let preferredMaxLayoutWidth { encoder.encode(.float(preferredMaxLayoutWidth), forKey: "UIPreferredMaxLayoutWidth") }
+        if let preferredMaxLayoutWidth, preferredMaxLayoutWidth != 0 { encoder.encode(.float(preferredMaxLayoutWidth), forKey: "UIPreferredMaxLayoutWidth") }
         encoder.encode(.boolean(disablesTextColorUpdate), forKey: "UIDisableUpdateTextColorOnTraitCollectionChange")
     }
 

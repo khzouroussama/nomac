@@ -77,8 +77,8 @@ struct ProgressContent {
 
     func encode(to encoder: NibEncoder) throws {
         if progress != 0 { encoder.encode(.float(progress), forKey: "UIProgress") }
-        if barStyle { encoder.encode(.integer(1), forKey: "UIProgressViewStyle") }
         if let progressTintColor { try encoder.encode(progressTintColor, forKey: "UIProgressProgressTintColor") }
+        if barStyle { encoder.encode(.integer(1), forKey: "UIProgressViewStyle") }
         if let trackTintColor { try encoder.encode(trackTintColor, forKey: "UIProgressTrackTintColor") }
     }
 

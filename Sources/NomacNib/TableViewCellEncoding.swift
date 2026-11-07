@@ -195,7 +195,7 @@ extension DocumentCompiler {
         for child in element.children(named: "color") where !["backgroundColor", "tintColor"].contains(child.attributes["key"] ?? "") {
             throw unsupported("<color key=\"\(child.attributes["key"] ?? "")\"> in a table view cell")
         }
-        cell.tintColor = try element.child("color", key: "tintColor").map { try color($0) }
+        cell.tintColor = try tint(of: element)
         if let margins = try layoutMargins(element) {
             cell.layoutMargins = margins.margins
             cell.flags.layoutMarginsAreDirectional = margins.directional
@@ -244,6 +244,7 @@ extension DocumentCompiler {
     /// (`cm-sb-proto-frame-inset`).
     private func cellFrameInset(_ element: XIBElement) throws -> XIBElement? {
         guard let inset = element.children(named: "frame").first else { return nil }
+        guard isStoryboard else { throw unsupported("<frame> in a xib's <tableViewCell>") }
         try check(inset, attributes: ["key", "minY", "width", "height"], children: [])
         try value(inset, "key", in: ["frameInset"])
         guard let width = inset.attributes["width"], let height = inset.attributes["height"] else { return nil }

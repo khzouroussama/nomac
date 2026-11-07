@@ -203,6 +203,10 @@ extension DocumentCompiler {
         let attributes = element.attributes
         let first = attributes["firstItem"] ?? owner
         let second = attributes["secondItem"]
+        // ibtool drops a baseline with no second item (seen on live documents, no rule for the rest yet).
+        guard second != nil || !["baseline", "firstBaseline", "lastBaseline"].contains(attributes["firstAttribute"] ?? "") else {
+            throw unsupportedConstraints("a baseline constraint without a second item")
+        }
         if attributes["placeholder"] != nil {
             try value(element, "placeholder", in: ["YES"])
             for id in [first, second].compactMap({ $0 }) where !guides.contains(id) {

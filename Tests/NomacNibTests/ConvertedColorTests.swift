@@ -95,7 +95,7 @@ import Testing
         ([1.0], [0x3f800000])
     ] as [Case])
     func calibratedWhite(_ sample: Case) {
-        #expect([ColorManagement.calibratedWhite(sample.input[0]).bitPattern] == sample.output)
+        #expect([ColorManagement.calibratedWhite(sample.input[0], alpha: 1).bitPattern] == sample.output)
     }
 
     @Test(arguments: [
@@ -111,6 +111,13 @@ import Testing
     func gamma22WhiteToGenericRGB(_ sample: Case) {
         let white = ColorManagement.gamma22WhiteToGenericRGB(sample.input[0]).bitPattern
         #expect([white, white, white] == sample.output)
+    }
+
+    /// `white-alpha-*`: ibtool's gray is clamped only when it is opaque.
+    @Test func clampsAWhiteOnlyWhenOpaque() {
+        #expect(ColorManagement.calibratedWhite(1, alpha: 1).bitPattern == 0x3f800000)
+        #expect(ColorManagement.calibratedWhite(1, alpha: 0.4).bitPattern == 0x3f800001)
+        #expect(ColorManagement.calibratedWhite(1.2, alpha: 0.5).bitPattern == 0x3f800001)
     }
 
     /// `converted-deviceRGB`: flappy-fly-bird's launch screen background.

@@ -330,7 +330,10 @@ struct DocumentCompiler {
                 }
             }
             switch view.kind {
-            case .cell(let cell): ([cell.contentView] + cell.contentView.subviews).forEach(walk)
+            case .cell(let cell):
+                // The labels' storages in all objects' order, the detail label first (`cell-style-variation-both-*`).
+                let styled = [cell.detailTextLabel, cell.imageView, cell.textLabel].compactMap { $0 }
+                ([cell.contentView] + styled + cell.contentView.subviews.filter { view in !styled.contains { $0 === view } }).forEach(walk)
             case .collectionCell(let cell): walk(cell.contentView)
             default: view.subviews.forEach(walk)
             }
@@ -683,7 +686,7 @@ struct DocumentCompiler {
                            customClass: try customClass(element, original: originalClassName ?? Self.originalClassNames[element.name] ?? "UIView"))
         view.isImageView = imageView
         view.adjustsImageSizeForAccessibility = try imageView && bool(element, "adjustsImageSizeForAccessibilityContentSizeCategory", default: false)
-        view.tintColor = try element.child("color", key: "tintColor").map { try color($0) }
+        view.tintColor = try tint(of: element)
         view.restorationIdentifier = element.attributes["restorationIdentifier"].map { string($0) }
         if let margins = try layoutMargins(element) {
             view.layoutMargins = margins.margins
@@ -792,6 +795,12 @@ struct DocumentCompiler {
             } else if let background = view.backgroundColor, background.name != nil, background.components == .gray(white: 1, alpha: 1),
                       !view.kind.groupedTable {
                 view.backgroundColor = systemColor("tableBackgroundColor", background.components)
+            } else if let background = view.backgroundColor, background.name == nil, element.attributes["style"] == "grouped",
+                      case .rgb(let red, let green, let blue, 1) = background.components,
+                      Float(red) == 0.9490196078, Float(green) == 0.9490196078, Float(blue) == 0.968627451 {
+                // On a grouped table, this opaque color as floats is the system's own (`table-background-*`,
+                // `sb-table-background-*`); a plain or inset table keeps it.
+                view.backgroundColor = try color(XIBElement(name: "color", attributes: ["systemColor": "systemGroupedBackgroundColor"]))
             }
         }
         if let name = element.attributes["image"] {
@@ -1071,7 +1080,8 @@ struct DocumentCompiler {
         }
     }
 
-    /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`).
+    /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`). Bar button
+    /// items' are compiled apart (`bars-tb-action`).
     static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker", "refreshControl", "barButtonItem"]
                                         + NibGestureRecognizer.elements)
 
@@ -1260,7 +1270,7 @@ struct DocumentCompiler {
         case "deviceRGB": return try converted(ColorManagement.deviceRGB([try value("red"), try value("green"), try value("blue")]))
         case "displayP3": return try converted(ColorManagement.displayP3([try value("red"), try value("green"), try value("blue")]))
         case "calibratedWhite":
-            return .gray(white: Double(ColorManagement.calibratedWhite(try value("white"))), alpha: try value("alpha"))
+            return .gray(white: Double(ColorManagement.calibratedWhite(try value("white"), alpha: try value("alpha"))), alpha: try value("alpha"))
         case "genericGamma22GrayColorSpace":
             return .gray(white: try value("white"), alpha: try value("alpha"))
         case "sRGB":
@@ -1268,6 +1278,12 @@ struct DocumentCompiler {
         case let other:
             throw unsupportedColor("customColorSpace=\"\(other ?? "")\"")
         }
+    }
+
+    /// A view's `<color key="tintColor">`; the system's own tint is none (`tint-system-*`).
+    mutating func tint(of element: XIBElement) throws -> NibColor? {
+        guard let child = element.child("color", key: "tintColor"), child.attributes["systemColor"] != "tintColor" else { return nil }
+        return try color(child)
     }
 
     /// The runtime name of a view's custom class: Swift's mangled name with the module of

@@ -77,10 +77,11 @@ enum ColorManagement {
         displayP3ToExtendedSRGB(sRGBToDisplayP3(input(components)))
     }
 
-    /// A `calibratedWhite` gray of a color-matched document: Generic Gray to Generic Gray Gamma 2.2
-    /// (`matched-ramp-calibratedWhite`).
-    static func calibratedWhite(_ white: Double) -> Float {
-        min(1, max(0, sRGBInverse(generic(input([white])[0]))))
+    /// A `calibratedWhite` gray of a color-matched document: Generic Gray to Generic Gray Gamma 2.2,
+    /// not clamped but for an opaque gray, which white then names (`matched-ramp-calibratedWhite`, `white-alpha-*`).
+    static func calibratedWhite(_ white: Double, alpha: Double) -> Float {
+        let value = sRGBInverse(generic(input([white])[0]))
+        return alpha == 1 ? min(1, value) : value
     }
 
     /// A gamma 2.2 gray of a document without color matching: gray on Generic RGB's curve (`unmatched-ramp-*`).

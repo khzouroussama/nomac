@@ -70,7 +70,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case effectContentView
         case collection(CollectionContent)
         case textView(TextViewContent)
-        /// `UIToolbar` of no items: the nib's empty array (`toolbar-*`).
+        /// `UIToolbar`, with its items or the nib's empty array (`toolbar-*`, `bars-tb-*`).
         case toolbar(items: NibArray, appearance: BarAppearance)
         case webView(WebViewContent)
         case map(MapContent)
@@ -219,7 +219,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .effectContentView: return constraints
         case .collection(let collection): return (safeAreaPlaceholder.map { [$0] } ?? []) + [collection.layout] + constraints + subviews
         case .segment: return []
-        case .navigationBar(let items, _), .toolbar(let items, _): return constraints + items.elements
+        case .navigationBar(let items, _), .toolbar(let items, _): return (safeAreaPlaceholder.map { [$0] } ?? []) + constraints + items.elements
         case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .webView, .map, .datePicker,
              .pickerView, .searchBar, .refreshControl: break
         }

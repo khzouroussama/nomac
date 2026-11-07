@@ -47,9 +47,11 @@ extension DocumentCompiler {
             for child in accessibility.children {
                 switch (child.name, child.attributes["key"]) {
                 case ("string", "label"):
+                    try check(child, attributes: ["key"], children: [])
                     guard accessibility.attributes["label"] == nil else { throw unsupported("a label in <accessibility> as an attribute and an element") }
                     configuration.label = localizableText(child.text, key: "\(id).accessibilityLabel")
                 case ("string", "hint"):
+                    try check(child, attributes: ["key"], children: [])
                     guard accessibility.attributes["hint"] == nil else { throw unsupported("a hint in <accessibility> as an attribute and an element") }
                     configuration.hint = localizableText(child.text, key: "\(id).accessibilityHint")
                 case ("bool", "isElement"):

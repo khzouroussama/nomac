@@ -30,6 +30,10 @@ extension DocumentCompiler {
                 if let id = itemElement.attributes["id"] { navigationBarItems[id] = item }
                 for barItem in itemElement.children {
                     let button = try documentBarButtonItem(barItem)
+                    // `bars-nb-plain-sys`.
+                    if barItem.attributes["style"] == "plain", let id = barItem.attributes["id"] {
+                        warnings.append((id, "Plain Style unsupported in a Navigation Item [9]"))
+                    }
                     switch barItem.attributes["key"] {
                     case "leftBarButtonItem" where item.leftItems.isEmpty: item.leftItems = [button]
                     case "rightBarButtonItem" where item.rightItems.isEmpty: item.rightItems = [button]

@@ -178,6 +178,10 @@ extension DocumentCompiler {
                 dataDetectorTypes |= bit
             }
         }
+        // `mx-detect-*`.
+        if dataDetectorTypes != 0, try bool(element, "editable", default: true), let id = element.attributes["id"] {
+            warnings.append((id, "Data Detection and Editable (These attributes are mutually exclusive) [9]"))
+        }
         let traitElements = element.children(named: "textInputTraits")
         guard traitElements.count <= 1 else { throw unsupported("a text view with two <textInputTraits>") }
         let traitElement = traitElements.first ?? XIBElement(name: "textInputTraits", attributes: [:])
@@ -206,7 +210,7 @@ extension DocumentCompiler {
             enablesReturnKeyAutomatically: try bool(traitElement, "enablesReturnKeyAutomatically", default: false),
             textContentType: traitAttributes["textContentType"].map { string($0) },
             smartTraits: TextViewContent.smartTraits.filter { traitAttributes[$0.0] != nil }.map(\.1),
-            highlightAttributes: dictionary([("NSColor", systemColor("systemBlueColor", NibColor.systemColors["systemBlueColor"]!)),
+            highlightAttributes: dictionary([("NSColor", try tint(of: element) ?? systemColor("systemBlueColor", NibColor.systemColors["systemBlueColor"]!)),
                                              ("NSTextHighlightOutlineColor", systemColor("secondarySystemFillColor", NibColor.systemColors["secondarySystemFillColor"]!))]))
         content.allowsEditingTextAttributes = allowsEditingTextAttributes
         content.adjustsFontForContentSizeCategory = try bool(element, "adjustsFontForContentSizeCategory", default: false)

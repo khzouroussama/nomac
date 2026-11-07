@@ -83,8 +83,6 @@ struct TableContent {
         if allowsMultipleSelectionDuringEditing { encoder.encode(.boolean(true), forKey: "UIAllowsMultipleSelectionDuringEditing") }
         encoder.encode(.boolean(insetsContentViewsToSafeArea), forKey: "UIInsetsContentViewsToSafeArea")
         if let separatorColor { try encoder.encode(separatorColor, forKey: "UISeparatorColor") }
-        if let sectionIndexBackgroundColor { try encoder.encode(sectionIndexBackgroundColor, forKey: "UISectionIndexBackgroundColor") }
-        if let separatorInset { encoder.encode(.data(NibView.doubles(separatorInset)), forKey: "UISeparatorInset") }
         if !prototypes.isEmpty {
             let nibs = NibDictionary(), externals = NibDictionary()
             nibs.mutable = true
@@ -99,6 +97,8 @@ struct TableContent {
             try encoder.encode(nibs, forKey: "UITableViewCellPrototypeNibs")
             try encoder.encode(externals, forKey: "UITableViewCellPrototypeNibExternalObjects")
         }
+        if let sectionIndexBackgroundColor { try encoder.encode(sectionIndexBackgroundColor, forKey: "UISectionIndexBackgroundColor") }
+        if let separatorInset { encoder.encode(.data(NibView.doubles(separatorInset)), forKey: "UISeparatorInset") }
         encoder.encode(.integer(0), forKey: "UISeparatorInsetReference")
     }
 }
@@ -198,6 +198,10 @@ extension DocumentCompiler {
         guard let style = ["plain": 0, "grouped": 1, "insetGrouped": 2][attributes["style"] ?? "plain"] else {
             throw unsupported("style=\"\(attributes["style"] ?? "")\" in <tableView>")
         }
+        // `table-separator-etched`.
+        if style == 0, attributes["separatorStyle"] == "singleLineEtched", let id = attributes["id"] {
+            warnings.append((id, "Single Line Etched separator on plain style table views [5]"))
+        }
         try value(element, "dataMode", in: ["prototypes", "static"])
         var sections: [NibTableSection] = []
         for container in element.children(named: "sections") {
@@ -235,7 +239,7 @@ extension DocumentCompiler {
                 // ibtool warns of a prototype cell without a reuse identifier, or an empty one, and
                 // leaves it out (`cm-sb-proto-no-reuse-*`, `cm-sb-proto-empty-reuse`).
                 guard let reuseIdentifier = cell.attributes["reuseIdentifier"], !reuseIdentifier.isEmpty else {
-                    guard cell.children(named: "connections").isEmpty else { throw unsupported("a prototype cell without a reuse identifier (ibtool warns)") }
+                    guard !Self.hasConnections(cell) else { throw unsupported("a prototype cell without a reuse identifier (ibtool warns)") }
                     warnings.append((cell.attributes["id"] ?? "", "Prototype table cells must have reuse identifiers [9]"))
                     continue
                 }
@@ -264,6 +268,11 @@ extension DocumentCompiler {
     /// with the document's shared objects.
     /// A prototype cell whose segues the controller holds refers to them through the nib's own
     /// `UpstreamPlaceholder-1`, `-2`, after First Responder, in their document order
+    /// Whether an element or anything inside it connects to something.
+    static func hasConnections(_ element: XIBElement) -> Bool {
+        element.name == "connections" || element.children.contains(where: hasConnections)
+    }
+
     /// (`sb-cellseg-prototype-*`, `sb-cellseg-accessory-*`).
     mutating func prototypeNib(_ element: XIBElement, segues: [Bool], controller: String? = nil) throws -> Data {
         var nested = self

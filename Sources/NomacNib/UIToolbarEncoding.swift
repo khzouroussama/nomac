@@ -43,19 +43,26 @@ extension DocumentCompiler {
                                         "customClass", "customModule", "customModuleProvider"],
                   children: ["connections", "userDefinedRuntimeAttributes", "color"])
         let system = try element.attributes["systemItem"].map { name in
-            guard let system = NibBarButtonItem.systemItems[name] else { throw unsupported("a bar button item of a system item not observed") }
+            // ibtool warns of `pageCurl` (`bars-tb-sys-pagecurl`); nomac does not print that yet.
+            guard name != "pageCurl", let system = NibBarButtonItem.systemItems[name] else { throw unsupported("a bar button item of a system item not observed") }
             return system
         }
         guard system == nil || element.attributes["title"] == nil && element.attributes["image"] == nil else {
             throw unsupported("a system bar button item with a title or an image")
         }
         let item = NibBarButtonItem(systemItem: system, enabled: try bool(element, "enabled", default: true))
-        item.title = element.attributes["title"].map { text($0, id: element.attributes["id"], property: "title") }
+        item.title = element.attributes["title"].flatMap { $0.isEmpty ? nil : text($0, id: element.attributes["id"], property: "title") }
         try value(element, "style", in: ["plain", "done"])
         item.style = element.attributes["style"] == "plain" ? nil : element.attributes["style"] == "done" ? 2 : 1
-        item.tag = try element.attributes["tag"].map { try integer($0, "tag") }
-        item.image = try element.attributes["image"].map { try image($0, catalog: element.attributes["catalog"]) }
-        item.width = try element.attributes["width"].flatMap { system == 5 ? nil : try number($0, "width") }
+        item.tag = try element.attributes["tag"].map { try integer($0, "tag") }.flatMap { $0 == 0 ? nil : $0 }
+        item.image = try element.attributes["image"].flatMap { $0.isEmpty ? nil : try image($0, catalog: element.attributes["catalog"]) }
+        // Only a positive width of a titled or image item or a fixed space is written; on another
+        // system item ibtool prints a note, which nomac does not print yet (`bars-tb-width-*`).
+        guard element.attributes["width"] == nil || system == nil || system == 6 else { throw unsupported("a width on a system bar button item other than a fixed space") }
+        item.width = try element.attributes["width"].flatMap { text in
+            let width = try number(text, "width")
+            return width > 0 ? width : nil
+        }
         for child in element.children(named: "color") {
             try value(child, "key", in: ["tintColor"])
             item.tintColor = try color(child)

@@ -7,6 +7,230 @@ import Testing
 /// (`.github/scripts/nib_experiments.py`, `bars-*`): sizes and SHA-256 digests of Xcode's nibs.
 @Suite struct BarItemTests {
     static let xibs: [(String, String, Int, String)] = [
+        ("bars-tb-width-zero-title", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem width="0.0" title="Item" style="plain" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1090, "1fdc7347661775d4bea0034804d5104bf4f7df350ddd3b4e622de46dd1d65deb"),
+        ("bars-tb-width-negative", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem width="-5" title="X" style="plain" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1087, "a6fe40e566662f5b500dbe7df8b9b2333f35d91cce40d2a02ebd0ff58e42974d"),
+        ("bars-tb-width-fixed-negative", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem width="-16" style="plain" systemItem="fixedSpace" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1117, "aceacd07e3c7c70f0d2a06295f3c79088b3952b6b7122cf129e2e1527c20ee5d"),
+        ("bars-tb-width-fixed", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem width="16" style="plain" systemItem="fixedSpace" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1131, "77b96b65cbe3488b1918bd6382a39f83dd9c03f5f4925d925934a13a43a564c9"),
+        ("bars-tb-tag-zero", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem tag="0" title="Item" style="plain" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1090, "1fdc7347661775d4bea0034804d5104bf4f7df350ddd3b4e622de46dd1d65deb"),
+        ("bars-tb-title-empty", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem title="" image="Icon" style="plain" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1259, "a6a522d2535a4ac3283fd6a959dc5f14818cebcbbc6a6ef43816afd7999d07e6"),
+        ("bars-tb-image-empty", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items>
+                        <barButtonItem image="" title="X" style="plain" id="flx-aa-aa1"/>
+                    </items>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1087, "a6fe40e566662f5b500dbe7df8b9b2333f35d91cce40d2a02ebd0ff58e42974d"),
+        ("bars-tb-safe-guide", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <toolbar opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="tbr-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="49"/>
+                    <items/>
+                    <viewLayoutGuide key="safeArea" id="tbs-aa-aa1"/>
+                </toolbar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
+</document>
+
+"""#, 1209, "2103bb8d71d108c34cfb0888acf081073725f4a57d7261d24f006fb61b2d935a"),
         ("bars-tb-sys-all", #"""
 <?xml version="1.0" encoding="UTF-8"?>
 <document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
@@ -336,6 +560,88 @@ import Testing
     ]
 
     static let storyboards: [(String, String, [String: String])] = [
+        ("bars-ni-title-space-1-s-lead", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES" initialViewController="nvc-aa-aaa">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="nvs-aa-aaa">
+            <objects>
+                <navigationController id="nvc-aa-aaa" sceneMemberID="viewController">
+                    <navigationBar key="navigationBar" contentMode="scaleToFill" id="nvb-aa-aaa">
+                        <rect key="frame" x="0.0" y="59" width="393" height="44"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </navigationBar>
+                    <connections>
+                        <segue destination="vc1-aa-aaa" kind="relationship" relationship="rootViewController" id="rel-aa-aaa"/>
+                    </connections>
+                </navigationController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="nfr-aa-aaa" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="-400" y="0"/>
+        </scene>
+        <scene sceneID="sc1-aa-aaa">
+            <objects>
+                <viewController id="vc1-aa-aaa" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="vw1-aa-aaa">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    </view>
+                    <navigationItem key="navigationItem" title=" " id="nvi-aa-aaa"/>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="fr1-aa-aaa" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="0" y="0"/>
+        </scene>
+    </scenes>
+</document>
+
+"""#, ["UINavigationController-nvc-aa-aaa.nib": "7816e3386032de44d0d5d10c44517e6fd49bc1e52b847d8918a19095d10175a4", "vc1-aa-aaa-view-vw1-aa-aaa.nib": "049be9c5b429b28c1f71eea25171cb7965fdc08e25309c3d4c0acc1c04489f4a"]),
+        ("bars-ni-title-space-2-x-lead", #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES" initialViewController="nvc-aa-aaa">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="nvs-aa-aaa">
+            <objects>
+                <navigationController id="nvc-aa-aaa" sceneMemberID="viewController">
+                    <navigationBar key="navigationBar" contentMode="scaleToFill" id="nvb-aa-aaa">
+                        <rect key="frame" x="0.0" y="59" width="393" height="44"/>
+                        <autoresizingMask key="autoresizingMask"/>
+                    </navigationBar>
+                    <connections>
+                        <segue destination="vc1-aa-aaa" kind="relationship" relationship="rootViewController" id="rel-aa-aaa"/>
+                    </connections>
+                </navigationController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="nfr-aa-aaa" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="-400" y="0"/>
+        </scene>
+        <scene sceneID="sc1-aa-aaa">
+            <objects>
+                <viewController id="vc1-aa-aaa" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="vw1-aa-aaa">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                    </view>
+                    <navigationItem key="navigationItem" title=" x" id="nvi-aa-aaa"/>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="fr1-aa-aaa" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="0" y="0"/>
+        </scene>
+    </scenes>
+</document>
+
+"""#, ["UINavigationController-nvc-aa-aaa.nib": "63a5954bf2f8fba422de07f3c1d7ec22d50b8b4851e08cecad52381c9442692a", "vc1-aa-aaa-view-vw1-aa-aaa.nib": "049be9c5b429b28c1f71eea25171cb7965fdc08e25309c3d4c0acc1c04489f4a"]),
         ("bars-sbn-style-black", #"""
 <?xml version="1.0" encoding="UTF-8"?>
 <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES" initialViewController="nvc-aa-aaa">
@@ -652,6 +958,43 @@ import Testing
             <point key="canvasLocation" x="0" y="0"/>
         </scene>
     </scenes>
+</document>
+
+"""#
+
+    /// `bars-nb-plain-sys`: the same warning for a navigation bar among a xib's subviews.
+    @Test func warnsOfAPlainItemInAXibsNavigationBar() throws {
+        let compiled = try XIBCompiler.compileReportingWarnings(Data(Self.plainNavigationBar.utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
+        #expect(compiled.warnings == ["/tmp/View.xib:bbi-aa-aa2: warning: Plain Style unsupported in a Navigation Item [9]"])
+    }
+
+    static let plainNavigationBar = #"""
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File's Owner"/>
+        <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
+        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="393" height="852"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+                <navigationBar contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="nvb-aa-aa1">
+                    <rect key="frame" x="0" y="0" width="393" height="64"/>
+                    <items>
+                        <navigationItem title="Hello" id="nvi-aa-aa1">
+                            <barButtonItem key="rightBarButtonItem" style="plain" systemItem="add" id="bbi-aa-aa2"/>
+                        </navigationItem>
+                    </items>
+                </navigationBar>
+            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+    </objects>
 </document>
 
 """#
