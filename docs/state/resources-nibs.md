@@ -5,9 +5,16 @@ Branch `res/nibs`. BACKLOG B-250–B-269 and B-280–B-289, ADRs 0250–0259 (B-
 
 ## Current step
 
-Working from the coverage survey's split below, weighted toward live projects (those Xcode 27 accepts
-as they are), with the corpus ranking beside it. Colors are done but for one route (B-281). Next by survey
-weight: B-268 (cells without a `<rect>`), B-267, ties (B-265), B-282. Rank with
+First, documents that come out different from Xcode's (the integrator's priority, 2026-11-07), then
+the coverage survey's split below, weighted toward live projects, with the corpus ranking beside it.
+Done for differences: B-266's rule (a walk of the segues, for nib names and references), which strings
+references share, placeholders of nested segues numbered breadth first, connections under static and
+prototype cells, the layout guides' warning, warnings' order (ADR 0254), colors but for one route
+(B-281). Next: constraint ties (B-265): `~/nomac-out/wt-scratch/nibs/ties/NOTES.md` has a rule for ties
+between views, 1,349 of 1,352 recorded pairs but not held out, and nothing for a safe area's; test it on
+a split by repository, then build it or refuse by name what stays unmeasured. Then the rest of
+`~/nomac-out/wt-scratch/nibs/classify/survey-different.txt` by `tools/classify.py` there (a private copy
+of part B's: it writes `classified.json` beside it), then B-268, B-267, B-282. Rank refusals with
 `nib_survey_split.py` below. To work in parallel, give each agent its own files and observation directory
 (`~/nomac-out/wt-scratch/nibs/agents/<family>/nib`) and one build at a time; the tools in
 `~/nomac-out/wt-scratch/nibs/color` (`objdiff.py`, `keys.py`, `xibdiff.py`, `sbdiff.py`) read `NIB_OBS` and `NOMAC`.

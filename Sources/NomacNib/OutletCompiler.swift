@@ -90,9 +90,10 @@ extension DocumentCompiler {
     /// The order of a nib's objects among connections of one name and class: its views first, from
     /// its top-level views in order, then the others in all objects. A xib walks them depth first
     /// (`act-same-tree-*`, `outlet-same-tree-*`, `act-same-top-nested`). A storyboard takes a view's
-    /// subviews in order and then goes on from the last taken, as a stack (`sb-act-same-*`,
-    /// `sb-outlet-same-tree-*`; the corpus's uncloudnotes DogDoodies, wikipedia
-    /// WMFTwoFactorPasswordViewController and DescriptionEditViewController).
+    /// subviews in order and then goes on from the last taken, as a stack, one top-level view after
+    /// another, a static cell being one, whose views take their subviews last first
+    /// (`sb-act-same-*`, `sb-outlet-same-tree-*`, `sb-static-same-*`; the corpus's uncloudnotes DogDoodies, wikipedia
+    /// WMFTwoFactorPasswordViewController and DescriptionEditViewController, tofu's AccountCreation).
     func connectionWalk(_ allObjects: [NibArchivable]) -> [ObjectIdentifier: Int] {
         func children(_ view: NibView) -> [NibView] {
             switch view.kind {
@@ -106,12 +107,16 @@ extension DocumentCompiler {
         let top = views.filter { !nested.contains(ObjectIdentifier($0)) }
         var walk: [NibView] = []
         if isStoryboard {
-            walk = top
-            var stack = top
-            while let view = stack.popLast() {
-                let subviews = children(view)
-                walk += subviews
-                stack += subviews
+            for root in top {
+                var reversed = false
+                if case .cell = root.kind { reversed = true }
+                walk.append(root)
+                var stack = [root]
+                while let view = stack.popLast() {
+                    let subviews = reversed ? children(view).reversed() : children(view)
+                    walk += subviews
+                    stack += subviews
+                }
             }
         } else {
             func visit(_ view: NibView) {

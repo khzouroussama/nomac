@@ -7019,7 +7019,7 @@ for _name, _attributes in {
 }.items():
     COLOR_ROUTES[f"system-components-{_name}"] = constrained(color_subviews([_attributes]), "")
 for _name in ("black", "darkText", "lightText", "white", "clear", "groupTableViewBackground", "viewFlipsideBackground", "scrollViewTexturedBackground", "underPageBackground"):
-    COLOR_ROUTES[f"unmatched-cocoa-{_name}"] = constrained(color_subviews([f'cocoaTouchSystemColor="{_name}Color"']), "").replace(' colorMatched="YES"', "")
+    COLOR_ROUTES[f"unmatched-route-cocoa-{_name}"] = constrained(color_subviews([f'cocoaTouchSystemColor="{_name}Color"']), "").replace(' colorMatched="YES"', "")
 _DIGITS = 'red="0.12345678901234567" green="0.40000000000000002" blue="0.87654321098765432" alpha="0.33333333333333331" colorSpace="calibratedRGB"'
 COLOR_ROUTES["unmatched-rgb-digits"] = constrained(color_subviews([_DIGITS]), "").replace(' colorMatched="YES"', "")
 COLOR_ROUTES["unmatched-white-digits"] = constrained(color_subviews(['white="0.12345678901234567" alpha="0.33333333333333331" colorSpace="calibratedWhite"']), "").replace(' colorMatched="YES"', "")
@@ -7476,6 +7476,22 @@ STORYBOARDS["sb-ref-plist-three-same-name"] = referencing(("Main", "One"), ("Oth
 STORYBOARDS["sb-ref-plist-same-identifier"] = referencing(("Main", "One"), ("Other", "One"))
 STORYBOARDS["sb-ref-plist-name-is-identifier"] = referencing(("Main", "Main"), ("Other", "Main"))
 STORYBOARDS["sb-ref-plist-no-identifier"] = referencing(("Main",), ("Main",))
+# Which repeated strings the plist's two references share: by length and by the letters used.
+for name, text in {"7-common": "eeeeeee", "7-rare": "QQQQQQQ", "8-common": "eeeeeeee", "8-six": "eeeeeeeV", "8-rare": "eeeeeeeQ", "9-common": "eeeeeeeee", "9-six": "eeeeeeeeV", "9-rare": "eeeeeeeeQ",
+                   "10-common": "eeeeeeeeee", "10-six": "eeeeeeeeeV", "11-common": "eeeeeeeeeee", "11-six": "eeeeeeeeeeV", "12-common": "eeeeeeeeeeee", "14-word": "MainStoryboard", "21-word": "ProfileViewController"}.items():
+    STORYBOARDS[f"sb-ref-plist-repeat-name-{name}"] = referencing((text, "One"), (text, "Two"))
+    STORYBOARDS[f"sb-ref-plist-repeat-identifier-{name}"] = referencing(("Main", text), ("Other", text))
+# Which letters keep a repeated string of eight and of ten characters shared, and characters outside ASCII.
+for _code in range(32, 127):
+    _letter = f"&#x{_code:x};"
+    STORYBOARDS[f"sb-ref-plist-letter-8-{_code:02x}"] = referencing(("eeeeeee" + _letter, "One"), ("eeeeeee" + _letter, "Two"))
+    STORYBOARDS[f"sb-ref-plist-letter-10-{_code:02x}"] = referencing(("eeeeeeeee" + _letter, "One"), ("eeeeeeeee" + _letter, "Two"))
+for name, text in {"7-accent": "eeeeee&#xe9;", "1-accent": "&#xe9;", "7-emoji": "eeeee&#x1f600;", "1-control": "&#x9;"}.items():
+    STORYBOARDS[f"sb-ref-plist-repeat-name-{name}"] = referencing((text, "One"), (text, "Two"))
+STORYBOARDS["sb-ref-plist-identifier-is-nib-name"] = referencing(("Other", "Detail"), ("Main", "Detail")).replace('<viewController id="tab', '<viewController id="tab')
+STORYBOARDS["sb-ref-plist-repeat-three"] = referencing(("Main", "ProfileViewController"), ("Main", "ProfileViewController"), ("Main", "ProfileViewController"))
+STORYBOARDS["sb-ref-plist-repeat-both-roles"] = referencing(("MainStoryboard", "MainStoryboard"), ("MainStoryboard", "MainStoryboard"))
+STORYBOARDS["sb-ref-plist-walk-reversed"] = referencing(("Main", "One"), ("Other", "Two"), ("Third", "Three")).replace('rf1-aa-aaa" kind', 'rfX-aa-aaa" kind').replace('rf3-aa-aaa" kind', 'rf1-aa-aaa" kind').replace('rfX-aa-aaa" kind', 'rf3-aa-aaa" kind')
 for name, tag_attributes in {"toolbar": ("toolbar", ' opaque="NO" clearsContextBeforeDrawing="NO"'), "navigation-bar": ("navigationBar", ' opaque="NO"'), "search-bar": ("searchBar", ' opaque="NO"')}.items():
     tag, attributes = tag_attributes
     EXPERIMENTS[f"custom-{name}"] = constrained(subview("cst-aa-aa1", (10, 20, 300, 44), tag=tag, attributes=attributes + ' customClass="Custom" customModule="T" customModuleProvider="target"'), "")
@@ -7488,6 +7504,20 @@ EXPERIMENTS["warn-adjusts-label-system"] = constrained(label().replace(' transla
 EXPERIMENTS["warn-adjusts-label-style"] = constrained(label(font=font_description({"style": "UICTFontTextStyleBody"})).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
 EXPERIMENTS["warn-adjusts-label-named"] = constrained(label(font=GEORGIA).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
 EXPERIMENTS["warn-adjusts-two"] = constrained(label().replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) + label(identifier="lbb-aa-aa1", frame=(10, 60, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+# The order of several warnings in one table when ids collide, by document order and frames (ids whose hashes meet in seven buckets).
+def adjusting_labels(*labels):
+    return constrained("".join(label(identifier=identifier, frame=frame).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) for identifier, frame in labels), "")
+
+
+_COLLIDING = ["gH1-9e-vhR", "qXN-sO-KUB", "cxh-gH-dY1", "4Xu-ES-Jtr"]
+_SAME_FRAME = (10, 20, 42, 21)
+EXPERIMENTS["warn-adjusts-order-doc"] = adjusting_labels(*[(identifier, _SAME_FRAME) for identifier in _COLLIDING])
+EXPERIMENTS["warn-adjusts-order-doc-again"] = adjusting_labels(*[(identifier, _SAME_FRAME) for identifier in _COLLIDING])
+EXPERIMENTS["warn-adjusts-order-reversed"] = adjusting_labels(*[(identifier, _SAME_FRAME) for identifier in reversed(_COLLIDING)])
+EXPERIMENTS["warn-adjusts-order-swap-middle"] = adjusting_labels(*[(_COLLIDING[k], _SAME_FRAME) for k in (0, 2, 1, 3)])
+EXPERIMENTS["warn-adjusts-order-frames"] = adjusting_labels(*zip(_COLLIDING, [(519, 271, 427, 40), (40, 271, 427, 40), (-40, 8, 138, 273), (439, 7, 138, 276)]))
+EXPERIMENTS["warn-adjusts-order-spaced"] = adjusting_labels(*zip(_COLLIDING, [(10, 20, 42, 21), (10, 60, 42, 21), (10, 100, 42, 21), (10, 140, 42, 21)]))
+EXPERIMENTS["warn-adjusts-order-spaced-up"] = adjusting_labels(*zip(_COLLIDING, [(10, 140, 42, 21), (10, 100, 42, 21), (10, 60, 42, 21), (10, 20, 42, 21)]))
 EXPERIMENTS["warn-adjusts-field-system"] = constrained(text_field(TEXT_FIELD.replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing')), "")
 STORYBOARDS["sb-warn-adjusts-label"] = same_scene(label().replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1))
 
@@ -8179,6 +8209,179 @@ STORYBOARDS["mx-sb-keyboard-guide-real"] = storyboard(scene(view_extra=SUBVIEW +
     + '                        <constraints>\n                            <constraint firstItem="sub-vi-ew1" firstAttribute="top" secondItem="8bC-Xf-vdC" secondAttribute="topMargin" id="kbb-aa-aaa"/>\n'
     + '                            <constraint firstItem="sub-vi-ew1" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="kbd-aa-aaa"/>\n'
     + '                            <constraint firstItem="sub-vi-ew1" firstAttribute="bottom" secondItem="kbd-gg-aaa" secondAttribute="top" id="kbc-aa-aaa"/>\n                        </constraints>\n'))
+
+
+# What the review of the parallel round found against ibtool: widths and empty values of bar button items, a
+# toolbar's safe area, key orders, a baseline without a second item, whites of an alpha, tints.
+BAR_ITEM = '<barButtonItem style="plain" id="flx-aa-aa1"'
+def bar_item_toolbar(attributes):
+    return constrained(toolbar(items=f'<items>\n    <barButtonItem {attributes} id="flx-aa-aa1"/>\n</items>'), "")
+REVIEW_ROUND = {
+    "bars-tb-width-zero-title": bar_item_toolbar('width="0.0" title="Item" style="plain"'),
+    "bars-tb-width-zero-image": bar_item_toolbar('width="0.0" image="Icon" style="plain"'),
+    "bars-tb-width-negative": bar_item_toolbar('width="-5" title="X" style="plain"'),
+    "bars-tb-width-fixed-negative": bar_item_toolbar('width="-16" style="plain" systemItem="fixedSpace"'),
+    "bars-tb-width-fixed": bar_item_toolbar('width="16" style="plain" systemItem="fixedSpace"'),
+    "bars-tb-width-title": bar_item_toolbar('width="42" title="Item" style="plain"'),
+    "bars-tb-tag-zero": bar_item_toolbar('tag="0" title="Item" style="plain"'),
+    "bars-tb-title-empty": bar_item_toolbar('title="" image="Icon" style="plain"'),
+    "bars-tb-image-empty": bar_item_toolbar('image="" title="X" style="plain"'),
+    "bars-tb-safe-guide": constrained(toolbar(extra='\n<viewLayoutGuide key="safeArea" id="tbs-aa-aa1"/>'), "").replace(' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"').replace('        <capability name="documents saved', SAFE_AREA_CAPABILITY + '        <capability name="documents saved'),
+    "label-max-width-zero": constrained(label().replace("<label ", '<label preferredMaxLayoutWidth="0.0" ', 1), ""),
+    "label-max-width-ten": constrained(label().replace("<label ", '<label preferredMaxLayoutWidth="10" ', 1), ""),
+}
+for _white, _alpha in (("1", "0.0"), ("1", "0.4"), ("1", "1"), ("0", "0.5"), ("0.9999", "0.5"), ("0.5", "0.5"), ("1.2", "0.5")):
+    REVIEW_ROUND[f"white-alpha-{_white}-{_alpha}"] = constrained(color_subviews([f'white="{_white}" alpha="{_alpha}" colorSpace="calibratedWhite"']), "")
+for _name, _attributes in {"view": 'systemColor="tintColor"', "cocoa": 'cocoaTouchSystemColor="tintColor"'}.items():
+    REVIEW_ROUND[f"tint-system-{_name}"] = constrained(subview("sss-ss-ss1").replace("</view>", f'    <color key="tintColor" {_attributes}/>\n                </view>'), "")
+REVIEW_ROUND["tint-system-label"] = constrained(label().replace("</label>", '    <color key="tintColor" systemColor="tintColor"/>\n                </label>'), "")
+def both_label_variations(style, ids):
+    variation = '<variation key="widthClass=compact">\n<fontDescription key="fontDescription" type="system" pointSize="20"/>\n</variation>\n'
+    labels = [CM_TITLE.replace("</label>", variation + "</label>")] + ([CM_DETAIL.replace("</label>", variation + "</label>")] if "detailTextLabel" in ids else [])
+    return styled_cell(style, labels, ids)
+REVIEW_ROUND["cell-style-variation-both-value1"] = both_label_variations("IBUITableViewCellStyleValue1", {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1"})
+REVIEW_ROUND["cell-style-variation-both-subtitle"] = both_label_variations("IBUITableViewCellStyleSubtitle", {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1"})
+REVIEW_ROUND["cell-style-variation-both-value2"] = both_label_variations("IBUITableViewCellStyleValue2", {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1"})
+REVIEW_ROUND["text-view-tint-highlight"] = constrained(text_view().replace("</textView>", '    <color key="tintColor" red="0.0" green="0.4" blue="0.1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n                </textView>'), "")
+REVIEW_ROUND["progress-bar-tints"] = constrained(subview("prg-aa-aa1", (20, 100, 200, 2.5), "progressView", ' opaque="NO" contentMode="scaleToFill" verticalHuggingPriority="750" progressViewStyle="bar" progress="0.5"').replace("</progressView>", '    <color key="progressTintColor" white="0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n                    <color key="trackTintColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n                </progressView>'), "")
+_F2 = 'red="0.94901960784313721" green="0.94901960784313721" blue="0.96862745098039216" alpha="1" colorSpace="custom" customColorSpace="sRGB"'
+_EF = 'red="0.93725490196078431" green="0.93725490196078431" blue="0.95686274509803926" alpha="1" colorSpace="custom" customColorSpace="sRGB"'
+for _name, _style, _color in (("grouped-f2", "grouped", _F2), ("plain-f2", "plain", _F2), ("grouped-ef", "grouped", _EF), ("plain-ef", "plain", _EF),
+                              ("grouped-white", "grouped", 'white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"'),
+                              ("plain-white", "plain", 'white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"'),
+                              ("grouped-f2-alpha", "grouped", _F2.replace('alpha="1"', 'alpha="0.5"')),
+                              ("grouped-f2-short", "grouped", 'red="0.949" green="0.949" blue="0.969" alpha="1" colorSpace="custom" customColorSpace="sRGB"'),
+                              ("inset-f2", "insetGrouped", _F2)):
+    REVIEW_ROUND[f"table-background-{_name}"] = table_xib(TABLE_ATTRIBUTES.replace('style="plain"', f'style="{_style}"'), extra=f'                    <color key="backgroundColor" {_color}/>\n')
+for _name, _red, _blue in (("digits10", "0.9490196078", "0.96862745100000003"), ("digits8", "0.94901961", "0.96862745"), ("float", "0.94901961088180542", "0.96862745285034180"),
+                           ("next", "0.94901960784313733", "0.96862745098039216"), ("digits4", "0.949", "0.9686")):
+    _color = f'red="{_red}" green="{_red}" blue="{_blue}" alpha="1" colorSpace="custom" customColorSpace="sRGB"'
+    REVIEW_ROUND[f"table-background-grouped-{_name}"] = table_xib(TABLE_ATTRIBUTES.replace('style="plain"', 'style="grouped"'), extra=f'                    <color key="backgroundColor" {_color}/>\n')
+REVIEW_ROUND["view-background-f2"] = constrained(subview("sss-ss-ss1").replace("</view>", f'    <color key="backgroundColor" {_F2}/>\n                </view>'), "")
+EXPERIMENTS.update(REVIEW_ROUND)
+for _name, _color in (("f2", _F2), ("ef", _EF), ("digits10", 'red="0.9490196078" green="0.9490196078" blue="0.96862745100000003" alpha="1" colorSpace="custom" customColorSpace="sRGB"')):
+    STORYBOARDS[f"sb-table-background-grouped-{_name}"] = storyboard(tvc_scene("", table_attributes=TABLE_ATTRIBUTES.replace(' translatesAutoresizingMaskIntoConstraints="NO"', '').replace('style="plain"', 'style="grouped"')).replace("</tableView>", f'    <color key="backgroundColor" {_color}/>\n                        </tableView>'), initial="tvc-aa-aaa")
+for _title in (" ", "  ", " x", "x ", "\t"):
+    STORYBOARDS[f"bars-ni-title-space-{len(_title)}-{'x' if 'x' in _title else 's'}-{'lead' if _title.startswith(' ') else 'trail'}"] = bars_ni(attributes=f' title="{_title}"') if False else storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=navigation_item(_title, "", "")), initial="nvc-aa-aaa")
+
+
+# When ibtool warns about the controllers' layout guides: with safe areas on, a guide a constraint uses.
+def guide_warning_scene(top=False, bottom=False, identity=""):
+    number = identity or "aa1"
+    constraints = "".join(constraint for used, constraint in ((top, f'<constraint firstItem="lgl-aa-{number}" firstAttribute="top" secondItem="lt{number}-aa-aaa" secondAttribute="bottom" constant="8" id="lc1-aa-{number}"/>'),
+                                                              (bottom, f'<constraint firstItem="lb{number}-aa-aaa" firstAttribute="top" secondItem="lgl-aa-{number}" secondAttribute="bottom" constant="8" id="lc2-aa-{number}"/>')) if used)
+    guides = f'<layoutGuides><viewControllerLayoutGuide type="top" id="lt{number}-aa-aaa"/><viewControllerLayoutGuide type="bottom" id="lb{number}-aa-aaa"/></layoutGuides>'
+    subview = label(identifier=f"lgl-aa-{number}")
+    return scene(controller=f"lgc-aa-{number}", view_id=f"lgv-aa-{number}", scene_id=f"lgs-aa-{number}", responder=f"lgr-aa-{number}", guides=guides,
+                 view_extra=f'<subviews>{subview}</subviews><viewLayoutGuide key="safeArea" id="lsa-aa-{number}"/><constraints>{constraints}</constraints>')
+
+
+_SAFE = dict(attributes=' useSafeAreas="YES"', capabilities=SAFE_AREA_CAPABILITY)
+for name, used in {"top": (True, False), "bottom": (False, True), "both": (True, True), "neither": (False, False)}.items():
+    STORYBOARDS[f"sb-guide-warn-{name}"] = storyboard(guide_warning_scene(*used), initial="lgc-aa-aa1", **_SAFE)
+STORYBOARDS["sb-guide-warn-no-safe-areas"] = storyboard(guide_warning_scene(True, True).replace('<viewLayoutGuide key="safeArea" id="lsa-aa-aa1"/>', ""), initial="lgc-aa-aa1")
+STORYBOARDS["sb-guide-warn-unreachable"] = storyboard(guide_warning_scene(), guide_warning_scene(True, True, "aa2"), initial="lgc-aa-aa1", **_SAFE)
+STORYBOARDS["sb-guide-warn-two-scenes"] = storyboard(guide_warning_scene(True, False), guide_warning_scene(False, True, "aa2").replace('id="lgc-aa-aa2"', 'id="lgc-aa-aa2" storyboardIdentifier="Second"'), initial="lgc-aa-aa1", **_SAFE)
+STORYBOARDS["sb-guide-warn-with-version"] = storyboard(guide_warning_scene(True, True), initial="lgc-aa-aa1", **_SAFE).replace('<device id=', '<device id=', 1).replace('<dependencies>', '<dependencies>\n        <deployment version="150000" identifier="iOS"/>', 1)
+
+# The order of the segue templates of buttons nested in views: a tree's strings are buttons, its lists views.
+def nested_segues(*tree):
+    number = [1]
+    frame = '<rect key="frame" x="0.0" y="0.0" width="100" height="30"/><autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>'
+
+    def element(node):
+        number[0] += 1
+        if isinstance(node, str):
+            return (f'<button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" id="nb{number[0]}-aa-aaa">{frame}<state key="normal" title="B"/>'
+                    f'<connections><segue destination="vc{ord(node) - 95}-aa-aaa" kind="show" identifier="{node}" id="ns{number[0]}-aa-aaa"/></connections></button>')
+        return f'<view contentMode="scaleToFill" id="nv{number[0]}-aa-aaa">{frame}<subviews>{"".join(map(element, node))}</subviews></view>'
+
+    body = "<subviews>" + "".join(map(element, tree)) + "</subviews>"
+    letters = sorted(re.findall(r'identifier="(.)"', body))
+    return storyboard(controller_scene(1, view_extra=body), *[controller_scene(ord(letter) - 95) for letter in letters], initial="vc1-aa-aaa")
+
+
+for name, tree in {"1": ["a", ["b", ["c"], "d"], "e", ["f"]], "2": [["a", ["b"]], "c"], "3": [[["a"]], "b", ["c"]], "4": ["a", ["b"], "c", ["d"], "e"], "5": [["a", ["b", ["c"]], "d"], "e"],
+                   "6": [["a"], ["b"]], "7": [[["a"], "b"], [["c"], "d"]], "8": [[[["a"], "b"], "c"], "d"], "9": [["a", ["b"]], ["c", ["d"]], "e"]}.items():
+    STORYBOARDS[f"sb-nested-segues-{name}"] = nested_segues(*tree)
+
+# Connections of one name from objects in a static table's cells, and from placeholders of nested embeds.
+def static_same_scene(sections, connection):
+    frame = '<rect key="frame" x="0.0" y="0.0" width="100" height="30"/><autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>'
+    number = [0]
+
+    def control(node):
+        number[0] += 1
+        if isinstance(node, str):
+            return (f'<textField opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" id="t{node}{number[0]}-aa-aaa">{frame}'
+                    f'<fontDescription key="fontDescription" type="system" pointSize="14"/><textInputTraits key="textInputTraits"/><connections>{connection.format(node)}</connections></textField>')
+        return f'<view contentMode="scaleToFill" id="v{number[0]:02d}-aa-aaa">{frame}<subviews>{"".join(map(control, node))}</subviews></view>'
+
+    def cell(subviews):
+        number[0] += 1
+        return (f'<tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" indentationWidth="10" id="c{number[0]:02d}-aa-aaa">'
+                '<rect key="frame" x="0.0" y="0.0" width="393" height="44"/><autoresizingMask key="autoresizingMask"/>'
+                f'<tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="c{number[0]:02d}-aa-aaa" id="x{number[0]:02d}-aa-aaa">'
+                '<rect key="frame" x="0.0" y="0.0" width="393" height="44"/><autoresizingMask key="autoresizingMask"/>'
+                f'<subviews>{"".join(map(control, subviews))}</subviews></tableViewCellContentView></tableViewCell>')
+
+    body = "".join(f'<tableViewSection id="s{k:02d}-aa-aaa"><cells>{"".join(map(cell, section))}</cells></tableViewSection>' for k, section in enumerate(sections))
+    return ('        <scene sceneID="sss-aa-aaa">\n            <objects>\n                <tableViewController id="tvc-aa-aaa" sceneMemberID="viewController">\n'
+            '<tableView key="view" clipsSubviews="YES" contentMode="scaleToFill" alwaysBounceVertical="YES" dataMode="static" style="plain" separatorStyle="default" rowHeight="-1" estimatedRowHeight="-1" sectionHeaderHeight="28" sectionFooterHeight="28" id="tvv-aa-aaa">'
+            '<rect key="frame" x="0.0" y="0.0" width="393" height="852"/><autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>'
+            f'<sections>{body}</sections><connections><outlet property="dataSource" destination="tvc-aa-aaa" id="ods-aa-aaa"/><outlet property="delegate" destination="tvc-aa-aaa" id="odl-aa-aaa"/></connections></tableView>'
+            '                </tableViewController>\n                <placeholder placeholderIdentifier="IBFirstResponder" id="fra-aa-aaa" sceneMemberID="firstResponder"/>\n'
+            '            </objects>\n            <point key="canvasLocation" x="0" y="0"/>\n        </scene>\n')
+
+
+def prototype_same_scene(cells, connection):
+    document = static_same_scene([cells], connection).replace('dataMode="static" ', 'dataMode="prototypes" ').replace("<sections>", "<prototypes>").replace("</sections>", "</prototypes>")
+    document = re.sub(r"<tableViewSection [^>]*><cells>|</cells></tableViewSection>", "", document)
+    return re.sub(r'(<tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="default" indentationWidth="10") id="c(\d+)', r'\1 reuseIdentifier="cell\2" id="c\2', document)
+
+
+_SAME_ACTION = '<action selector="changed:" destination="tvc-aa-aaa" eventType="editingChanged" id="a{0}a-aa-aaa"/>'
+_SAME_OUTLET = '<outlet property="delegate" destination="tvc-aa-aaa" id="a{0}a-aa-aaa"/>'
+for name, sections in {"one-section": [[["a"], ["b"], ["c"], ["d"]]], "two-sections": [[["a"], ["b"]], [["c"], ["d"]]], "two-in-cell": [[["a", "b"], ["c", "d"]]],
+                       "deep": [[[["a"], "b"], ["c"]], [[[["d"]], "e"]]], "tofu": [[["a"], ["b"]], [["c"], [], [], [], ["d"]]],
+                       "three-in-cell": [[["a", "b", "c"]]], "four-in-cell": [[["a", "b", "c", "d"]]], "nested-in-cell": [[[["a", "b"], "c", "d"]]], "nested-last-in-cell": [[["a", "b", ["c", "d"]]]],
+                       "nested-middle-in-cell": [[["a", ["b", "c"], "d"]]], "deep-pair-in-cell": [[[[["a", "b"], "c"], "d"]]], "two-nested-in-cell": [[[["a", "b"], ["c", "d"]]]]}.items():
+    STORYBOARDS[f"sb-static-same-action-{name}"] = storyboard(static_same_scene(sections, _SAME_ACTION), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-static-same-outlet-{name}"] = storyboard(static_same_scene(sections, _SAME_OUTLET), initial="tvc-aa-aaa")
+
+
+for name, cells in {"two-in-cell": [["a", "b"]], "three-in-cell": [["a", "b", "c"]], "nested": [[["a", "b"], "c", "d"]], "nested-last": [["a", "b", ["c", "d"]]], "two-cells": [["a", "b"], ["c", "d"]]}.items():
+    STORYBOARDS[f"sb-proto-same-action-{name}"] = storyboard(prototype_same_scene(cells, _SAME_ACTION), initial="tvc-aa-aaa")
+    STORYBOARDS[f"sb-proto-same-outlet-{name}"] = storyboard(prototype_same_scene(cells, _SAME_OUTLET), initial="tvc-aa-aaa")
+
+
+_SAME_CELL_OUTLET = '<outlet property="delegate" destination="c01-aa-aaa" id="a{0}a-aa-aaa"/>'
+for name, cells in {"two": [["a", "b"]], "three": [["a", "b", "c"]], "nested": [[["a", "b"], "c", "d"]], "nested-last": [["a", "b", ["c", "d"]]], "nested-middle": [["a", ["b", "c"], "d"]]}.items():
+    STORYBOARDS[f"sb-proto-cell-outlet-{name}"] = storyboard(prototype_same_scene(cells, _SAME_CELL_OUTLET), initial="tvc-aa-aaa")
+
+
+def nested_embeds(*tree):
+    number = [1]
+    frame = '<rect key="frame" x="0.0" y="0.0" width="100" height="30"/><autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>'
+
+    def element(node):
+        number[0] += 1
+        if isinstance(node, str):
+            return f'<containerView opaque="NO" contentMode="scaleToFill" id="nc{number[0]}-aa-aaa">{frame}<connections><segue destination="vc{ord(node) - 95}-aa-aaa" kind="embed" id="ne{number[0]}-aa-aaa"/></connections></containerView>'
+        return f'<view contentMode="scaleToFill" id="nv{number[0]}-aa-aaa">{frame}<subviews>{"".join(map(element, node))}</subviews></view>'
+
+    body = "<subviews>" + "".join(map(element, tree)) + "</subviews>"
+    letters = sorted(re.findall(r'destination="vc(\d+)-aa-aaa"', body), key=int)
+    return storyboard(controller_scene(1, view_extra=body), *[controller_scene(int(number)) for number in letters], initial="vc1-aa-aaa")
+
+
+for name, tree in {"1": [["a"], "b"], "2": ["a", ["b"]], "3": [["a", ["b"]], "c", ["d"]]}.items():
+    STORYBOARDS[f"sb-nested-embeds-{name}"] = nested_embeds(*tree)
+
+# The order of UIViewControllerIdentifiersToNibNames (BACKLOG B-266): documents whose names all collide in the
+# table, so that the Info.plist's order is the order they entered in. nib-info-walk/ holds them.
+for _document in sorted((Path(__file__).resolve().parent / "nib-info-walk").glob("*.storyboard")):
+    STORYBOARDS[f"sb-info-walk-{_document.stem}"] = _document.read_text()
 
 
 def main():

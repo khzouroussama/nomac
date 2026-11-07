@@ -15,6 +15,9 @@ public enum StoryboardCompiler {
     /// The files of `<name>.storyboardc` and ibtool's document warnings, `<path>:<object id>: warning: <message>`
     /// lines in its order: deprecated push and modal segues (`sb-segue-push*`, `sb-segue-modal*`).
     public static func compileReportingWarnings(_ data: Data, path: String, options: XIBCompiler.Options) throws -> (files: [String: Data], warnings: [String]) {
+        guard (path as NSString).lastPathComponent != ".storyboard" else {
+            throw NomacError("nomac does not compile a file named only .storyboard, which ibtool writes as a .storyboard.nib directory (BACKLOG B-266)", path: path)
+        }
         let deploymentTarget = try XIBCompiler.check(options, path: path)
         let document = try XIBReader.read(data, path: path)
         var compiler = DocumentCompiler(path: path, module: options.module, deploymentTarget: deploymentTarget)
@@ -146,7 +149,7 @@ extension DocumentCompiler {
                                                            + "for runtime access via -[UIStoryboard instantiateViewControllerWithIdentifier:]. [9]") }
         warnings = unreachedWarnings + controllers.flatMap(\.segues).compactMap { segue in
             [Segue.Kind.push: "Push", .modal: "Modal"][segue.kind].map { (segue.id, "\($0) segues are deprecated since iOS 8.0 [7]") }
-        }
+        } + (usesSafeAreas ? scenes.flatMap(layoutGuideWarnings) : [])
         // An embedded controller's view, or its navigation controller's root's, takes its container
         // view's size (`sb-embed*`).
         embeddedSizes = [:]
@@ -202,13 +205,13 @@ extension DocumentCompiler {
             try checkNoNavigationPairs()
         }
         try checkRequiredVersion()
-        let nibNames = controllers.filter { compiled.contains($0.id) }.map(\.nibName)
-        if controllers.contains(where: { !$0.segues.isEmpty }), nibNames.count > 3, try !Self.orderIndependent(nibNames) {
-            throw NomacError("nomac does not compile segues among scenes whose nib names' Info.plist order depends on an order not known yet (BACKLOG B-266)",
-                             path: path)
-        }
-        let references = controllers.filter { reached.contains($0.id) }.compactMap { controller in
+        let walked = try walkOfTheSegues(scenes: scenes, controllers: controllers, initial: initial)
+        let nibNames = walked.filter { compiled.contains($0.id) }.map(\.nibName)
+        let references = walked.compactMap { controller in
             controller.reference.map { (controller.nibName, $0.storyboard, $0.identifier) }
+        }
+        guard nibNames.count == compiled.count, references.count == controllers.filter({ $0.reference != nil && reached.contains($0.id) }).count else {
+            throw NomacError("nomac does not compile a scene its walk of the segues does not reach yet (BACKLOG B-266)", path: path)
         }
         files["Info.plist"] = try Self.info(nibNames: nibNames, entryPoint: initial.flatMap { byID[$0] }.map { ($0.nibName, $0.identifier != nil) },
                                             references: references)
@@ -244,44 +247,73 @@ extension DocumentCompiler {
         return kind
     }
 
+    /// With safe areas on, ibtool's warnings on a controller's view about the layout guides a
+    /// constraint of its scene uses, reached or not, the top guide's first (`sb-guide-warn-*`; all 59
+    /// such guides of the recorded survey, and none of 221 unused ones).
+    private func layoutGuideWarnings(_ scene: XIBElement) -> [(id: String, message: String)] {
+        let constraints = Self.descendants(of: scene, named: "constraint")
+        let view = scene.children(named: "objects").flatMap(\.children).flatMap(\.children).first { $0.attributes["key"] == "view" }
+        guard let viewID = view?.attributes["id"] else { return [] }
+        return Self.descendants(of: scene, named: "viewControllerLayoutGuide").compactMap { guide in
+            guard let id = guide.attributes["id"], let type = guide.attributes["type"], ["top": "Top", "bottom": "Bottom"][type] != nil,
+                  constraints.contains(where: { $0.attributes["firstItem"] == id || $0.attributes["secondItem"] == id }) else { return nil }
+            return (viewID, "\(["top": "Top", "bottom": "Bottom"][type]!) layout guide is deprecated since iOS 11.0 [7]")
+        }
+    }
+
     /// The document warnings, ordered as a Foundation hash table of their objects' ids orders them
-    /// (`sb-segue-push-two`, `sb-segue-modal-push`, `sb-segue-push-three`).
+    /// (`sb-segue-push-two`, `sb-segue-modal-push`, `sb-segue-push-three`), an object's own in the
+    /// order given. Where ids collide ibtool's own order changes from run to run (ADR 0254).
     func documentWarnings() throws -> [String] {
         if let deploymentWarning {
             guard warnings.isEmpty else { throw unsupportedScene("a document version ibtool warns about beside other warnings") }
             return ["\(path):global: warning: \(deploymentWarning)"]
         }
-        let messages = Dictionary(warnings.map { ($0.id, $0.message) }) { first, _ in first }
-        return try FoundationHashTable.inserting(warnings.map(\.id)).keys.map { "\(path):\($0): warning: \(messages[$0]!)" }
+        return try FoundationHashTable.inserting(warnings.map(\.id)).keys.flatMap { id in
+            warnings.filter { $0.id == id }.map { "\(path):\(id): warning: \($0.message)" }
+        }
     }
 
-    /// Whether every order of entering `names` gives the Info.plist the same order. ibtool enters
-    /// them in document order without segues (`sb-scenes-*`: up to 9) and with segues among up to
-    /// 3 (`sb-segue-two`, `sb-segue-chain`); with more, by an order not known yet (B-266:
-    /// `sb-info-order-graph`, tofu's storyboard), so only an order-independent table is written.
-    /// Up to 8 names are tried in every order.
-    static func orderIndependent(_ names: [String]) throws -> Bool {
-        guard names.count <= 8 else { return false }
-        let expected = try FoundationHashTable.inserting(names).copied().keys
-        var order = names
-        func permute(_ k: Int) throws -> Bool {
-            if k == order.count { return try FoundationHashTable.inserting(order).copied().keys == expected }
-            for i in k..<order.count {
-                order.swapAt(k, i)
-                defer { order.swapAt(k, i) }
-                if try !permute(k + 1) { return false }
-            }
-            return true
+    /// The order nib names and references enter the Info.plist's tables: a pre-order walk of the segues
+    /// from the entry point and the identified controllers, in document order. A scene's segues are its
+    /// controller's own, then those of what it holds, in the document's order, then its other objects'
+    /// (docs/formats/nib.md "Storyboards"; `sb-info-walk-*`, and every recorded storyboard but those
+    /// B-266 lists).
+    private func walkOfTheSegues(scenes: [XIBElement], controllers: [SceneController], initial: String?) throws -> [SceneController] {
+        func destinations(of element: XIBElement) -> [String] {
+            element.children(named: "connections").flatMap { $0.children(named: "segue") }.compactMap { $0.attributes["destination"] }
+                + element.children.filter { $0.name != "connections" }.flatMap(destinations)
         }
-        return try permute(0)
+        var sceneOfController: [String: (controller: SceneController, destinations: [String])] = [:]
+        var roots: [String] = []
+        for (scene, controller) in zip(scenes, controllers) {
+            let objects = scene.children(named: "objects").flatMap(\.children)
+            let element = objects.first { $0.attributes["id"] == controller.id }
+            let own = element.map { $0.children(named: "connections").flatMap { $0.children(named: "segue") } } ?? []
+            guard !own.contains(where: { $0.attributes["destination"] == controller.id }) else {
+                throw unsupportedScene("a controller's segue to itself, on which ibtool exits with 255")
+            }
+            let held = (element.map { [$0] } ?? []) + objects.filter { $0 !== element }
+            sceneOfController[controller.id] = (controller, held.flatMap(destinations))
+            if controller.id == initial || element?.attributes["storyboardIdentifier"] != nil { roots.append(controller.id) }
+        }
+        var visited = Set<String>()
+        var walked: [SceneController] = []
+        func visit(_ id: String) {
+            guard let scene = sceneOfController[id], visited.insert(id).inserted else { return }
+            walked.append(scene.controller)
+            scene.destinations.forEach(visit)
+        }
+        roots.forEach(visit)
+        return walked
     }
 
     /// A value of the `.storyboardc`'s `Info.plist`: a string, the same string object as the nib
     /// names' key of that name, an integer or a dictionary.
     indirect enum InfoValue {
         case string(String)
-        /// A string all its uses share: a reference's storyboard name or identifier (`sb-ref-plist-*`).
-        case sharedString(String)
+        /// A reference's storyboard name or identifier, one object for its repeats when `sharesRepeats` holds.
+        case referenceString(String)
         case nibName(String)
         case integer(Int)
         case dictionary([(String, InfoValue)])
@@ -289,7 +321,7 @@ extension DocumentCompiler {
 
     /// The `.storyboardc`'s `Info.plist` as ibtool writes it (nib-experiments `storyboard`,
     /// `sb-identifier`, `sb-scenes-*`, `sb-segue-*`, `sb-ref-*`): each dictionary's keys in the order
-    /// of a Foundation table they entered in document order, or the top level's in the order here
+    /// of a Foundation table they entered in the order given, or the top level's in the order here
     /// (`sb-ref-no-entry`), copied, the key strings and then the
     /// values depth first; the controllers' nib names of a mutable dictionary (`sb-scenes-*-identified`);
     /// the entry point the nib names' key itself when the initial controller has a storyboard
@@ -304,8 +336,8 @@ extension DocumentCompiler {
         }
         if !references.isEmpty {
             top.append(("UIViewControllerIdentifiersToExternalStoryboardReferences", .dictionary(references.map { reference in
-                (reference.nibName, .dictionary((reference.identifier.map { [("UIReferencedControllerIdentifier", .sharedString($0))] } ?? [])
-                    + [("UIReferencedStoryboardName", .sharedString(reference.storyboard))]))
+                (reference.nibName, .dictionary((reference.identifier.map { [("UIReferencedControllerIdentifier", .referenceString($0))] } ?? [])
+                    + [("UIReferencedStoryboardName", .referenceString(reference.storyboard))]))
             })))
         }
         top.append(("UIStoryboardVersion", .integer(1)))
@@ -318,10 +350,10 @@ extension DocumentCompiler {
             case .string(let text):
                 objects.append(.string(text))
                 return objects.count - 1
-            case .sharedString(let text):
+            case .referenceString(let text):
                 if let known = sharedStrings[text] { return known }
                 objects.append(.string(text))
-                sharedStrings[text] = objects.count - 1
+                if sharesRepeats(text) { sharedStrings[text] = objects.count - 1 }
                 return objects.count - 1
             case .nibName(let name):
                 return nibNameKeys[name]!
@@ -349,6 +381,23 @@ extension DocumentCompiler {
         _ = try append(.dictionary(top))
         return BinaryPropertyList.data(objects: objects)
     }
+
+    /// Whether a reference's repeated string is one object in the `Info.plist`: ASCII of at most seven
+    /// characters, eight or nine from 64 letters, ten or eleven from 32, and nothing longer
+    /// (`sb-ref-plist-repeat-*`, `sb-ref-plist-letter-*`).
+    static func sharesRepeats(_ text: String) -> Bool {
+        let bytes = Array(text.utf8)
+        guard bytes.allSatisfy({ $0 < 128 }) else { return false }
+        switch bytes.count {
+        case ...7: return true
+        case 8...9: return bytes.allSatisfy(lettersOfNineCharacters.contains)
+        case 10...11: return bytes.allSatisfy(lettersOfElevenCharacters.contains)
+        default: return false
+        }
+    }
+
+    private static let lettersOfNineCharacters = Set(" -./0123456789ABCDEFGHIJKLMNOPRSTUVWXY_abcdefghijklmnoprstuvwxyz".utf8)
+    private static let lettersOfElevenCharacters = Set(" .0134CIMRSTacdefghijklmnoprstux".utf8)
 
     /// A scene's view controller as the storyboard's graph needs it: its id, nib name and segues.
     struct SceneController {
@@ -578,6 +627,23 @@ extension DocumentCompiler {
                                isEntryPoint: id == initial || identifier != nil, root: root, children: children.map(\.id), childOrder: childOrder.map(\.id))
     }
 
+    /// The ids of a controller's buttons and container views with segues, breadth first over its view
+    /// tree and in document order within a level, the order of their upstream placeholders; its
+    /// `UIStoryboardSegueTemplates` keep document order (`sb-nested-segues-*`).
+    private func controlsBreadthFirst(of controller: XIBElement) throws -> [String] {
+        var level = controller.children(named: "view")
+        var found: [XIBElement] = []
+        while !level.isEmpty {
+            level = level.flatMap { $0.children(named: "subviews").flatMap(\.children) }
+            found += level.filter { !$0.children(named: "connections").flatMap { $0.children(named: "segue") }.isEmpty }
+        }
+        let all = controller.children(named: "view").flatMap { Self.descendants(of: $0, named: "button") + Self.descendants(of: $0, named: "containerView") }
+        guard all.allSatisfy({ control in control.children(named: "connections").flatMap { $0.children(named: "segue") }.isEmpty || found.contains { $0 === control } }) else {
+            throw unsupportedScene("a button's or container view's segue outside a chain of subviews")
+        }
+        return found.filter { ["button", "containerView"].contains($0.name) }.compactMap { $0.attributes["id"] }
+    }
+
     /// An element's descendants of a name, depth first in document order.
     static func descendants(of element: XIBElement, named name: String) -> [XIBElement] {
         element.children.flatMap { ($0.name == name ? [$0] : []) + descendants(of: $0, named: name) }
@@ -612,7 +678,9 @@ extension DocumentCompiler {
         guard recognizer == nil || extraElements.isEmpty && cellTemplates.isEmpty else {
             throw unsupportedScene("gesture recognizers beside views or cells' segues in a scene")
         }
-        let controlTemplates = zip(sceneController.segues, templates).filter { $0.0.control != nil }
+        let controlTemplates = try controlsBreadthFirst(of: controller).flatMap { control in
+            zip(sceneController.segues, templates).filter { $0.0.control == control }
+        }
         let view = try controllerView(controller, objects: objects, owner: owner, excluded: Set(barItems.keys).union(extraElements.compactMap { $0.attributes["id"] }),
                                       recognizer: recognizer, controlSegues: controlTemplates.map(\.0))
         let reached = controllerObjectsReached
@@ -857,7 +925,11 @@ extension DocumentCompiler {
         try check(itemElement, attributes: ["key", "title", "largeTitleDisplayMode", "id", "userLabel", "prompt", "leftItemsSupplementBackButton"],
                   children: ["barButtonItem", "leftBarButtonItems", "rightBarButtonItems", "nil"])
         guard itemElements.count == 1 else { throw unsupportedScene("a view controller of two navigation items") }
-        item.title = itemElement.attributes["title"].map { text($0, id: itemElement.attributes["id"], property: "title") }
+        // A title is trimmed, and one of whitespace only is written in curly quotes (`bars-ni-title-space-*`).
+        item.title = itemElement.attributes["title"].map { title in
+            let trimmed = title.trimmingCharacters(in: .whitespaces)
+            return text(trimmed.isEmpty && !title.isEmpty ? "\u{201C}\(title)\u{201D}" : trimmed, id: itemElement.attributes["id"], property: "title")
+        }
         item.prompt = itemElement.attributes["prompt"].map { text($0, id: itemElement.attributes["id"], property: "prompt") }
         item.leftItemsSupplementBackButton = try bool(itemElement, "leftItemsSupplementBackButton", default: false)
         item.centerItemGroups = empty
@@ -882,6 +954,9 @@ extension DocumentCompiler {
             }
             for element in elements {
                 guard let id = element.attributes["id"] else { throw unsupportedScene("a bar button item without an id") }
+                guard child.name == "barButtonItem" || element.children(named: "connections").flatMap({ $0.children(named: "segue") }).isEmpty else {
+                    throw unsupportedScene("a segue on a bar button item of a list")
+                }
                 let barItem = try barButtonItem(element)
                 // `bars-ni-plain-*`, `bars-ni-item-empty`.
                 if element.attributes["style"] == "plain" { warnings.append((id, "Plain Style unsupported in a Navigation Item [9]")) }
@@ -969,7 +1044,9 @@ extension DocumentCompiler {
         let item = NibNavigationItem()
         let (declared, barItems, actions) = try navigationItem(controller, into: item, empty: empty)
         let cellTemplates = cellSegueTemplates(rootController, templates)
-        let controlTemplates = zip(rootController.segues, templates).filter { $0.0.control != nil }
+        let controlTemplates = try controlsBreadthFirst(of: controller).flatMap { control in
+            zip(rootController.segues, templates).filter { $0.0.control == control }
+        }
         let extraElements = objects.children(named: "view")
         let view = try controllerView(controller, objects: objects, owner: NibProxy(identifier: "IBFilesOwner"),
                                       excluded: Set(barItems.keys).union(extraElements.compactMap { $0.attributes["id"] }), controlSegues: controlTemplates.map(\.0))
@@ -1281,7 +1358,7 @@ extension DocumentCompiler {
         }
         cellSegueOutlets = []
         cellSeguePlaceholders = [:]
-        var connections = try outletConnections(allObjects: Self.allObjects([owner, responder, upstream, view] + dataSource), extra: [viewOutlet] + segueOutlets)
+        var connections = try outletConnections(allObjects: Self.allObjects([owner, responder, upstream] + controlSeguePlaceholders.map(\.placeholder) + [view] + dataSource), extra: [viewOutlet] + segueOutlets)
         if let source = dataSource.first {
             connections.insert(NibOutletConnection(label: string("staticDataSource"), source: owner, destination: source), at: 0)
         }

@@ -746,7 +746,7 @@ the document's, one object with an equal title or restoration identifier (`sb-cv
 -1 without one (`cm-sb-static-row-*`). A prototype's `<frame key="frameInset">` of a top, a width and a height
 is that frame at x 0 (`cm-sb-proto-frame-inset`). ibtool warns of a prototype cell without a reuse identifier
 or with an empty one, and leaves it out (`cm-sb-proto-no-reuse-*`, `cm-sb-proto-empty-reuse`). Refused for
-now, their nibs differ: a style's `imageView` (`cm-image-*`, the all-objects order), a guide in a content view
+now, their nibs differ: a guide in a content view
 (`cm-content-guide-*`), a static cell's frame inset (`cm-sb-static-frame-inset`).
 
 A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClassSwapper` with
@@ -1022,14 +1022,17 @@ of `NSColor`, then `NSFont`; shadows and empty `<textAttributes>` are refused.
 
 Bar button items (`bars-tb-*`, `bars-ni-*`). The keys, in order: `UIEnabled` unless disabled,
 `UIIsSystemItem` and `UISystemItem`, `UIStyle`, `UITag`, `UIHidesSharedBG` (the two spaces),
-`UITitle`, `UIWidth` (a float; a flexible space writes none), `UIImage`, `UITintColor`, a custom
+`UITitle` (an empty one writes none), `UIWidth` (a float, only when positive, on a titled or image item or a
+fixed space, `bars-tb-width-*`; on another system item ibtool prints a note and nomac refuses it), `UIImage`
+(an empty one writes none, `bars-tb-image-empty`), `UITintColor`, a custom
 class's `UIClassName` and `UIOriginalClassName`. `UIStyle` is 1 without a `style`, 2 for `done`, and
 absent for `style="plain"`. `userLabel` changes nothing. System items: `flexibleSpace` 5,
 `fixedSpace` 6, `pause` 18, `rewind` 19, `fastForward` 20, `undo` 21, `redo` 22, `pageCurl` 23,
 `close` 0, the others in `NibBarButtonItem.systemItems`. Items in `<items>` are listed in all objects
 after the toolbar, in order; actions have no event mask and sort as other actions do. ibtool warns
-"Plain Style unsupported in a Navigation Item" for `style="plain"` in a navigation item, which nomac
-does not print yet (`bars-ni-plain-*`, `bars-ni-item-empty`: the nibs are identical).
+"Plain Style unsupported in a Navigation Item" for `style="plain"` in a navigation controller's or a
+view controller's navigation item, and nomac too (`bars-ni-plain-*`, `bars-ni-item-empty`). A navigation
+item's title is trimmed, and one of whitespace only is written in curly quotes, “ ” (`bars-ni-title-space-*`).
 
 Navigation items (`bars-ni-*`). The keys, in order: `UITitle`, `UIAttributedTitle`, `UIPrompt`,
 `UILeftItemsSupplementBackButton`, `UILeftBarButtonItem`, `UIRightBarButtonItem`,
@@ -1072,7 +1075,6 @@ mutable array of its `UINavigationItem`s, listed in all objects after its constr
 `UIAttributedTitle` for a title, its bar button items as a navigation controller's, the nib's empty array
 as `UICenterItemGroups`, `UILargeTitleDisplayMode` 0 and the bar), `UIBarPosition` 2 and
 `UIBarTranslucence` (1, 2 for `translucent="NO"`). A bar button item's `style="done"` is `UIStyle` 2.
-Bar button items with actions are refused.
 
 ## Map views
 
@@ -1267,7 +1269,12 @@ walk of the nib's views from its top-level objects, in order, whatever the frame
 `act-same-top-nested`). A storyboard takes all of a view's subviews in order, then goes on from the
 last one taken, as a stack: for the tree `[[1, [2, 3], 4], 5, [[6], 7], 8]` the order 5, 8, 7, 6, 1,
 4, 2, 3 (`sb-act-same-*`, `sb-outlet-same-tree-*`; the corpus's uncloudnotes DogDoodies, wikipedia
-WMFTwoFactorPasswordViewController, the holdout's FancyAlerts). Recognizers and other objects
+WMFTwoFactorPasswordViewController, the holdout's FancyAlerts). One top-level view follows another,
+a static cell being one, in the document's order; under a static or prototype cell each view takes
+its subviews last first: `[a, [b, c], d]` in a cell gives d, a, c, b (`sb-static-same-*`,
+`sb-proto-cell-outlet-*`; tofu's AccountCreation). A segue's placeholders, as an embed's
+`containerView` sources, go in their numbering (`sb-nested-embeds-*`, wikipedia's
+DescriptionWelcome). Recognizers and other objects
 outside the views follow them, in all objects (`gesture-two-taps`). Of two `<connections>` of one
 element ibtool reads the first (`gesture-two`). An `<outlet>`, `<outletCollection>` or `<action>` without an `id` is
 dropped, in xibs and storyboards alike (`cid-outlet-no-id*`, `conn-no-id-*`, `sb-conn-no-id`).
@@ -1420,11 +1427,14 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   name to itself), `UIStoryboardDesignatedEntryPointIdentifier` (the initial controller's nib
   name, left out without one: `sb-scenes-no-initial-identified`), `UIStoryboardVersion` 1, in
   that order (a 3-bucket Foundation table). The nib names are in the order of a mutable Foundation
-  dictionary they entered in document order, then copied (`sb-scenes-*-identified`: 2 to 9
-  scenes, in both document orders), also with segues among up to 3 (`sb-segue-two`,
-  `sb-segue-chain`); with segues among more the order differs by a rule not found yet
-  (`sb-info-order-graph`, tofu's), and nomac refuses such a storyboard unless every order gives the
-  same table (B-266); the keys are string objects, then the values, then the entry
+  dictionary they entered in the order of a walk of the segues, then copied (`sb-scenes-*-identified`:
+  2 to 9 scenes, in both document orders; `sb-info-order-graph`, `sb-info-walk-*`). The walk starts
+  from the entry point and the controllers with a storyboard identifier, in document order, and
+  visits a controller before its destinations, once each: a scene's segues are its controller's
+  own, then those of what the controller holds in the document's order, then those of the scene's
+  other objects. Without segues that is document order. Of 2,591 recorded storyboards, 1,487 have
+  Xcode's `Info.plist` byte for byte by this rule, 1,100 nomac refuses for other reasons and 4
+  differed, in the references' strings below or the file name; the keys are string objects, then the values, then the entry
   point, a string of its own unless the initial controller has a storyboard identifier, when it
   is the same object as that key (`sb-identifier`, `sb-scenes-two-identified-both`): ibtool's
   writer shares the objects it held twice, not equal values.
@@ -1467,10 +1477,12 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   `UIAccessoryType` 4 (`sb-cell-detail-button`).
 - A segue a button triggers (round 77, `sb-button-*`; an identifier optional) is a template of
   the controller after the controller's own, buttons' in document order, in a scene or a
-  navigation controller's root (`sb-nav-root-button-*`). Each template gets an upstream placeholder numbered in
-  document order after the controller's `UpstreamPlaceholder-1` when the view refers to the
-  controller, from 1 otherwise, whatever the segues' and buttons' ids (`sb-button-two*`,
-  `sb-button-outlet`, `sb-button-action`); the view nib has them as top-level objects and the
+  navigation controller's root (`sb-nav-root-button-*`). Each template gets an upstream placeholder numbered
+  breadth first over the view tree, in document order within a level, while the
+  `UIStoryboardSegueTemplates` array stays in document order (`sb-nested-segues-*`), after the
+  controller's `UpstreamPlaceholder-1` when the view refers to the controller, from 1 otherwise,
+  whatever the segues' and buttons' ids (`sb-button-two*`, `sb-button-outlet`,
+  `sb-button-action`); the view nib has them as top-level objects and the
   button a `perform:` `UIRuntimeEventConnection` (`UIEventMask` 64) to its placeholder, ordered
   among actions as any (`sb-button-action-first`). Cells' and buttons' segues in one scene are
   refused.
@@ -1504,7 +1516,14 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   destination). ibtool warns, after compiling, `/* com.apple.ibtool.document.warnings */` then
   `<path>:<segue id>: warning: Push segues are deprecated since iOS 8.0 [7]` (`Modal` for modal
   segues) per segue, in the order of a Foundation hash table of their ids (`sb-segue-push-three`).
+  Where ids collide in that table, ibtool's order changes from run to run: four orders in seven
+  runs of one document, its nib the same each time (`warn-adjusts-order-doc`, ADR 0254).
   `splitViewControllerTargetIndex` stays refused.
+- With `useSafeAreas="YES"`, a `<viewControllerLayoutGuide>` a constraint of its scene names warns,
+  on the controller's view, reached or not, the top guide first: `<path>:<view id>: warning: Top
+  layout guide is deprecated since iOS 11.0 [7]` (`Bottom` for the other; `sb-guide-warn-*`, all 59
+  such guides of the survey's storyboards). An unused guide, or one without safe areas, does not
+  warn (221 and 2,088 of them).
 - The views beside a scene's controller keep their user-defined runtime attributes in the
   controller's nib (the corpus's wikipedia Saved storyboard).
 - A view controller without a view (round 90, `sb-vc-no-view*`; nextcloud's action extension) is one
@@ -1864,10 +1883,15 @@ in that controller's nib: the placeholder with `UIStoryboardIdentifier` and
 `storyboard` outlet; a tab bar gives it a default spring-loaded item in `UIItems` only, a
 navigation bar its navigation item (with `UINavigationBar`) as for a root controller. The
 `Info.plist` lists every reference something reaches under
-`UIViewControllerIdentifiersToExternalStoryboardReferences` (equal storyboard names and identifiers one string
-object across its dictionaries: `sb-ref-plist-*`), nib name to a dictionary of
+`UIViewControllerIdentifiersToExternalStoryboardReferences`, nib name to a dictionary of
 `UIReferencedControllerIdentifier` (when given) and `UIReferencedStoryboardName`, entered in that
-order; the references enter in document order, and both levels are copied Foundation tables. The
+order; the references enter in the order of the segues' walk above (`sb-ref-plist-walk-reversed`,
+two recorded documents), and both levels are copied Foundation tables. Equal storyboard names and
+identifiers are one string object across these dictionaries only when short: any ASCII of up to 7
+characters, 8 or 9 characters from ` -./0-9A-PR-Y_a-pr-z` (64 letters: no `Q`, `Z`, `q`), 10 or 11
+from ` .0134CIMRSTacdefghijklmnoprstux` (32 letters), and never longer or outside ASCII
+(`sb-ref-plist-repeat-*` for the lengths, `sb-ref-plist-letter-*` for each ASCII letter at 8 and at
+10 characters); each other use is a string object of its own. The
 top-level keys enter as nib names, entry point, references, version (`sb-ref-show`: version,
 references, nib names, entry point; `sb-ref-no-entry`: nib names, version, references). Each
 reference's dictionary is a key string, then its values; the two inner keys are one string object

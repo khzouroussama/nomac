@@ -6,7 +6,8 @@ and compiled with `nomac ibtool` and the build's options (a storyboard into a co
 directory, then linked); the nib or the .storyboardc, the linked copy, the partial Info.plist and
 what ibtool printed must be identical; where ibtool failed, nomac must fail too. Nibs identical but for the order of
 an NSSet's elements (ADR 0252), or of outlet collections of several sources (ADR 0260), count as equivalent, as
-`nomac verify` judges them. Experiments nomac refuses with an
+`nomac verify` judges them, and so do warnings that differ only in their order, which changes from run to run in
+ibtool when objects' ids collide (ADR 0254). Experiments nomac refuses with an
 error naming a BACKLOG item are listed apart; any other failure fails the comparison.
 
 With `corpus`, the observations of nib_experiments.py's `corpus` experiment instead: each corpus
@@ -363,6 +364,14 @@ def tie_canonical(data):
     return tuple(canonical)
 
 
+def judged(mine, theirs, printed, expected, status):
+    """How `same` judges the files once ibtool succeeded and printed the same lines, in any order."""
+    if status != 0 or sorted(printed.splitlines()) != sorted(expected.splitlines()):
+        return None
+    kind = same(mine, theirs)
+    return "equivalent" if kind and printed != expected else kind
+
+
 def same(mine, theirs):
     """Whether the files are identical, equivalent (nibs differing only in their sets' order, their outlet collections'
     order, ADR 0260, or their settled ties' order, ADR 0253) or neither (None)."""
@@ -456,7 +465,7 @@ def compare_corpus(observations, nomac, work, identical, equivalent, different, 
                 (refused if "(BACKLOG B-" in message else failed).append(f"{name}: {message}")
             continue
         theirs = {k: base64.b64decode(v) for k, v in observed["files"].items()}
-        kind = same(mine, theirs) if observed["status"] == 0 and proc.stdout == observed["stdout"] else None
+        kind = judged(mine, theirs, proc.stdout, observed["stdout"], observed["status"])
         (equivalent if kind == "equivalent" else identical if kind else different).append(name)
 
 
@@ -501,7 +510,8 @@ def main():
                 continue
             mine = {p.name: p.read_bytes() for p in out.iterdir()}
             theirs = {k: base64.b64decode(v) for k, v in observed["files"].items()}
-            kind = same(mine, theirs) if observed["status"] == 0 else None
+            printed = observed["stdout"].replace(f"/tmp/nomac-nib-experiments/{name}/{source.relative_to(work / name)}", str(source))
+            kind = judged(mine, theirs, proc.stdout, printed, observed["status"])
             (equivalent if kind == "equivalent" else identical if kind else different).append(name)
     finally:
         shutil.rmtree(work, ignore_errors=True)
