@@ -48,12 +48,13 @@ public struct ICCProfile: Sendable {
     }
 
     /// What ImageIO makes of a PNG's `gAMA` with `cHRM` beside it or not, nil when the pixels stay
-    /// as they are (`png-gamma`): 1/2.2 within 0.0001, without `cHRM` 2.2 too, and values up to 15.
-    /// Others convert as a profile would: the sRGB primaries or the chunk's, a gamma of 1/value.
+    /// as they are (`png-gamma`): 1/2.2 within 0.0001; 2.2 in color images without `cHRM` (219,998 to
+    /// 220,002 stay, 219,995 and 220,005 convert); and values up to 15. Others convert as a profile
+    /// would: the sRGB primaries or the chunk's, a gamma of 1/value.
     public init?(pngGamma value: Int, chromaticities: [Int]?, gray: Bool) {
         let gamma = Double(value) / 100_000
         let standard = chromaticities == nil || chromaticities == [31_270, 32_900, 64_000, 33_000, 30_000, 60_000, 15_000, 6_000]
-        guard value > 15, !standard || abs(gamma - 1 / 2.2) >= 0.0001, chromaticities != nil || abs(gamma - 2.2) >= 0.0001 else { return nil }
+        guard value > 15, !standard || abs(gamma - 1 / 2.2) >= 0.0001, chromaticities != nil || gray || abs(value - 220_000) >= 5 else { return nil }
         isGray = gray
         matrix = gray ? [[1, 0, 0], [0, 1, 0], [0, 0, 1]] : standard ? Self.sRGBMatrix : Self.colorants(chromaticities!.map { Double($0) / 100_000 })
         let curve = Curve.gamma(1 / gamma)

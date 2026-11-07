@@ -515,7 +515,8 @@ enum ImageSet {
         payload.appendLE(UInt32(jpeg.stored.count))
         payload.append(jpeg.stored)
         let csi = CSI(name: source.filename, layout: .image, flags: flags(source), scale: UInt32(100 * source.scale), pixelFormat: "JPEG",
-                      properties: geometry(width: jpeg.width, height: jpeg.height) + commonProperties, payload: payload.bytes)
+                      properties: geometry(width: jpeg.width, height: jpeg.height) + commonProperties.map { $0.type == 1006 ? (1006, little(jpeg.orientation)) : $0 },
+                      payload: payload.bytes)
         return CARRendition(name: source.name, kind: source.kind, attributes: source.attributes, csi: csi.bytes)
     }
 

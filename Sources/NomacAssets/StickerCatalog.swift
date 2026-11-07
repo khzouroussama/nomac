@@ -65,6 +65,11 @@ enum StickerCatalog {
               let layout = layouts[properties["grid-size"] as? String ?? ""] else {
             throw NomacError("sticker packs with properties other than a grid size are not supported yet (BACKLOG B-202)", path: pack.path)
         }
+        // actool also copies a sticker the pack does not list (`sticker-options` folder-not-listed).
+        let listed = Set((pack.contents["stickers"] as? [[String: Any]] ?? []).compactMap { $0["filename"] as? String })
+        if ((try? FileManager.default.contentsOfDirectory(atPath: pack.path)) ?? []).contains(where: { $0.hasSuffix(".sticker") && !listed.contains($0) }) {
+            throw NomacError("sticker packs with stickers their list leaves out are not supported yet (BACKLOG B-204)", path: pack.path)
+        }
         var files: [(name: String, path: String)] = []
         var stickers: [PropertyListValue] = []
         for entry in pack.contents["stickers"] as? [[String: Any]] ?? [] {

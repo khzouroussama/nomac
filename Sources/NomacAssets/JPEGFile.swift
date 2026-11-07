@@ -11,6 +11,8 @@ struct JPEGFile {
     /// but comments (`vector-images` jpeg cases: XMP, APP9, APP12, Photoshop's APP13 and COM are
     /// left out), the APPn ones first.
     let stored: [UInt8]
+    /// The Exif orientation, property 1006 of the rendition (`jpeg-exif`), 1 without one.
+    let orientation: UInt32
 
     init(_ bytes: [UInt8], path: String) throws {
         func malformed() -> NomacError { NomacError("malformed JPEG image", path: path) }
@@ -43,9 +45,12 @@ struct JPEGFile {
         let tiff = segments.first { $0.marker == 0xE1 && body($0.range).starts(with: Array("Exif\0".utf8)) }.map { Array(body($0.range).dropFirst(6)) }
 
         var applications: [(marker: UInt8, bytes: [UInt8])] = []
+        var orientation: UInt32 = 1
         if tiff != nil || xmp != nil, let exif = try JPEGMetadata.exif(tiff ?? [], xmp: xmp, path: path) {
             applications.append((0xE1, exif))
+            orientation = JPEGMetadata.orientation(inSegment: exif)
         }
+        self.orientation = orientation
         var others: [UInt8] = []
         for segment in segments {
             switch segment.marker {
@@ -70,6 +75,20 @@ struct JPEGFile {
 /// directory, a thumbnail's directory and the thumbnail.
 enum JPEGMetadata {
     static let xmpPrefix = Array("http://ns.adobe.com/xap/1.0/\0".utf8)
+
+    /// The orientation in a segment as this file writes it: FF E1, its length, `Exif` and two NULs,
+    /// an 8-byte big-endian TIFF header, then the first directory.
+    static func orientation(inSegment segment: [UInt8]) -> UInt32 {
+        let directory = 4 + 6 + 8
+        guard segment.count >= directory + 2 else { return 1 }
+        let count = Int(segment[directory]) << 8 | Int(segment[directory + 1])
+        for index in 0..<count {
+            let entry = directory + 2 + 12 * index
+            guard entry + 10 <= segment.count else { break }
+            if segment[entry] == 0x01, segment[entry + 1] == 0x12 { return UInt32(segment[entry + 8]) << 8 | UInt32(segment[entry + 9]) }
+        }
+        return 1
+    }
 
     static func refusal(_ what: String, path: String) -> NomacError {
         NomacError("JPEG images with \(what) that ImageIO rewrites are not supported yet (BACKLOG B-200)", path: path)

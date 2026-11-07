@@ -129,7 +129,8 @@ enum LaunchImageSet {
         if targetDevices.contains("iphone"), !chosen.contains(where: { $0.slot.version == "7.0" && $0.slot.subtype == "retina4" }) {
             required.append("\(catalog):./\(folder): warning: An iPhone Retina (4-inch) launch image for iOS 7.0 and later is required.")
         }
-        compiled.warnings = problems + required + problems
+        // A set with nothing to write is actool's error alone (`launch-images` slot-26).
+        compiled.warnings = chosen.isEmpty ? problems + problems : problems + required + problems
         var listed: [String] = []
         var images: [PropertyListValue] = []
         for slot in slots where slot.version != nil && chosen.contains(where: { $0.slot.name == slot.name && $0.slot.idiom == slot.idiom }) {
@@ -144,7 +145,10 @@ enum LaunchImageSet {
         if chosen.contains(where: { $0.slot.version == nil }) { compiled.infoPlist["UILaunchImageFile"] = .string(asset.name) }
         for (slot, image, path) in chosen {
             let scale = slot.scale > 1 ? "@\(slot.scale)x" : ""
-            compiled.pngs.append((asset.name + slot.name + scale + (slot.idiom == "ipad" ? "~ipad" : "") + ".png", image, path))
+            let filename = asset.name + slot.name + scale + (slot.idiom == "ipad" ? "~ipad" : "") + ".png"
+            // Full-screen and to-status-bar slots share a name: the later one stays (`launch-images` all).
+            compiled.pngs.removeAll { $0.filename == filename }
+            compiled.pngs.append((filename, image, path))
             if slot.version == nil && slot.subtype == "retina4" {
                 compiled.notices.append("\(catalog):./\(folder)/[iphone][retina4][2x][portrait][full-screen][]: notice: This launch image only applies to iOS 6.x and prior but the minimum deployment is 7.0 or later.")
             }

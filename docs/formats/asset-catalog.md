@@ -981,7 +981,7 @@ luminosity soft masks other than gray and RGB ones, blend modes and a PDF per sc
 ### JPEG images (`vector-images`)
 
 A JPEG file in an image set is stored as a file, not pixels, one rendition per entry: flags as
-a PNG's, no size in the header, the size in the slices and metrics (1001, 1003), scale ×
+a PNG's, property 1006 its Exif orientation (`jpeg-exif`), no size in the header, the size in the slices and metrics (1001, 1003), scale ×
 100, pixel format `JPEG`, color model 0, layout 12, properties 1001, 1003, 1004, 1006, payload
 `DWAR`, 0, the length and the bytes, never packed. The bytes are the file's as ImageIO writes
 it again: the APPn segments other than JFIF's APP0, Exif's APP1, the ICC profile's APP2 and
@@ -1469,7 +1469,7 @@ entries without a slot makes actool write a slot's PNG from one of its files, no
 Without a usable profile and without `sRGB`, one `gAMA` chunk of 4 bytes before the image data
 converts the pixels as a profile would: the sRGB primaries (or `cHRM`'s, adapted to D50 with
 Bradford's matrix) and the curve x^(1/gamma). It leaves them alone at 1/2.2 ± 0.0001, at 2.2 ± 0.0001
-when there is no `cHRM` (219,998 is a common way of writing it wrong) and up to the value 15. `cHRM`
+in color images without `cHRM` (219,998 to 220,002 stay, 219,995 and 220,005 convert; 219,998 is a common way of writing it wrong) and up to the value 15. `cHRM`
 alone changes nothing. Two `gAMA` chunks, a chunk of another length or one after the data count as
 none. Icon PNGs keep the file's pixels and the chunk. Converted pixels are equivalent (ADR 0204).
 

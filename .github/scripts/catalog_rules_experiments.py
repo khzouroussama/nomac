@@ -208,8 +208,8 @@ def exp_image_entry_scales(root, nomac):
 
 
 def exp_car_entries(root, nomac):
-    """Family 5, for the compile: `car` entries of image sets at each scale, of color sets and of
-    data sets, for each target device."""
+    """Family 5, for the compile: `car` entries of image sets at each scale, and of color sets,
+    for each target device; data sets of that idiom stay refused (B-208)."""
     cat = catalog(root / "catalogs" / "car" / "A.xcassets", {"carColor": [{"color": red()[0]["color"], "idiom": "car"}],
                                                              "uniCar": [red()[0], {"color": red()[0]["color"], "idiom": "car"}]})
     for name, scale in (("c2", "2x"), ("c3", "3x"), ("cn", None)):
@@ -217,8 +217,6 @@ def exp_car_entries(root, nomac):
         d.mkdir()
         png_rgb(d / "p.png", 8, 8, lambda x, y: (1, 2, 3))
         write_json(d / "Contents.json", {"images": [{"idiom": "car", "filename": "p.png", **({"scale": scale} if scale else {})}], **INFO})
-    data_set(cat, "dcar", "b.txt", b"x")
-    write_json(cat / "dcar.dataset" / "Contents.json", {"data": [{"idiom": "car", "filename": "b.txt"}], **INFO})
     def devices(*names):
         return [a for i, a in enumerate(ACTOOL_ARGS) if not (a == "--target-device" and ACTOOL_ARGS[i + 1] not in names or a in ("iphone", "ipad") and a not in names)]
     return [case(root, "-".join(names), [cat], nomac, args=devices(*names)) for names in (("iphone", "ipad"), ("iphone",), ("ipad",))]

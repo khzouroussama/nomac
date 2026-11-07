@@ -9,7 +9,7 @@ import NomacCore
 /// entry without a scale being 1x, whichever of the idioms below it has.
 enum SolidImageStack {
     static let scales: [String: Int] = ["": 1, "2x": 2]
-    static let idioms: Set<String> = ["vision", "reality", "universal", "iphone"]
+    static let idioms: Set<String> = ["vision", "reality"]
 
     /// actool's messages for the stack, once each.
     static func errors(_ path: String) throws -> [String] {
@@ -25,7 +25,7 @@ enum SolidImageStack {
             guard let image = images.first, let file = image["filename"] as? String else { continue }
             guard images.count == 1 else { throw unsupported("layers of several images") }
             guard let scale = scales[image["scale"] as? String ?? ""], idioms.contains(image["idiom"] as? String ?? "") else {
-                throw unsupported("images other than 2x ones for vision, reality, universal or iPhone")
+                throw unsupported("images other than 2x ones for vision or reality")
             }
             guard let (width, height) = pngSize(set + "/" + file) else { throw unsupported("files other than PNGs") }
             last = ((name as NSString).deletingPathExtension, width, height, scale)
