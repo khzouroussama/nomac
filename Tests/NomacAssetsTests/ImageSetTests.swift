@@ -76,7 +76,7 @@ import Testing
         #expect(try pixels(interlaced) == [10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 40, 40, 40, 255])
         let gamma = Self.png(width: 1, height: 1, colorType: 0, rows: [[90]], chunks: [("gAMA", [0, 0, 0xB1, 0x8F])])
         #expect(try pixels(gamma) == [90, 90, 90, 255])
-        #expect(throws: NomacError.self) { try pixels(Self.png(width: 1, height: 1, colorType: 0, rows: [[90]], chunks: [("gAMA", [0, 0, 0xC3, 0x50])])) }
+        #expect(try pixels(Self.png(width: 1, height: 1, colorType: 0, rows: [[90]], chunks: [("gAMA", [0, 0, 0xC3, 0x50])])) == [99, 99, 99, 255])
         #expect(throws: NomacError.self) { try pixels(Self.png(width: 1, height: 1, colorType: 0, rows: [[0, 90]], depth: 16)) }
     }
 

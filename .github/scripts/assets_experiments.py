@@ -2579,9 +2579,13 @@ def exp_png_gamma(root, nomac):
 
     rows = zlib.compress(b"".join(b"\0" + bytes(c for x in range(1024) for c in cube(x, y)[:3]) for y in range(1024)), 6)
 
-    def file(before=b"", after=b""):
-        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1024, 1024, 8, 2, 0, 0, 0)) + before + chunk(b"IDAT", rows)
-                + after + chunk(b"IEND", b""))
+    single = zlib.compress(b"".join(b"\0" + bytes((x + y) % 256 for x in range(1024)) for y in range(1024)), 6)
+    palette = chunk(b"PLTE", bytes(c for i in range(256) for c in (i, 255 - i, 100)))
+
+    def file(before=b"", after=b"", kind="rgb"):
+        header = {"rgb": 2, "gray": 0, "palette": 3}[kind]
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1024, 1024, 8, header, 0, 0, 0)) + before
+                + (palette if kind == "palette" else b"") + chunk(b"IDAT", rows if kind == "rgb" else single) + after + chunk(b"IEND", b""))
 
     def gamma(value):
         return chunk(b"gAMA", struct.pack(">I", value))
@@ -2594,6 +2598,9 @@ def exp_png_gamma(root, nomac):
         "primaries-219998": {"before": gamma(219998) + srgb_primaries}, "wide-45455": {"before": gamma(45455) + wide_primaries},
         "srgb-first": {"before": chunk(b"sRGB", b"\0") + gamma(45000)}, "srgb-last": {"before": gamma(45000) + chunk(b"sRGB", b"\0")},
         "two": {"before": gamma(45000) + gamma(65536)}, "short": {"before": chunk(b"gAMA", b"\0\0")}, "after-data": {"after": gamma(45000)},
+        "gray-plain": {"kind": "gray"}, "gray-45000": {"before": gamma(45000), "kind": "gray"}, "gray-219998": {"before": gamma(219998), "kind": "gray"},
+        "gray-65536": {"before": gamma(65536), "kind": "gray"}, "palette-plain": {"kind": "palette"}, "palette-45000": {"before": gamma(45000), "kind": "palette"},
+        "palette-219998": {"before": gamma(219998), "kind": "palette"},
     })
     reports = []
     iphone = [a for i, a in enumerate(ACTOOL_ARGS) if a != "ipad" and not (a == "--target-device" and ACTOOL_ARGS[i + 1] == "ipad")]

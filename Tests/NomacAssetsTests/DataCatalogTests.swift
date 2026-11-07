@@ -70,11 +70,12 @@ import Testing
         #expect(throws: NomacError.self) { try ColorCatalogTests.compile(catalog, in: temporary.path + "/out") }
     }
 
-    @Test func unknownExtensionIsAnError() throws {
+    /// An extension macOS does not know gets a dynamic type identifier (`dynamic-identifiers`).
+    @Test func unknownExtensionCompiles() throws {
         let temporary = try TemporaryDirectory()
         let catalog = temporary.path + "/A.xcassets"
         try ColorCatalogTests.writeCatalog(catalog, [:])
         try Self.dataSet(catalog, "D", "f.xyzzy", [1])
-        #expect(throws: NomacError.self) { try ColorCatalogTests.compile(catalog, in: temporary.path + "/out") }
+        #expect(try ColorCatalogTests.compile(catalog, in: temporary.path + "/out").failed == false)
     }
 }

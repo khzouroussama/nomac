@@ -169,9 +169,10 @@ import Testing
         #expect(payload.map { String(format: "%02x", $0) }.joined() == observed)
         let label = try ColorSet.payload(["platform": "universal", "reference": "labelColor"], appearance: .dark, asset: asset)
         #expect(Array(label[8..<12]) == [2, 1, 0, 0] && Array(label[16..<32]) == Array(repeating: 0, count: 6) + [0xF0, 0x3F] + Array(repeating: 0, count: 6) + [0xF0, 0x3F])
-        for (platform, name) in [("ios", "bogusColor"), ("universal", "linkColor"), ("osx", "labelColor")] {
+        for (platform, name) in [("ios", "bogusColor"), ("universal", "linkColor")] {
             #expect(throws: NomacError.self) { try ColorSet.payload(["platform": platform, "reference": name], appearance: .any, asset: asset) }
         }
+        #expect(try ColorSet.payload(["platform": "osx", "reference": "labelColor"], appearance: .dark, asset: asset) == label)
         #expect(throws: NomacError.self) { try ColorSet.payload(blue, appearance: .highContrastAny, asset: asset) }
     }
 }
