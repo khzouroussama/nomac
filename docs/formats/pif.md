@@ -42,11 +42,17 @@ Exactly what Foundation's `JSONSerialization` writes on Apple platforms with
 - strings escape `"`, `\`, and control characters (`\n`, `\r`, `\t`, `\b`, `\f`, others as
   `\u00XX`). `/` and non-ASCII characters are written as is;
 - no trailing newline;
-- **key order** is `String.compare(_:options:)` with `[.numeric, .caseInsensitive,
-  .forcedOrdering]`, not byte order. Letters compare case-insensitively, so `_` (0x5F) sorts
-  before every letter: `CLANG_WARN__DUPLICATE_METHOD_MATCH` comes before
-  `CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING` (retro-rampage). Digit runs compare by value
-  (`a2` before `a10`). Keys equal under those rules are ordered by UTF-16 code units.
+- **key order** is `.sortedKeys`'s, not byte order (loader-experiments `pif-key-order`, the same
+  on about 10,000 random keys sorted by `JSONSerialization` itself). Characters compare by a fixed
+  order: space `_ - , ; : ! ? . ' " ( ) [ ] { } @ * / \ & # % \` ^ + < = > | ~ $`, then digits, then
+  letters without regard to case. So `CLANG_WARN__DUPLICATE_METHOD_MATCH` comes before
+  `CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING` (retro-rampage), and
+  `PROVISIONING_PROFILE_SPECIFIER` before `PROVISIONING_PROFILE[sdk=iphoneos*]`. Digit runs compare
+  by value (`a2` before `a10`). Among keys equal under those rules the first difference decides:
+  the shorter run of digits, or lowercase before uppercase (`9b`, `9B`, `09b`). A letter with an
+  accent or another non-ASCII letter sorts in Unicode's order in Xcode (`KEz`, `KÉz`, `KFz`, and
+  `Kαz` and `K日z` after `Kzz`); nomac puts every non-ASCII character after all ASCII ones, by code
+  unit (BACKLOG B-520).
 
 ### Values
 

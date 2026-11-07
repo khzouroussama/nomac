@@ -37,10 +37,20 @@ import Testing
         #expect(PIFValue.keyOrder("CLANG_WARN__DUPLICATE_METHOD_MATCH", "CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING"))
         #expect(PIFValue.keyOrder("a2", "a10"))
         #expect(PIFValue.keyOrder("ab", "AC"))
-        #expect(PIFValue.keyOrder("A", "a"))
-        #expect(!PIFValue.keyOrder("a", "A"))
         #expect(PIFValue.keyOrder("guid", "name"))
         #expect(PIFValue.keyOrder("x", "x1"))
+    }
+
+    /// loader-experiments `pif-key-order`: the order of the keys in Xcode's PIF, which
+    /// JSONSerialization `.sortedKeys` gave too on about 10,000 random keys of these characters.
+    @Test func sortsKeysInXcodesObservedOrder() {
+        let keys = ["0_0", "0_00", "00_0", "9b", "9B", "09b", "a1", "a01", "A1", "a2", "a10",
+                    "K z", "K_z", "K-z", "K,z", "K;z", "K:z", "K!z", "K?z", "K.z", "K'z", "K\"z", "K(z", "K)z", "K]z", "K{z", "K}z",
+                    "K@z", "K*z", "K/z", "K\\z", "K&z", "K#z", "K%z", "K`z", "K^z", "K+z", "K<z", "K=z", "K>z", "K|z", "K~z", "K$z",
+                    "K0z", "K9z", "Kaz", "KAz", "Kbz", "KBz", "Kzz", "KZz",
+                    "PROVISIONING_PROFILE", "PROVISIONING_PROFILE_SPECIFIER", "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]",
+                    "PROVISIONING_PROFILE[sdk=iphoneos*]"]
+        #expect(keys.shuffled().sorted(by: PIFValue.keyOrder) == keys)
     }
 
     /// Property: every serialized document parses back, with JSONSerialization, to the same value.

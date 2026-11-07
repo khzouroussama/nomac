@@ -80,31 +80,47 @@ extension PIFValue {
         }
     }
 
-    /// Key order used by Foundation's `JSONSerialization` `.sortedKeys`: the comparison
-    /// `String.compare(_:options:)` makes with `[.numeric, .caseInsensitive, .forcedOrdering]`.
-    /// Letters compare without regard to case (so `_` sorts before letters), runs of digits
-    /// compare by numeric value, and strings that are equal under those rules are ordered by
-    /// their UTF-16 code units.
+    /// Key order of Foundation's `JSONSerialization` `.sortedKeys`, in which Xcode writes its PIF
+    /// (loader-experiments `pif-key-order`, docs/formats/pif.md): characters compare by
+    /// `keyRanks`, without regard to case, and runs of digits by numeric value; among keys equal
+    /// under those rules, the first difference decides: the shorter run of digits, or lowercase.
     static func keyOrder(_ lhs: String, _ rhs: String) -> Bool {
-        let order = foldedCompare(Array(lhs.utf16), Array(rhs.utf16))
-        if order != 0 { return order < 0 }
-        return Array(lhs.utf16).lexicographicallyPrecedes(Array(rhs.utf16))
+        let a = Array(lhs.utf16), b = Array(rhs.utf16)
+        let order = rankedCompare(a, b)
+        return order != 0 ? order < 0 : tieBreak(a, b) < 0
     }
 
     private static func isDigit(_ unit: UInt16) -> Bool { unit >= 0x30 && unit <= 0x39 }
 
-    private static func folded(_ unit: UInt16) -> UInt16 {
-        (unit >= 0x41 && unit <= 0x5A) ? unit + 0x20 : unit
+    private static func digitRunEnd(_ units: [UInt16], from start: Int) -> Int {
+        var end = start
+        while end < units.count && isDigit(units[end]) { end += 1 }
+        return end
     }
 
-    /// Compares case-insensitively with numeric digit runs; returns -1, 0 or 1.
-    private static func foldedCompare(_ a: [UInt16], _ b: [UInt16]) -> Int {
+    /// Rank of each ASCII character, punctuation in its observed order before digits before
+    /// letters, both cases of a letter alike. Other characters rank after them by code unit.
+    private static let keyRanks: [UInt16] = {
+        var ranks = (0..<128).map { UInt16($0) }
+        let order = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789".utf16.map { $0 }
+        for (index, unit) in order.enumerated() { ranks[Int(unit)] = 128 + UInt16(index) }
+        for letter in 0..<26 {
+            ranks[0x41 + letter] = 256 + UInt16(letter)
+            ranks[0x61 + letter] = 256 + UInt16(letter)
+        }
+        return ranks
+    }()
+
+    private static func keyRank(_ unit: UInt16) -> UInt32 {
+        unit < 128 ? UInt32(keyRanks[Int(unit)]) : 512 + UInt32(unit)
+    }
+
+    /// Compares by rank with numeric digit runs; returns -1, 0 or 1.
+    private static func rankedCompare(_ a: [UInt16], _ b: [UInt16]) -> Int {
         var i = 0, j = 0
         while i < a.count && j < b.count {
             if isDigit(a[i]) && isDigit(b[j]) {
-                var iEnd = i, jEnd = j
-                while iEnd < a.count && isDigit(a[iEnd]) { iEnd += 1 }
-                while jEnd < b.count && isDigit(b[jEnd]) { jEnd += 1 }
+                let iEnd = digitRunEnd(a, from: i), jEnd = digitRunEnd(b, from: j)
                 var x = Array(a[i..<iEnd]), y = Array(b[j..<jEnd])
                 while x.count > 1 && x.first == 0x30 { x.removeFirst() }
                 while y.count > 1 && y.first == 0x30 { y.removeFirst() }
@@ -114,13 +130,31 @@ extension PIFValue {
                 j = jEnd
                 continue
             }
-            let x = folded(a[i]), y = folded(b[j])
+            let x = keyRank(a[i]), y = keyRank(b[j])
             if x != y { return x < y ? -1 : 1 }
             i += 1
             j += 1
         }
         if i < a.count { return 1 }
         if j < b.count { return -1 }
+        return 0
+    }
+
+    /// Orders keys `rankedCompare` finds equal, which differ only in case and leading zeros.
+    private static func tieBreak(_ a: [UInt16], _ b: [UInt16]) -> Int {
+        var i = 0, j = 0
+        while i < a.count && j < b.count {
+            if isDigit(a[i]) && isDigit(b[j]) {
+                let iEnd = digitRunEnd(a, from: i), jEnd = digitRunEnd(b, from: j)
+                if iEnd - i != jEnd - j { return iEnd - i < jEnd - j ? -1 : 1 }
+                i = iEnd
+                j = jEnd
+                continue
+            }
+            if a[i] != b[j] { return a[i] > b[j] ? -1 : 1 }
+            i += 1
+            j += 1
+        }
         return 0
     }
 
