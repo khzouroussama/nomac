@@ -395,7 +395,9 @@ def install(root, entry, env):
     stages = [("packages", argv, folder, install_env)]
     has_expo = installed_version(app, top, "expo") is not None or "expo" in json.loads((app / "package.json").read_text()).get("dependencies", {})
     if entry.get("source") and not lockfile and has_expo:
-        stages.append(("expo-fix", ["npx", "expo", "install", "--fix"], app, install_env))
+        # EXPO_OFFLINE: the versions the installed expo package names, not what Expo's server recommends today,
+        # which on 2026-11-07 was an expo newer than npmBefore (ETARGET in every example without a lockfile).
+        stages.append(("expo-fix", ["npx", "expo", "install", "--fix"], app, dict(install_env, EXPO_OFFLINE="1")))
     if not (app / "ios").is_dir() and has_expo:
         set_bundle_identifier(app, entry["id"])
         stages.append(("prebuild", ["npx", "expo", "prebuild", "--platform", "ios", "--no-install"], app, env))

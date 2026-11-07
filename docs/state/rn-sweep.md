@@ -14,10 +14,12 @@ install.sh's packages, a soft limit of 1024 open files), the 45 apps that never 
 of round 2 again. A detached run that outlives any agent, with one builder and one installer until the
 owner says the load has dropped:
 
-- Not started until the volume's base is ready: `~/nomac-out/sweep/setup2-27.0.5.sh` (detached, log
-  `~/nomac-out/sweep/setup2.log`) installs the SDK on the Mac, copies it into the volume, runs `nomac toolchain
-  install`, and starts the run (`start.log`). If `run-27.0.5.log` does not exist and neither script runs,
-  run setup2 again.
+- Started at 04:20 on 2026-11-07, on `nomac-sweep-user:24.04`. The volume's base (7.8 GB) came from
+  `~/nomac-out/sweep/setup2-27.0.5.sh`: `nomac sdk install` on the Mac, as reading Xcode's compressed files
+  through Docker's shared mount took 50 minutes for a quarter of them, and no commit touches
+  `Sources/NomacSDK` since v27.0.5, then a tar into the volume and `nomac toolchain install`. Never delete
+  the release's `swift` folder: it evaluates manifests (`SwiftPackages.toolchainBinDirectory`). 574 identical
+  files of its 581 candidates are hard links to the developer directory's copies, which saved 1.5 GB.
 - Log: `~/nomac-out/sweep/run-27.0.5.log`. Results: `~/nomac-out/sweep/results`, round 2's in
   `~/nomac-out/sweep/results-round2-ad202e5b`.
 - It runs from a snapshot of the scripts and the manifest, `~/nomac-out/sweep/driver`, so that a rebase of
@@ -36,6 +38,11 @@ owner says the load has dropped:
   app in flight runs again).
 - `touch ~/nomac-out/sweep/hold-builds` keeps the next app's Linux build from starting, for an agent's own
   `swift build` (one build at a time) or to replace the container between two apps; `rm` it to go on.
+- Restarted at 05:07 with no results kept: the first 34 minutes stopped every Expo example at `expo install
+  --fix` for the sweep's own reason. Expo's server recommended `expo@~57.0.32`, newer than the manifest's
+  `npmBefore`, so npm found no such version (ETARGET) or conflicted (ERESOLVE). The stage now runs with
+  `EXPO_OFFLINE=1`: the versions the installed expo package names. Checked on expo-with-shadcn, which
+  installs, and expo-with-stripe, which then stops at its own `Failed to validate worklets version`.
 - The network: a failure of the network says nothing about the app or nomac. It is retried within the
   step, marked `network` if it persists, left out of every count, and run again by the next pass, every
   15 minutes until all 106 are decided (rn_sweep.py `NETWORK_ERRORS`, `unresolved`).
