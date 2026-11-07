@@ -35,9 +35,12 @@ struct SigningCommand: ParsableCommand {
             let key = try CertificateRequest.newPrivateKey()
             let keyPath = folder + "/development.key"
             let requestPath = folder + "/development.csr"
-            guard !FileSystem.exists(requestPath) else { throw NomacError("already exists; move it away first", path: requestPath) }
+            for path in [keyPath, requestPath] where FileSystem.exists(path) {
+                throw NomacError("already exists; move it away first", path: path, notes: ["a certificate works only with the key of its request, so nomac does not replace either"])
+            }
+            let request = try CertificateRequest.pem(commonName: commonName, privateKey: key, path: keyPath)
             try writeNew(Array(key.utf8), to: keyPath, mode: 0o600)
-            try writeNew(Array(try CertificateRequest.pem(commonName: commonName, privateKey: key, path: keyPath).utf8), to: requestPath, mode: 0o644)
+            try writeNew(Array(request.utf8), to: requestPath, mode: 0o644)
             print("""
             wrote \(keyPath) (only you can read it; keep it, and out of any repository)
             wrote \(requestPath)
@@ -78,10 +81,10 @@ struct SigningCommand: ParsableCommand {
             guard let certificateBytes = FileSystem.contents(atPath: certificatePath) else { throw NomacError("cannot read the certificate", path: certificatePath) }
             guard let keyBytes = FileSystem.contents(atPath: keyPath) else { throw NomacError("cannot read the key", path: keyPath) }
             let leaf = try IdentityFile.certificate([UInt8](certificateBytes), path: certificatePath)
-            let chainCertificates = chain.isEmpty ? try Self.download(try IdentityFile.authorities(above: leaf, path: certificatePath)) : try chain.map { path in
+            let chainCertificates = chain.isEmpty ? try Self.download(try IdentityFile.authorities(above: leaf, path: certificatePath)) : try chain.flatMap { path -> [[UInt8]] in
                 let absolute = FileSystem.absolute(path)
                 guard let bytes = FileSystem.contents(atPath: absolute) else { throw NomacError("cannot read the certificate", path: absolute) }
-                return try IdentityFile.certificate([UInt8](bytes), path: absolute)
+                return try IdentityFile.certificates([UInt8](bytes), path: absolute)
             }
             let (text, identity) = try IdentityFile.make(certificate: leaf, chain: chainCertificates, privateKey: String(decoding: keyBytes, as: UTF8.self),
                                                          keyPath: keyPath, certificatePath: certificatePath, at: Date())
@@ -91,7 +94,7 @@ struct SigningCommand: ParsableCommand {
             identity: \(identity.commonName)
             team: \(identity.teamIdentifier ?? "unknown")
             expires: \(identity.expirationDate.map { ISO8601DateFormatter().string(from: $0) } ?? "unknown")
-            next: a development profile with this certificate from developer.apple.com, then 'nomac signing check --keychain \(output) --provisioning-profiles <folder>'
+            next: a development profile with this certificate from developer.apple.com, then 'nomac signing check --keychain \(output) --provisioning-profiles <folder>\(identity.commonName.hasPrefix("Apple Development") ? "" : " --identity \"\(identity.commonName)\"")'
             """)
         }
 
@@ -155,9 +158,18 @@ struct SigningCommand: ParsableCommand {
             }
             var usable: ProvisioningProfile?
             var refusals: [String] = []
-            for file in files {
-                guard let bytes = FileSystem.contents(atPath: folder + "/" + file) else { continue }
+            var names: [String: Int] = [:]
+            let profiles = try files.compactMap { file -> ProvisioningProfile? in
+                guard let bytes = FileSystem.contents(atPath: folder + "/" + file) else { return nil }
                 let profile = try ProvisioningProfile(bytes: [UInt8](bytes), path: folder + "/" + file)
+                names[profile.name, default: 0] += 1
+                return profile
+            }
+            // A profile edited and downloaded again keeps its name: a build refuses the two.
+            for (name, count) in names.sorted(by: { $0.key < $1.key }) where count > 1 {
+                throw NomacError("\(count) profiles in the folder are named \"\(name)\", which a build refuses", path: folder, notes: ["keep only the one you downloaded last"])
+            }
+            for profile in profiles {
                 let problems = InstallCheck.problems(profile: profile, identity: signing, bundleIdentifier: bundleId, device: device, at: now)
                 if problems.isEmpty {
                     print("profile \"\(profile.name)\": App ID \(profile.applicationIdentifier ?? "unknown"), \(profile.provisionedDevices.count) devices, expires \(profile.expirationDate.map { formatter.string(from: $0) } ?? "unknown")")

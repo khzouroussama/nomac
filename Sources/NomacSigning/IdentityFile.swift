@@ -25,9 +25,16 @@ public enum IdentityFile {
 
     /// A certificate as Apple's download gives it (DER), or in PEM.
     public static func certificate(_ bytes: [UInt8], path: String) throws -> [UInt8] {
-        if let block = PEM.blocks(in: String(decoding: bytes, as: UTF8.self)).first(where: { $0.label == "CERTIFICATE" }) { return block.der }
+        guard let first = try certificates(bytes, path: path).first else { throw NomacError("malformed certificate", path: path) }
+        return first
+    }
+
+    /// Every certificate in a file: one in DER, or any number in PEM.
+    public static func certificates(_ bytes: [UInt8], path: String) throws -> [[UInt8]] {
+        let blocks = PEM.blocks(in: String(decoding: bytes, as: UTF8.self)).filter { $0.label == "CERTIFICATE" }
+        if !blocks.isEmpty { return blocks.map(\.der) }
         _ = try X509Certificate(der: bytes, path: path)
-        return bytes
+        return [bytes]
     }
 
     /// The authorities above an Apple-issued certificate, in chain order. Only G3 is observed
@@ -68,7 +75,11 @@ public enum IdentityFile {
         if let expiration = leaf.notAfter, expiration <= date {
             throw NomacError("the certificate expired on \(ISO8601DateFormatter().string(from: expiration))", path: certificatePath, notes: ["make a new one from the same request at developer.apple.com"])
         }
-        let text = privateKey + ([certificate] + chain).map { PEM.text(label: "CERTIFICATE", der: $0) }.joined()
+        // The key's own block: its file may lack a final newline or hold last year's certificates.
+        guard let keyBlock = PEM.blocks(in: privateKey).first(where: { $0.label == "PRIVATE KEY" || $0.label == "RSA PRIVATE KEY" }) else {
+            throw NomacError("no RSA private key in the file", path: keyPath)
+        }
+        let text = keyBlock.text + ([certificate] + chain).map { PEM.text(label: "CERTIFICATE", der: $0) }.joined()
         let identity = try SigningIdentity(named: leaf.sha1Hex, pem: text, path: certificatePath, appleRoots: roots)
         guard identity.isApple else {
             throw NomacError("the certificate's chain does not end at Apple Root CA", path: certificatePath, notes: ["a device accepts only Apple's chain; pass Apple's certificates with --chain"])

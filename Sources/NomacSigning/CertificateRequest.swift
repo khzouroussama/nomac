@@ -44,6 +44,9 @@ enum X509Builder {
 extension PEM {
     /// The RSA private key in `text`, PKCS #1 or PKCS #8.
     static func rsaPrivateKey(in text: String, path: String) throws -> _RSA.Signing.PrivateKey {
+        if text.contains("ENCRYPTED PRIVATE KEY") || text.contains("Proc-Type: 4,ENCRYPTED") {
+            throw NomacError("the private key has a passphrase", path: path, notes: ["remove it into a new file: openssl pkey -in <key> -out <new key>"])
+        }
         guard let block = blocks(in: text).first(where: { $0.label == "PRIVATE KEY" || $0.label == "RSA PRIVATE KEY" }) else {
             throw NomacError("no RSA private key in the file", path: path)
         }

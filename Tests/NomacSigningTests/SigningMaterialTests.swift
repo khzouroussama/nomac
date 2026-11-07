@@ -53,6 +53,29 @@ import Testing
         #expect(try SigningIdentity(named: "Apple Development", pem: text, path: "identity.pem").commonName == identity.commonName)
     }
 
+    /// A key restored without its final newline, or a last year's identity file passed as the key.
+    @Test func onlyTheKeysBlockGoesIntoTheFile() throws {
+        let bare = String(Self.key.dropLast())
+        let withCertificates = Self.key + PEM.text(label: "CERTIFICATE", der: Self.certificates[0])
+        for key in [bare, withCertificates] {
+            let (text, _) = try IdentityFile.make(certificate: Self.certificates[0], chain: Array(Self.certificates[1...]), privateKey: key,
+                                                  keyPath: "k", certificatePath: "c", at: Self.now, roots: Self.roots)
+            #expect(PEM.blocks(in: text).filter { $0.label == "CERTIFICATE" }.map(\.der) == Self.certificates)
+        }
+    }
+
+    @Test func aKeyWithAPassphraseIsSaid() {
+        #expect(throws: NomacError("the private key has a passphrase", path: "k", notes: ["remove it into a new file: openssl pkey -in <key> -out <new key>"])) {
+            try CertificateRequest.pem(commonName: "x", privateKey: "-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n", path: "k")
+        }
+    }
+
+    /// `cat wwdr.pem root.pem > chain.pem` given to --chain.
+    @Test func severalCertificatesInOneFile() throws {
+        let text = Self.certificates.map { PEM.text(label: "CERTIFICATE", der: $0) }.joined()
+        #expect(try IdentityFile.certificates(Array(text.utf8), path: "chain.pem") == Self.certificates)
+    }
+
     @Test func anotherKeyIsRefusedWithWhatToDo() throws {
         let other = try CertificateRequest.newPrivateKey()
         do {
