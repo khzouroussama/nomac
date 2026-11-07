@@ -124,12 +124,12 @@ enum AppIconSet {
                 if watch { icons.append(try watchIcon(entry, filename: filename, asset: asset)) }
                 continue
             }
-            guard Set(entry.keys).isSubset(of: ["filename", "idiom", "scale", "size", "expected-size", "folder"]) else {
-                throw NomacError("app icon entries with \(Set(entry.keys).subtracting(["filename", "idiom", "scale", "size"]).sorted()) are not supported yet (BACKLOG B-202)", path: asset.path + "/" + filename)
-            }
             guard let scale = ImageSet.scales[scaleName], slots[idiom]?[size]?.contains(scale) == true else {
                 problems.unassigned.append(.init(idiom: idiom, size: size, scale: scaleName, filename: filename))
                 continue
+            }
+            guard Set(entry.keys).isSubset(of: ["filename", "idiom", "scale", "size", "expected-size", "folder"]) else {
+                throw NomacError("app icon entries with \(Set(entry.keys).subtracting(["filename", "idiom", "scale", "size"]).sorted()) are not supported yet (BACKLOG B-202)", path: asset.path + "/" + filename)
             }
             guard !icons.contains(where: { $0.idiom == idiom && $0.size == size && $0.scale == scale }) else {
                 throw NomacError("app icon sets with two images of one size are not supported yet (BACKLOG B-202)", path: asset.path)

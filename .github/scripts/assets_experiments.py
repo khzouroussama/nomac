@@ -327,8 +327,16 @@ def converted_files(catalogs):
             if p.parent.suffix not in (".imageset", ".appiconset"):
                 continue
             data, o, profile = p.read_bytes(), 8, None
+            gammas, srgb, chromaticities = [], False, None
             while data[:4] == b"\x89PNG" and o + 8 <= len(data):
                 n, t = struct.unpack_from(">I4s", data, o)
+                if t == b"IDAT":
+                    break
+                if t == b"gAMA":
+                    gammas.append(data[o + 8:o + 8 + n])
+                srgb = srgb or t == b"sRGB"
+                if t == b"cHRM":
+                    chromaticities = data[o + 8:o + 8 + n]
                 if t == b"iCCP":
                     body = data[o + 8:o + 8 + n]
                     try:
@@ -338,6 +346,11 @@ def converted_files(catalogs):
                 o += 12 + n
             if profile and hashlib.sha256(profile[128:]).hexdigest() != SRGB_BODY:
                 found.add((p.parent.stem, p.name))
+            elif not srgb and len(gammas) == 1 and len(gammas[0]) == 4:
+                gamma = struct.unpack(">I", gammas[0])[0] / 100000
+                standard = chromaticities is None or chromaticities == struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)
+                if gamma * 100000 > 15 and not (standard and abs(gamma - 1 / 2.2) < 0.0001) and (chromaticities is not None or abs(gamma - 2.2) >= 0.0001):
+                    found.add((p.parent.stem, p.name))
     return found
 
 
@@ -2556,6 +2569,51 @@ def exp_launch_images(root, nomac):
     return reports
 
 
+def exp_png_gamma(root, nomac):
+    """gAMA values, alone and beside cHRM, sRGB and a profile, in RGB, gray and palette images, for a
+    million colors in an app icon: pixels against actool's, as the `profiles` cases are measured."""
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    rows = zlib.compress(b"".join(b"\0" + bytes(c for x in range(1024) for c in cube(x, y)[:3]) for y in range(1024)), 6)
+
+    def file(before=b"", after=b""):
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1024, 1024, 8, 2, 0, 0, 0)) + before + chunk(b"IDAT", rows)
+                + after + chunk(b"IEND", b""))
+
+    def gamma(value):
+        return chunk(b"gAMA", struct.pack(">I", value))
+
+    srgb_primaries = chunk(b"cHRM", struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000))
+    wide_primaries = chunk(b"cHRM", struct.pack(">8I", 31270, 32900, 68000, 32000, 26500, 69000, 15000, 6000))
+    cases = {f"gamma-{v}": {"before": gamma(v)} for v in (0, 15, 16, 1000, 30000, 45000, 45443, 45445, 45455, 45464, 45465, 65536, 100000, 219990, 219998, 220000, 220010, 300000)}
+    cases.update({
+        "cHRM-only": {"before": wide_primaries}, "primaries-45455": {"before": gamma(45455) + srgb_primaries}, "primaries-45000": {"before": gamma(45000) + srgb_primaries},
+        "primaries-219998": {"before": gamma(219998) + srgb_primaries}, "wide-45455": {"before": gamma(45455) + wide_primaries},
+        "srgb-first": {"before": chunk(b"sRGB", b"\0") + gamma(45000)}, "srgb-last": {"before": gamma(45000) + chunk(b"sRGB", b"\0")},
+        "two": {"before": gamma(45000) + gamma(65536)}, "short": {"before": chunk(b"gAMA", b"\0\0")}, "after-data": {"after": gamma(45000)},
+    })
+    reports = []
+    iphone = [a for i, a in enumerate(ACTOOL_ARGS) if a != "ipad" and not (a == "--target-device" and ACTOOL_ARGS[i + 1] == "ipad")]
+    for name, parts in cases.items():
+        cat = catalog(root / "catalogs" / name / "A.xcassets", {})
+        folder = cat / "AppIcon.appiconset"
+        folder.mkdir()
+        (folder / "big.png").write_bytes(file(**parts))
+        write_json(folder / "Contents.json", {"images": [{"filename": "big.png", "idiom": "ios-marketing", "scale": "1x", "size": "1024x1024"}], **INFO})
+        report = case(root, name, [cat], nomac, ["--app-icon", "AppIcon"], args=iphone)
+        cars = [root / name / side / "Assets.car" for side in ("actool", "nomac")]
+        if nomac and all(car.exists() for car in cars):
+            a, n = (app_icon_pixels(car.read_bytes()) for car in cars)
+            if a and n:
+                report["exact"] = round(sum(p == q for p, q in zip(a, n)) / len(a), 4)
+                report["largest difference"] = max(max(abs(u - v) for u, v in zip(p, q)) for p, q in zip(a, n))
+        reports.append(report)
+    return reports
+
+
 def exp_profiles(root, nomac):
     srgb_curve = para(2.4, 1 / 1.055, 0.055 / 1.055, 1 / 12.92, 0.04045)
     srgb, p3, adobe = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)], [(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)], [(0.64, 0.33), (0.21, 0.71), (0.15, 0.06)]
@@ -3268,6 +3326,7 @@ EXPERIMENTS = {
     "appearance-pairs": exp_appearance_pairs,
     "image-traits": exp_image_traits,
     "bad-profiles": exp_bad_profiles,
+    "png-gamma": exp_png_gamma,
     "incomplete-icons": exp_incomplete_icons,
     "launch-images": exp_launch_images,
     "icon-entries": exp_icon_entries,

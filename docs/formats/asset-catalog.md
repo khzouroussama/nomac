@@ -1355,6 +1355,46 @@ the order errors, notices, document warnings, document notices.
 - Luminosity with high contrast (`appearance-pairs`), either order: appearance 3
   `UIAppearanceHighContrastDark` and 5 `UIAppearanceHighContrastLight`, in colors and images.
 
+### Launch image sets (`launch-images`)
+
+Only the set `--launch-image` names adds anything, and nothing in `Assets.car`: an icon PNG per slot of
+a targeted device, `<set><suffix>[@Nx][~ipad].png`, and the partial Info.plist's `UILaunchImages`
+(version, name, orientation and size in points, for slots with a `minimum-system-version`, newest
+first, in the table's order) with `UILaunchImageFile` `<set>` when a slot has none. Other sets add
+only their warnings. Slots, by idiom, system version, subtype and orientation:
+
+| Slot | Suffix | Points | Pixels |
+|---|---|---|---|
+| iPhone 12.0 `2688h` | `-1200-Portrait-2688h`, `-1200-Landscape-2688h` | 414 × 896 | 1242 × 2688 at 3x |
+| iPhone 12.0 `1792h` | `-1200-Portrait-1792h`, `-1200-Landscape-1792h` | 414 × 896 | 828 × 1792 at 2x |
+| iPhone 11.0 `2436h` | `-1100-Portrait-2436h`, `-1100-Landscape-2436h` | 375 × 812 | 1125 × 2436 at 3x |
+| iPhone 8.0 `736h` | `-800-Portrait-736h`, `-800-Landscape-736h` | 414 × 736 | 1242 × 2208 at 3x |
+| iPhone 8.0 `667h` | `-800-667h` | 375 × 667 | 750 × 1334 at 2x |
+| iPhone 7.0 | `-700` | 320 × 480 | 640 × 960 at 2x |
+| iPhone 7.0 `retina4` | `-700-568h` | 320 × 568 | 640 × 1136 at 2x |
+| iPad 7.0 | `-700-Portrait`, `-700-Landscape` | 768 × 1024 | 768 × 1024 at 1x, twice that at 2x |
+| iPhone, no version | none; `retina4`: `-568h` | | 320 × 480 at 1x, 640 × 960 and 640 × 1136 at 2x |
+| iPad, no version | `-Portrait`, `-Landscape` | | 768 × 1024 at 1x, twice at 2x; `to-status-bar` 768 × 1004 and 1024 × 748 |
+
+The named set always warns `Launch images are deprecated in iOS 13.0. Use a launch storyboard or XIB
+instead.`, and `An iPhone Retina (4-inch) launch image for iOS 7.0 and later is required.` for an
+iPhone target without that slot. The legacy `retina4` slot has a notice. A file of the wrong size or
+missing gets a warning like an app icon's, in `[idiom][subtype][scale][orientation][extent][version]`
+form, in two passes around those. Entries without a slot and stray files are unassigned children,
+two lines. Other platforms' entries are ignored without a word. A named set with nothing to write
+is the error `The launch image set named "X" did not have any applicable content.`; a name no set
+has, `None of the input catalogs contained a matching launch image set named  "X".`. A named set with
+entries without a slot makes actool write a slot's PNG from one of its files, not understood; nomac stops.
+
+### PNG gamma (`png-gamma`)
+
+Without a usable profile and without `sRGB`, one `gAMA` chunk of 4 bytes before the image data
+converts the pixels as a profile would: the sRGB primaries (or `cHRM`'s, adapted to D50 with
+Bradford's matrix) and the curve x^(1/gamma). It leaves them alone at 1/2.2 ± 0.0001, at 2.2 ± 0.0001
+when there is no `cHRM` (219,998 is a common way of writing it wrong) and up to the value 15. `cHRM`
+alone changes nothing. Two `gAMA` chunks, a chunk of another length or one after the data count as
+none. Icon PNGs keep the file's pixels and the chunk. Converted pixels are equivalent (ADR 0204).
+
 ### Loose PNGs (`copypng`)
 
 Swift Build copies a bundle's loose PNGs with Xcode's `copypng` (`COMPRESS_PNG_FILES`,

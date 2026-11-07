@@ -47,6 +47,51 @@ public struct ICCProfile: Sendable {
         public var isInvalid = false
     }
 
+    /// What ImageIO makes of a PNG's `gAMA` with `cHRM` beside it or not, nil when the pixels stay
+    /// as they are (`png-gamma`): 1/2.2 within 0.0001, without `cHRM` 2.2 too, and values up to 15.
+    /// Others convert as a profile would: the sRGB primaries or the chunk's, a gamma of 1/value.
+    public init?(pngGamma value: Int, chromaticities: [Int]?, gray: Bool) {
+        let gamma = Double(value) / 100_000
+        let standard = chromaticities == nil || chromaticities == [31_270, 32_900, 64_000, 33_000, 30_000, 60_000, 15_000, 6_000]
+        guard value > 15, !standard || abs(gamma - 1 / 2.2) >= 0.0001, chromaticities != nil || abs(gamma - 2.2) >= 0.0001 else { return nil }
+        isGray = gray
+        matrix = gray ? [[1, 0, 0], [0, 1, 0], [0, 0, 1]] : standard ? Self.sRGBMatrix : Self.colorants(chromaticities!.map { Double($0) / 100_000 })
+        let curve = Curve.gamma(1 / gamma)
+        curves = gray ? [curve] : [curve, curve, curve]
+        linear = curves.map { curve in (0..<256).map { curve.apply(Double($0) / 255) } }
+    }
+
+    /// The primaries of `cHRM` (white x, y, then red, green and blue) as D50 colorants, adapted
+    /// with Bradford's matrix (ICC.1:2010, Annex E).
+    private static func colorants(_ c: [Double]) -> [[Double]] {
+        func xyz(_ x: Double, _ y: Double) -> [Double] { [x / y, 1, (1 - x - y) / y] }
+        let white = xyz(c[0], c[1]), primaries = [xyz(c[2], c[3]), xyz(c[4], c[5]), xyz(c[6], c[7])]
+        let columns = (0..<3).map { row in primaries.map { $0[row] } }
+        let scale = multiply(invert(columns), white)
+        let unadapted = (0..<3).map { row in (0..<3).map { columns[row][$0] * scale[$0] } }
+        let bradford = [[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]]
+        let from = multiply(bradford, white), to = multiply(bradford, [0.9642, 1, 0.8249])
+        let inverse = invert(bradford)
+        let adapt = (0..<3).map { row in
+            (0..<3).map { column in (0..<3).reduce(0) { $0 + inverse[row][$1] * to[$1] / from[$1] * bradford[$1][column] } }
+        }
+        return (0..<3).map { row in (0..<3).map { column in (0..<3).reduce(0) { $0 + adapt[row][$1] * unadapted[$1][column] } } }
+    }
+
+    private static func multiply(_ m: [[Double]], _ v: [Double]) -> [Double] {
+        m.map { row in zip(row, v).reduce(0) { $0 + $1.0 * $1.1 } }
+    }
+
+    private static func invert(_ m: [[Double]]) -> [[Double]] {
+        let determinant = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+        return [
+            [(m[1][1] * m[2][2] - m[1][2] * m[2][1]) / determinant, (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / determinant, (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / determinant],
+            [(m[1][2] * m[2][0] - m[1][0] * m[2][2]) / determinant, (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / determinant, (m[0][2] * m[1][0] - m[0][0] * m[1][2]) / determinant],
+            [(m[1][0] * m[2][1] - m[1][1] * m[2][0]) / determinant, (m[0][1] * m[2][0] - m[0][0] * m[2][1]) / determinant, (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / determinant],
+        ]
+    }
+
     public init(_ data: [UInt8]) throws {
         func u32(_ offset: Int) -> UInt32 { data[offset..<offset + 4].reduce(0) { $0 << 8 | UInt32($1) } }
         func s15(_ offset: Int) -> Double { Double(Int32(bitPattern: u32(offset))) / 65536 }

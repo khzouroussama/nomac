@@ -115,7 +115,6 @@ struct PNGImage: Equatable {
         var header: [UInt8] = []
         var palette: [UInt8] = []
         var transparency: [UInt8] = []
-        var gamma: Int?
         var compressed: [UInt8] = []
         var ancillary: [Chunk] = []
         var iconIsUnwritable = false
@@ -132,7 +131,6 @@ struct PNGImage: Equatable {
             case "IDAT": compressed += body
             case "IEND": offset = bytes.count
             default:
-                if type == "gAMA" && length == 4 && compressed.isEmpty { gamma = u32(offset + 8) }
                 let stated = u32(offset + 8 + length)
                 let actual = bytes[offset + 4..<offset + 8 + length].withUnsafeBufferPointer { crc32(0, $0.baseAddress, uInt($0.count)) }
                 if Int(actual) != stated { iconIsUnwritable = true }
@@ -148,7 +146,6 @@ struct PNGImage: Equatable {
         guard let channels = Self.channels[colorType] else { throw unsupported("color type \(colorType)") }
         guard Self.depths[colorType]!.contains(depth) else { throw unsupported("bit depth \(depth)") }
         guard !colorManaged || depth != 16 || transparency.isEmpty else { throw unsupported("bit depth 16 and a tRNS chunk") }
-        if colorManaged, let gamma, !Self.ignoredGammas.contains(gamma) { throw unsupported("gamma \(gamma)") }
         // actool converts images with a profile other than sRGB IEC61966-2.1 to sRGB, then
         // premultiplies; gray images with a gray profile stay gray (`profiles` experiment).
         let conversion = colorManaged ? try Self.conversion(ancillary, grayImage: [0, 4].contains(colorType), path: path) : nil
@@ -307,21 +304,31 @@ struct PNGImage: Equatable {
 
     /// The profile the pixels convert from (`bad-profiles`): an `sRGB` chunk before any `iCCP`
     /// chunk means none; of those before `PLTE` and the image data, the last one ImageIO can read
-    /// and that fits the image. Others leave the image untagged: actool says nothing of them.
+    /// and that fits the image. Others leave the image untagged, actool saying nothing of them, and
+    /// then a `gAMA` chunk counts.
     static func conversion(_ chunks: [Chunk], grayImage: Bool, path: String) throws -> ICCProfile? {
-        let candidates = chunks.filter { !$0.afterPalette && !$0.afterData && ["iCCP", "sRGB"].contains($0.type) }
-        guard candidates.first?.type == "iCCP" else { return nil }
-        for chunk in candidates.reversed() where chunk.type == "iCCP" {
-            guard let bytes = readableProfile(chunk.data) else { continue }
-            if ICCProfile.isStandardSRGB(bytes) { return nil }
-            do {
-                let profile = try ICCProfile(bytes)
-                if profile.isGray == grayImage { return profile }
-            } catch let error as ICCProfile.Unsupported {
-                if !error.isInvalid { throw unsupportedProfile(error.description, path: path) }
+        let before = chunks.filter { !$0.afterData }
+        let candidates = before.filter { !$0.afterPalette && ["iCCP", "sRGB"].contains($0.type) }
+        if candidates.first?.type == "iCCP" {
+            for chunk in candidates.reversed() where chunk.type == "iCCP" {
+                guard let bytes = readableProfile(chunk.data) else { continue }
+                if ICCProfile.isStandardSRGB(bytes) { return nil }
+                do {
+                    let profile = try ICCProfile(bytes)
+                    if profile.isGray == grayImage { return profile }
+                } catch let error as ICCProfile.Unsupported {
+                    if !error.isInvalid { throw unsupportedProfile(error.description, path: path) }
+                }
             }
         }
-        return nil
+        // An `sRGB` chunk, or a second `gAMA` or one of another length, leaves the gamma out (`png-gamma`).
+        let gammas = before.filter { $0.type == "gAMA" }
+        guard !before.contains(where: { $0.type == "sRGB" }), gammas.count == 1, gammas[0].data.count == 4 else { return nil }
+        func numbers(_ data: [UInt8]) -> [Int] {
+            stride(from: 0, to: data.count, by: 4).map { data[$0..<$0 + 4].reduce(0) { $0 << 8 | Int($1) } }
+        }
+        let chromaticities = before.first { $0.type == "cHRM" && $0.data.count == 32 }.map { numbers($0.data) }
+        return ICCProfile(pngGamma: numbers(gammas[0].data)[0], chromaticities: chromaticities, gray: grayImage)
     }
 
     /// An `iCCP` chunk's profile as ImageIO reads it: a name of 1 to 79 bytes, a NUL, compression
@@ -356,9 +363,6 @@ struct PNGImage: Equatable {
         }
         return status == Z_STREAM_END ? output : nil
     }
-
-    /// `gAMA` values actool leaves the pixels alone for (1/2.2); a gamma of 0.5 or 1.0 changes them.
-    static let ignoredGammas: Set<Int> = [45_454, 45_455]
 
     static let adam7: [(x: Int, y: Int, dx: Int, dy: Int)] = [
         (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),

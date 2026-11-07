@@ -55,6 +55,8 @@ public struct AssetCatalog {
                 }
                 continue
             }
+            // tvOS's App Icon & Top Shelf sets add nothing on iOS, without a word (`tv-assets`).
+            if type == "brandassets" || type == "imagestack" && !hasUniversalLayerImage(path) { continue }
             guard supportedTypes.contains(type) else {
                 throw NomacError("asset type '.\(type)' is not supported yet (BACKLOG B-202)", path: path)
             }
@@ -73,6 +75,15 @@ public struct AssetCatalog {
                 try scan(folder: path, namespace: namespace, spriteAtlas: asset.name, complication: complication, into: &assets)
             }
         }
+    }
+
+    /// Whether a layer of an image stack has an entry for any device, which actool compiles.
+    private static func hasUniversalLayerImage(_ stack: String) -> Bool {
+        FileManager.default.enumerator(atPath: stack)?.contains { item in
+            guard let item = item as? String, (item as NSString).lastPathComponent == "Contents.json", let data = FileManager.default.contents(atPath: stack + "/" + item),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+            return (json["images"] as? [[String: Any]] ?? []).contains { $0["idiom"] as? String == "universal" && $0["filename"] != nil }
+        } ?? false
     }
 
     /// The asset folder extensions of Apple's asset catalog format reference. A folder with any

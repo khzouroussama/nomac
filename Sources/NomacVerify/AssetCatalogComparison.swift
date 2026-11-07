@@ -59,19 +59,26 @@ public enum AssetCatalogComparison {
         return result
     }
 
-    /// A PNG with an `iCCP` profile other than sRGB IEC61966-2.1.
+    /// A PNG with an `iCCP` profile other than sRGB IEC61966-2.1, or a `gAMA` chunk ImageIO
+    /// converts from.
     static func convertsColors(_ png: [UInt8]) -> Bool {
-        guard let chunks = pngChunks(png), let chunk = chunks.first(where: { $0.type == "iCCP" }),
-              let name = chunk.data.firstIndex(of: 0), name + 2 < chunk.data.count else { return false }
-        guard let profile = inflated(Array(chunk.data[(name + 2)...])) else { return false }
-        return !ICCProfile.isStandardSRGB(profile)
+        guard let chunks = pngChunks(png) else { return false }
+        if let chunk = chunks.first(where: { $0.type == "iCCP" }), let name = chunk.data.firstIndex(of: 0), name + 3 < chunk.data.count,
+           let profile = inflated(Array(chunk.data[(name + 4)...]), windowBits: -15), !ICCProfile.isStandardSRGB(profile) {
+            return true
+        }
+        let gammas = chunks.filter { $0.type == "gAMA" }
+        guard !chunks.contains(where: { $0.type == "sRGB" }), gammas.count == 1, gammas[0].data.count == 4 else { return false }
+        func numbers(_ data: [UInt8]) -> [Int] { stride(from: 0, to: data.count, by: 4).map { data[$0..<$0 + 4].reduce(0) { $0 << 8 | Int($1) } } }
+        let chromaticities = chunks.first { $0.type == "cHRM" && $0.data.count == 32 }.map { numbers($0.data) }
+        return ICCProfile(pngGamma: numbers(gammas[0].data)[0], chromaticities: chromaticities, gray: false) != nil
     }
 
     /// zlib data decompressed, or `nil` when it does not end.
-    static func inflated(_ data: [UInt8]) -> [UInt8]? {
+    static func inflated(_ data: [UInt8], windowBits: Int32 = 15) -> [UInt8]? {
         var input = data
         var stream = z_stream()
-        guard inflateInit_(&stream, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
+        guard inflateInit2_(&stream, windowBits, zlibVersion(), Int32(MemoryLayout<z_stream>.size)) == Z_OK else { return nil }
         defer { inflateEnd(&stream) }
         var output: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 1 << 14)

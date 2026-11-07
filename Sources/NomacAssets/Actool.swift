@@ -25,6 +25,7 @@ public struct Actool {
         public var includeAllAppIcons = false
         public var accentColor: String?
         public var complication: String?
+        public var launchImage: String?
         public var targetDevices: [String] = []
         public var minimumDeploymentTarget: String?
         public var platform: String?
@@ -77,6 +78,7 @@ public struct Actool {
                 case "--sticker-pack-identifier-prefix": stickerPackIdentifierPrefix = try value(argument)
                 case "--accent-color": accentColor = try value(argument)
                 case "--complication": complication = try value(argument)
+                case "--launch-image": launchImage = try value(argument)
                 case "--target-device": targetDevices.append(try value(argument))
                 case "--minimum-deployment-target": minimumDeploymentTarget = try value(argument)
                 case "--platform": platform = try value(argument)
@@ -207,8 +209,16 @@ public struct Actool {
         if appIcons.contains(where: { !$0.pngs.isEmpty }) && !options.compressPNGs {
             throw NomacError("actool: app icons without --compress-pngs are not supported yet (BACKLOG B-202)")
         }
-        for asset in catalog.assets where asset.type == "launchimage" {
-            try LaunchImageSet.check(asset)
+        let launchImages = try catalog.assets.filter { $0.type == "launchimage" }.map { asset in
+            try (asset, LaunchImageSet.compile(asset, named: asset.name == options.launchImage, catalog: catalogPaths.first { asset.path.hasPrefix($0 + "/") } ?? catalogPaths[0],
+                                               targetDevices: options.targetDevices))
+        }
+        if let name = options.launchImage {
+            if let named = launchImages.first(where: { $0.0.name == name }) {
+                if !named.1.hasContent { errors.append("\(catalogPaths[0]): error: The launch image set named \"\(name)\" did not have any applicable content.") }
+            } else {
+                errors.append("\(catalogPaths[0]): error: None of the input catalogs contained a matching launch image set named  \"\(name)\".")
+            }
         }
         let iconSets = catalog.assets.filter { $0.type == "stickersiconset" }, packs = catalog.assets.filter { $0.type == "stickerpack" }
         var stickers: StickerCatalog.Compiled?
@@ -275,6 +285,7 @@ public struct Actool {
         for appIcon in appIcons { partial.merge(appIcon.infoPlist) { $1 } }
         for (_, compiled) in compiledIcons { partial.merge(compiled.infoPlist) { $1 } }
         if let stickers { partial.merge(stickers.infoPlist) { $1 } }
+        for (_, compiled) in launchImages { partial.merge(compiled.infoPlist) { $1 } }
         for (key, label, name) in [("NSAccentColorName", "Accent", options.accentColor), ("NSWidgetBackgroundColorName", "Background", options.widgetBackgroundColor)] {
             guard let name else { continue }
             // A color set without a color gives neither the key nor the warning (icecubes).
@@ -292,13 +303,14 @@ public struct Actool {
             }
         }
 
-        let documentWarnings = options.printsDocumentWarnings ? appIcons.flatMap(\.warnings) : []
-        let documentNotices = options.printsDocumentNotices ? appIcons.flatMap(\.notices) : []
+        let documentWarnings = options.printsDocumentWarnings ? appIcons.flatMap(\.warnings) + launchImages.flatMap(\.1.warnings) : []
+        let documentNotices = options.printsDocumentNotices ? appIcons.flatMap(\.notices) + launchImages.flatMap(\.1.notices) : []
 
         var outputs: [String] = []
         try FileSystem.createDirectory(directory)
         let pngs = appIcons.flatMap { $0.pngs.map { ($0.filename, $0.icon.image, $0.icon.path) } } + (stickers?.pngs.map { ($0.filename, $0.image, $0.path) } ?? [])
             + compiledIcons.flatMap { icon in icon.compiled.pngs.map { ($0.filename, $0.image, icon.icon.path) } }
+            + launchImages.flatMap(\.1.pngs)
         for (filename, image, source) in pngs {
             let path = directory + "/" + filename
             if !image.iconIsUnwritable { try FileSystem.write(Data(try IconPNG.data(image, path: source)), to: path) }
