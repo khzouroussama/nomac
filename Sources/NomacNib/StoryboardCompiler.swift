@@ -89,7 +89,7 @@ extension DocumentCompiler {
             let landscape = device.attributes["orientation"] == "landscape" && !["retina3_5", "retina6_72"].contains(id)
             sceneSize = landscape ? (size.height, size.width) : size
             deviceSizeClasses = SizeClasses.device(id, landscape: landscape)
-        } else if deploymentTarget.major < 17 || (document.attributes["targetRuntime"] == "iOS.CocoaTouch.iPad" && document.attributes["useTraitCollections"] == "YES") {
+        } else if sizesAsOldDocument || (document.attributes["targetRuntime"] == "iOS.CocoaTouch.iPad" && document.attributes["useTraitCollections"] == "YES") {
             // An iPad document with trait collections is sized at any target (`sb-header-deviceless-ipad`).
             sceneSize = Self.sizeWithoutDevice(document)
         }
@@ -147,9 +147,9 @@ extension DocumentCompiler {
         }
         let unreachedWarnings = try skipped.map { ($0.id, "“\(try unreachedName(scenesByID[$0.id]!))“ is unreachable because it has no entry points, and no identifier "
                                                            + "for runtime access via -[UIStoryboard instantiateViewControllerWithIdentifier:]. [9]") }
-        warnings = unreachedWarnings + controllers.flatMap(\.segues).compactMap { segue in
+        warnings = unreachedWarnings + controllers.flatMap(\.segues).reversed().compactMap { segue in
             [Segue.Kind.push: "Push", .modal: "Modal"][segue.kind].map { (segue.id, "\($0) segues are deprecated since iOS 8.0 [7]") }
-        } + (usesSafeAreas ? scenes.flatMap(layoutGuideWarnings) : [])
+        } + (usesSafeAreas && (declaredDeployment ?? deploymentTarget) >= IOSVersion(major: 11, minor: 0) ? scenes.flatMap(layoutGuideWarnings) : [])
         // An embedded controller's view, or its navigation controller's root's, takes its container
         // view's size (`sb-embed*`).
         embeddedSizes = [:]
@@ -261,16 +261,14 @@ extension DocumentCompiler {
         }
     }
 
-    /// The document warnings, ordered as a Foundation hash table of their objects' ids orders them
-    /// (`sb-segue-push-two`, `sb-segue-modal-push`, `sb-segue-push-three`), an object's own in the
-    /// order given. Where ids collide ibtool's own order changes from run to run (ADR 0254).
+    /// The document warnings, ordered as a Foundation hash table of their objects' ids orders them,
+    /// the document's own warning entered first (`sb-segue-push-two`, `sb-segue-modal-push`,
+    /// `sb-segue-push-three` and their `-docversion-*`), an object's own in the order given. Where ids
+    /// collide ibtool's own order changes from run to run (ADR 0254).
     func documentWarnings() throws -> [String] {
-        if let deploymentWarning {
-            guard warnings.isEmpty else { throw unsupportedScene("a document version ibtool warns about beside other warnings") }
-            return ["\(path):global: warning: \(deploymentWarning)"]
-        }
-        return try FoundationHashTable.inserting(warnings.map(\.id)).keys.flatMap { id in
-            warnings.filter { $0.id == id }.map { "\(path):\(id): warning: \($0.message)" }
+        let all = (deploymentWarning.map { [(id: "global", message: $0)] } ?? []) + warnings
+        return try FoundationHashTable.inserting(all.map(\.id)).keys.flatMap { id in
+            all.filter { $0.id == id }.map { "\(path):\(id): warning: \($0.message)" }
         }
     }
 

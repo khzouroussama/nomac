@@ -207,6 +207,7 @@ extension DocumentCompiler {
         guard second != nil || !["baseline", "firstBaseline", "lastBaseline"].contains(attributes["firstAttribute"] ?? "") else {
             throw unsupportedConstraints("a baseline constraint without a second item")
         }
+        if safeAreaGuides[first] != nil || second.flatMap({ safeAreaGuides[$0] }) != nil { requires(11, 0) }
         if attributes["placeholder"] != nil {
             try value(element, "placeholder", in: ["YES"])
             for id in [first, second].compactMap({ $0 }) where !guides.contains(id) {

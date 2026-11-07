@@ -221,8 +221,8 @@ extension DocumentCompiler {
             guard let guideID = guide.attributes["id"], guide.attributes["key"] == "safeArea", cell.safeAreaPlaceholder == nil else {
                 throw unsupported("a table view cell with two safe areas")
             }
-            cell.safeAreaPlaceholder = NibSafeAreaGuide(identifier: string(""))
-            requires(11, 0)
+            if isStoryboard || !safeAreaGuidesAreOptional { cell.safeAreaPlaceholder = NibSafeAreaGuide(identifier: string("")) }
+            if !safeAreaGuidesAreOptional { requires(11, 0) }
             safeAreaGuides[guideID] = id
         }
         documentViews[id] = DocumentView(view: cell, frame: frame, parent: nil, translates: true, hasMask: mask != 0)

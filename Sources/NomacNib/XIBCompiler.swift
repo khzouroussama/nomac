@@ -237,6 +237,35 @@ struct DocumentCompiler {
             throw NomacError("nomac does not compile nibs that need iOS \(requiredVersion) for --minimum-deployment-target \(deploymentTarget) yet (BACKLOG B-263)",
                              path: path)
         }
+        // Under a document's own `<deployment version>`, Xcode makes a bundle or fails
+        // (`docbundle-named-*`, `docbundle-safe-pinned-*`, `sb-docbundle-*`).
+        if let declaredDeployment, declaredDeployment < requiredVersion {
+            throw NomacError("nomac does not compile nibs that need iOS \(requiredVersion) with a <deployment version> of iOS \(declaredDeployment) yet (BACKLOG B-263)", path: path)
+        }
+    }
+
+    /// The document's `<deployment version>`.
+    var declaredDeployment: IOSVersion? {
+        document?.children(named: "dependencies").flatMap { $0.children(named: "deployment") }.compactMap { $0.attributes["version"].flatMap { Int($0) } }.first.map(declaredDeployment)
+    }
+
+    /// A `<deployment version>` in binary-coded decimal: 0x1220 is iOS 12.2.
+    func declaredDeployment(_ version: Int) -> IOSVersion {
+        IOSVersion(major: (version >> 12) * 10 + (version >> 8 & 0xF), minor: version >> 4 & 0xF)
+    }
+
+    /// Whether safe area guides need iOS 11 only when a constraint pins to them: in a document
+    /// declaring iOS 9.0 up to 11.0, which drops them from xibs. One before 9.0 fails
+    /// (`docbundle-safe-*`, `docbundle-safe-cell-*`, `docbundle-safe-subview-*`, `sb-docbundle-safe-*`).
+    var safeAreaGuidesAreOptional: Bool {
+        declaredDeployment.map { (IOSVersion(major: 9, minor: 0)..<IOSVersion(major: 11, minor: 0)).contains($0) } ?? false
+    }
+
+    /// Whether what a document sizes takes the sizes of old documents: before iOS 17, by its
+    /// `<deployment version>` whatever the target, or by the target without one (`docversion-*`,
+    /// `sb-docversion-*`, against `sb-deployment-*`).
+    var sizesAsOldDocument: Bool {
+        (declaredDeployment ?? deploymentTarget).major < 17
     }
 
     mutating func compile(_ document: XIBElement) throws -> Data {
@@ -500,7 +529,8 @@ struct DocumentCompiler {
                                      path: path)
                 }
                 guard version <= 6912 else { throw unsupported("<deployment version=\"\(text)\">") }
-                if version < 5888 {
+                let oldest = min(deploymentTarget, IOSVersion(major: 17, minor: 0))
+                if declaredDeployment(version) < oldest {
                     deploymentWarning = "This file is set to build for a version older than the deployment target. Functionality may be limited. [9]"
                 }
             }
@@ -819,8 +849,8 @@ struct DocumentCompiler {
         for guide in element.children(named: "viewLayoutGuide") where guide.attributes["key"] == "safeArea" {
             try check(guide, attributes: ["key", "id"], children: [])
             guard let guideID = guide.attributes["id"], view.safeAreaPlaceholder == nil else { throw unsupported("a view with two safe areas") }
-            view.safeAreaPlaceholder = NibSafeAreaGuide(identifier: string(""))
-            requires(11, 0)
+            if isStoryboard || !safeAreaGuidesAreOptional { view.safeAreaPlaceholder = NibSafeAreaGuide(identifier: string("")) }
+            if !safeAreaGuidesAreOptional { requires(11, 0) }
             safeAreaGuides[guideID] = id
         }
         try keyboardGuide(element, view: view, id: id)
@@ -1409,7 +1439,7 @@ extension DocumentCompiler {
     /// frames (`tl-*`, nib-experiments round 99: 15.0 and 16.0 resize, 17.0 and 27.0 do not;
     /// cells and labels keep theirs).
     mutating func resizeToDevice(_ views: [NibView], document: XIBElement) throws {
-        guard deploymentTarget.major < 17, !views.isEmpty else { return }
+        guard sizesAsOldDocument, !views.isEmpty else { return }
         let size: (width: Double, height: Double)
         if let device = Self.sizingDevice(of: document) {
             guard let id = device.attributes["id"], let portrait = StoryboardCompiler.deviceSizes[id] else {

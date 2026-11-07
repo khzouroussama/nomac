@@ -8382,6 +8382,280 @@ for name, tree in {"1": [["a"], "b"], "2": ["a", ["b"]], "3": [["a", ["b"]], "c"
 # table, so that the Info.plist's order is the order they entered in. nib-info-walk/ holds them.
 for _document in sorted((Path(__file__).resolve().parent / "nib-info-walk").glob("*.storyboard")):
     STORYBOARDS[f"sb-info-walk-{_document.stem}"] = _document.read_text()
+# Round 135: what the survey's wrong nibs showed, one change at a time.
+EFFECT_OWN = '                    <constraints>\n                        <constraint firstAttribute="height" constant="100" id="eff-aa-aa1"/>\n                    </constraints>\n'
+def effect_constrained(content=""):
+    return constrained(effect_view(content=content).replace("                </visualEffectView>", EFFECT_OWN + "                </visualEffectView>"), "")
+EXPERIMENTS["effect-own-constraint"] = effect_constrained()
+EXPERIMENTS["effect-own-constraint-label"] = effect_constrained(EFFECT_LABEL)
+TINT_RED = '<color key="tintColor" systemColor="systemRedColor"/>\n'
+EXPERIMENTS["text-view-tint-system"] = constrained(text_view(children=TINT_RED + TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS), "")
+EXPERIMENTS["text-view-tint-rgb"] = constrained(text_view(children=rgb(1, 0.5, 0.25, 1).replace("backgroundColor", "tintColor") + "\n" + TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS), "")
+EXPERIMENTS["text-view-tint-blue"] = constrained(text_view(children='<color key="tintColor" systemColor="systemBlueColor"/>\n' + TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS), "")
+EXPERIMENTS["text-view-custom-lproj"] = constrained(text_view(TV_ATTRIBUTES + ' customClass="Note" customModule="T" customModuleProvider="target"'), "")
+LPROJ_XIBS.add("text-view-custom-lproj")
+EXPERIMENTS["text-view-not-editable-lproj"] = constrained(text_view(TV_ATTRIBUTES + ' editable="NO"'), "")
+LPROJ_XIBS.add("text-view-not-editable-lproj")
+EXPERIMENTS["text-view-no-scroll-lproj"] = constrained(text_view(TV_ATTRIBUTES + ' scrollEnabled="NO"'), "")
+LPROJ_XIBS.add("text-view-no-scroll-lproj")
+EXPERIMENTS["label-custom-lproj"] = constrained(label(LABEL_ATTRIBUTES + ' customClass="Note" customModule="T" customModuleProvider="target"'), "")
+LPROJ_XIBS.add("label-custom-lproj")
+EXPERIMENTS["button-custom-lproj"] = constrained(button(BUTTON_ATTRIBUTES + ' customClass="Note" customModule="T" customModuleProvider="target"'), "")
+LPROJ_XIBS.add("button-custom-lproj")
+EXPERIMENTS["field-custom-lproj"] = constrained(text_field(TEXT_FIELD + ' text="Hi" customClass="Note" customModule="T" customModuleProvider="target"'), "")
+LPROJ_XIBS.add("field-custom-lproj")
+for name, value in {"zero": "0.0", "zero-int": "0", "one": "1", "large": "291"}.items():
+    EXPERIMENTS[f"label-max-width-{name}"] = constrained(label(LABEL_ATTRIBUTES + f' preferredMaxLayoutWidth="{value}"'), "")
+for name, description in {"system": {"type": "system", "pointSize": "0.0"}, "bold": {"type": "boldSystem", "pointSize": "0.0"}, "italic": {"type": "italicSystem", "pointSize": "0.0"},
+                          "weight": {"type": "system", "weight": "medium", "pointSize": "0.0"}, "named": {"name": "HelveticaNeue", "family": "Helvetica Neue", "pointSize": "0.0"}}.items():
+    EXPERIMENTS[f"label-font-zero-{name}"] = constrained(label(font=font_description(description)), "")
+    EXPERIMENTS[f"button-font-zero-{name}"] = constrained(button(children=font_description(description) + "\n" + BUTTON_STATE), "")
+def plain_table(attribute="", extra=""):
+    return constrained(f'                <tableView {TABLE_ATTRIBUTES.replace(" translatesAutoresizing", attribute + " translatesAutoresizing")} id="tbl-aa-aaa">\n'
+                       f'                    <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>\n{extra}                </tableView>\n', "")
+
+
+for key in ("Header", "Footer"):
+    for value in ("0", "0.5", "1", "1.5", "2", "3"):
+        EXPERIMENTS[f"table-estimated-{key.lower()}-{value}"] = plain_table(f' estimatedSection{key}Height="{value}"')
+    EXPERIMENTS[f"table-height-{key.lower()}-1"] = plain_table().replace(f'section{key}Height="28"', f'section{key}Height="1"')
+    EXPERIMENTS[f"table-height-{key.lower()}-1-estimated-1"] = plain_table(f' estimatedSection{key}Height="1"').replace(f'section{key}Height="28"', f'section{key}Height="1"')
+EXPERIMENTS["table-estimated-row-1"] = plain_table().replace('estimatedRowHeight="-1"', 'estimatedRowHeight="1"')
+EXPERIMENTS["table-estimated-row-half"] = plain_table().replace('estimatedRowHeight="-1"', 'estimatedRowHeight="0.5"')
+EXPERIMENTS["table-readable"] = plain_table(' layoutMarginsFollowReadableWidth="YES"')
+EXPERIMENTS["table-cell-readable"] = plain_table(' cellLayoutMarginsFollowReadableWidth="YES"')
+EXPERIMENTS["table-cell-readable-no"] = plain_table(' cellLayoutMarginsFollowReadableWidth="NO"')
+EXPERIMENTS["table-both-readable"] = plain_table(' layoutMarginsFollowReadableWidth="YES" cellLayoutMarginsFollowReadableWidth="YES"')
+EXPERIMENTS["table-readable-cell-no"] = plain_table(' layoutMarginsFollowReadableWidth="YES" cellLayoutMarginsFollowReadableWidth="NO"')
+STORYBOARDS["sb-table-readable"] = storyboard(tvc_scene(table_attributes=TABLE_ATTRIBUTES.replace(' translatesAutoresizingMaskIntoConstraints="NO"', ' layoutMarginsFollowReadableWidth="YES"')), initial="tvc-aa-aaa")
+INSET_SEPARATOR = '                        <inset key="separatorInset" minX="10" minY="0.0" maxX="20" maxY="0.0"/>\n'
+STORYBOARDS["sb-table-separator-plain"] = storyboard(tvc_scene(extra=INSET_SEPARATOR), initial="tvc-aa-aaa")
+STORYBOARDS["sb-table-separator-prototype"] = storyboard(tvc_scene(extra=INSET_SEPARATOR, body=prototypes(tvc_cell(1))), initial="tvc-aa-aaa")
+EXPERIMENTS["table-separator"] = plain_table("", INSET_SEPARATOR)
+EXPERIMENTS["cell-selection-absent"] = cell_xib().replace(' selectionStyle="default"', "")
+EXPERIMENTS["cell-selection-blue"] = cell_xib().replace(' selectionStyle="default"', ' selectionStyle="blue"')
+EXPERIMENTS["cell-selection-absent-no-class"] = cell_xib(cell_attributes="").replace(' selectionStyle="default"', "")
+EXPERIMENTS["cell-selection-absent-background"] = cell_xib(cell_extra='            <color key="backgroundColor" systemColor="systemRedColor"/>\n').replace(' selectionStyle="default"', "")
+PREFERRED_DEFAULT = '<preferredSymbolConfiguration key="preferredSymbolConfiguration" scale="default"/>'
+def image_with(attributes="", children=""):
+    return constrained(subview("iii-ii-ii1", (10, 20, 100, 50), tag="imageView", attributes=' userInteractionEnabled="NO"' + attributes).replace("                </imageView>", children + "                </imageView>"), "")
+EXPERIMENTS["image-preferred-no-image"] = image_with(children=PREFERRED_DEFAULT + "\n")
+EXPERIMENTS["image-preferred-large-no-image"] = image_with(children='<preferredSymbolConfiguration key="preferredSymbolConfiguration" scale="large"/>\n')
+EXPERIMENTS["image-preferred-asset"] = image_with(' image="Logo"', PREFERRED_DEFAULT + "\n").replace("</document>", "    <resources>\n" + LOGO + "    </resources>\n</document>")
+EXPERIMENTS["image-reference-asset"] = image_with(children='<imageReference key="image" image="Logo"/>\n').replace("</document>", "    <resources>\n" + LOGO + "    </resources>\n</document>")
+EXPERIMENTS["image-reference-asset-unknown"] = image_with(children='<imageReference key="image" image="Nothing"/>\n')
+for name, mode in {"word": "wordWrapping", "char": "charWrapping", "clip": "clipping", "head": "truncatingHead", "tail": "truncatingTail", "middle": "truncatingMiddle"}.items():
+    paragraph = f'<paragraphStyle key="NSParagraphStyle" alignment="left" lineBreakMode="{mode}" baseWritingDirection="natural"/>'
+    EXPERIMENTS[f"al-break-{name}"] = attributed_label(("Hello", [SYSTEM_15_META, paragraph]))
+    EXPERIMENTS[f"al-break-{name}-label-tail"] = attributed_label(("Hello", [SYSTEM_15_META, paragraph]), attributes=ATTRIBUTED_LABEL.replace('lineBreakMode="tailTruncation"', 'lineBreakMode="tailTruncation"'))
+    EXPERIMENTS[f"al-break-{name}-label-word"] = attributed_label(("Hello", [SYSTEM_15_META, paragraph]), attributes=ATTRIBUTED_LABEL.replace('lineBreakMode="tailTruncation"', 'lineBreakMode="wordWrap"'))
+GUIDED = ' useSafeAreas="YES"'
+def guided(constraints, safe=True, guides=LAYOUT_GUIDES):
+    document = storyboard(scene(view_extra=SUBVIEW + (SAFE_AREA if safe else "") + (f"                        <constraints>\n{constraints}                        </constraints>\n" if constraints else ""), guides=guides))
+    return document.replace(' colorMatched="YES"', GUIDED + ' colorMatched="YES"').replace("    </dependencies>\n", SAFE_AREA_CAPABILITY + "    </dependencies>\n") if safe else document
+TOP_GUIDE = '                            <constraint firstItem="sub-vi-ew1" firstAttribute="top" secondItem="Llm-lL-Icb" secondAttribute="bottom" constant="8" id="gtp-aa-aa1"/>\n'
+BOTTOM_GUIDE = '                            <constraint firstItem="xb3-aO-Qok" firstAttribute="top" secondItem="sub-vi-ew1" secondAttribute="bottom" constant="8" id="gbt-aa-aa1"/>\n'
+STORYBOARDS["sb-warn-guide-none"] = guided("")
+STORYBOARDS["sb-warn-guide-top"] = guided(TOP_GUIDE)
+STORYBOARDS["sb-warn-guide-bottom"] = guided(BOTTOM_GUIDE)
+STORYBOARDS["sb-warn-guide-both"] = guided(TOP_GUIDE + BOTTOM_GUIDE)
+STORYBOARDS["sb-warn-guide-both-swapped"] = guided(BOTTOM_GUIDE + TOP_GUIDE)
+STORYBOARDS["sb-warn-guide-top-no-safe-areas"] = guided(TOP_GUIDE, safe=False)
+STORYBOARDS["sb-warn-guide-both-no-safe-areas"] = guided(TOP_GUIDE + BOTTOM_GUIDE, safe=False)
+STORYBOARDS["sb-warn-guide-both-at-15"] = guided(TOP_GUIDE + BOTTOM_GUIDE)
+OPTIONS["sb-warn-guide-both-at-15"] = {"deployment": "15.0"}
+for target in ("10.0", "10.3", "11.0"):
+    STORYBOARDS[f"sb-warn-guide-both-at-{target}"] = guided(TOP_GUIDE + BOTTOM_GUIDE)
+    OPTIONS[f"sb-warn-guide-both-at-{target}"] = {"deployment": target}
+STORYBOARDS["sb-warn-guide-two-scenes"] = guided(TOP_GUIDE).replace("    </scenes>\n", scene(guides=LAYOUT_GUIDES.replace("Llm-lL-Icb", "Llm-lL-Icc").replace("xb3-aO-Qok", "xb3-aO-Qoc"), view_extra=SUBVIEW.replace("sub-vi-ew1", "sub-vi-ew2") + SAFE_AREA.replace("6Tk-OE-BBY", "6Tk-OE-BBZ") + "                        <constraints>\n" + TOP_GUIDE.replace("sub-vi-ew1", "sub-vi-ew2").replace("Llm-lL-Icb", "Llm-lL-Icc").replace("gtp-aa-aa1", "gtq-aa-aa1") + "                        </constraints>\n", **SECOND) + "    </scenes>\n").replace(' initialViewController="BYZ-38-t0r"', ' initialViewController="BYZ-38-t0r"')
+ADJUSTED = [f"la{k}-aa-aa1" for k in range(6)]
+EXPERIMENTS["warn-adjusts-order-labels"] = constrained("".join(label(identifier=i, frame=(10, 20 + 30 * k, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) for k, i in enumerate(ADJUSTED)), "")
+EXPERIMENTS["warn-adjusts-order-reversed"] = constrained("".join(label(identifier=i, frame=(10, 20 + 30 * k, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) for k, i in enumerate(reversed(ADJUSTED))), "")
+EXPERIMENTS["warn-adjusts-two-p6"] = constrained(label(identifier="p6q-WL-fak").replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) + label(identifier="kxm-Bm-MUf", frame=(10, 60, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+EXPERIMENTS["warn-adjusts-two-kx"] = constrained(label(identifier="kxm-Bm-MUf").replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) + label(identifier="p6q-WL-fak", frame=(10, 60, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+
+
+# Round 136: references' strings by length and alphabet (bplist uniquing), a view's safe area by kind,
+# colors shared with text views' highlights, static cells' connections.
+for name, identifier in {"7": "Abcdefg", "8-6bit": "Settings", "8-other": "Sxxxxxxq", "9-6bit": "Settingsa", "9-other": "Sxxxxxxqq", "10-5bit": "Moonlights", "10-6bit": "SettingsBB", "11-5bit": "Moonlightsa", "11-6bit": "SettingsBBa", "12": "Moonlightsaa", "21": "ProfileViewController"}.items():
+    STORYBOARDS[f"sb-ref-plist-len-{name}"] = referencing(("Main", identifier), ("Main", identifier), ("Other",))
+    STORYBOARDS[f"sb-ref-plist-name-len-{name}"] = referencing((identifier, "One"), (identifier, "Two"))
+for name, child in {"view": subview("sss-ss-ss1"), "label": label(), "button": button(), "image": subview("iii-ii-ii1", (10, 20, 100, 50), tag="imageView", attributes=' userInteractionEnabled="NO"'),
+                    "table": '                <tableView ' + TABLE_ATTRIBUTES + ' id="tbl-aa-aaa">\n                    <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>\n                </tableView>\n',
+                    "stack": subview("stk-aa-aa1", tag="stackView", attributes=' opaque="NO" axis="vertical"'), "scroll": subview("scr-aa-aa1", tag="scrollView", attributes=' multipleTouchEnabled="YES"'), "text": text_view()}.items():
+    guide = '<viewLayoutGuide key="safeArea" id="gde-aa-aa1"/>\n'
+    closing = re.search(r"</(\w+)>\n$", child).group(0)
+    guarded = child[:-len(closing)] + guide + closing
+    document = constrained(guarded, "", safe=True)
+    EXPERIMENTS[f"safe-sub-{name}"] = document
+    EXPERIMENTS[f"safe-sub-{name}-without"] = constrained(child, "", safe=True)
+    STORYBOARDS[f"sb-safe-sub-{name}"] = guided("").replace(SUBVIEW, "                        <subviews>\n" + guarded + "                        </subviews>\n")
+EXPERIMENTS["text-view-blue-beside"] = constrained(text_view() + subview("sss-ss-ss1").replace("                </view>", '                    <color key="backgroundColor" systemColor="systemBlueColor"/>\n                </view>'), "")
+EXPERIMENTS["text-view-fill-beside"] = constrained(text_view() + subview("sss-ss-ss1").replace("                </view>", '                    <color key="backgroundColor" systemColor="secondarySystemFillColor"/>\n                </view>'), "")
+EXPERIMENTS["text-view-blue-before"] = constrained(subview("sss-ss-ss1").replace("                </view>", '                    <color key="backgroundColor" systemColor="systemBlueColor"/>\n                </view>') + text_view(), "")
+
+
+# Round 137: outlets of one name from fields of static cells, in order and with the cells' fields nested.
+def static_field(number):
+    return (f'<textField opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="left" contentVerticalAlignment="center" borderStyle="roundedRect" textAlignment="natural" minimumFontSize="17" translatesAutoresizingMaskIntoConstraints="NO" id="fl{number}-aa-aa1">\n'
+            '<rect key="frame" x="20" y="5" width="200" height="34"/>\n<fontDescription key="fontDescription" type="system" pointSize="14"/>\n<textInputTraits key="textInputTraits"/>\n'
+            f'<connections>\n<outlet property="delegate" destination="tvc-aa-aaa" id="dl{number}-aa-aa1"/>\n</connections>\n</textField>\n')
+
+
+for name, cells in {"two": (1, 2), "three": (1, 2, 3)}.items():
+    STORYBOARDS[f"sb-static-outlets-{name}"] = storyboard(tvc_scene(STATIC.format(header="", cells="".join(tvc_cell(k, y=44 * (k - 1), attributes="", content_subviews="<subviews>\n" + static_field(k) + "</subviews>\n") for k in cells)), data_mode="static"), initial="tvc-aa-aaa")
+
+
+# Round 138: a text view's highlight color by the tints around it.
+def tinted_view(identifier, inner, tint, y=20):
+    return subview(identifier, (0, y, 300, 200)).replace("                </view>", f"                    <subviews>\n{inner}                    </subviews>\n" + (f'                    <color key="tintColor" {tint}/>\n' if tint else "") + "                </view>")
+
+
+RED_TINT, GREEN_TINT = 'systemColor="systemRedColor"', 'systemColor="systemGreenColor"'
+def root_tinted(document, tint=RED_TINT):
+    return document.replace('            <point key="canvasLocation"', f'            <color key="tintColor" {tint}/>\n            <point key="canvasLocation"', 1)
+EXPERIMENTS["text-view-tint-root"] = root_tinted(constrained(text_view(), ""))
+EXPERIMENTS["text-view-tint-parent"] = constrained(tinted_view("ppp-aa-aa1", text_view(), RED_TINT), "")
+EXPERIMENTS["text-view-tint-grandparent"] = constrained(tinted_view("ggg-aa-aa1", tinted_view("ppp-aa-aa1", text_view(), None), RED_TINT), "")
+EXPERIMENTS["text-view-tint-parent-and-root"] = root_tinted(constrained(tinted_view("ppp-aa-aa1", text_view(), GREEN_TINT), ""))
+EXPERIMENTS["text-view-tint-own-and-root"] = root_tinted(constrained(text_view(children=TINT_RED.replace("systemRedColor", "systemGreenColor") + TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS), ""))
+EXPERIMENTS["text-view-tint-sibling"] = constrained(tinted_view("ppp-aa-aa1", "", RED_TINT) + text_view(), "")
+EXPERIMENTS["text-view-tint-root-white"] = root_tinted(constrained(text_view(), ""), 'white="1" alpha="1" colorSpace="calibratedWhite"')
+STORYBOARDS["sb-text-view-tint-global"] = tinted(same_scene(text_view()))
+STORYBOARDS["sb-text-view-tint-root"] = same_scene(text_view()).replace('                    </view>\n                </viewController>', f'                        <color key="tintColor" {RED_TINT}/>\n                    </view>\n                </viewController>', 1)
+
+
+# Round 139: a document's own deployment version against the target, where sizing shows it.
+# The version is binary-coded decimal: 0x1220 is iOS 12.2.
+def versioned(document, version):
+    return document.replace("    </dependencies>\n", f'        <deployment version="{version}" identifier="iOS"/>\n    </dependencies>\n')
+
+
+SCENE_320 = storyboard(scene(view_extra=SUBVIEW).replace('width="393" height="852"', 'width="320" height="568"'))
+SCENE_320_DEVICELESS = re.sub(r'    <device [^>]*/>\n', "", SCENE_320)
+for version in (0x0900, 0x1000, 0x1100, 0x1220, 0x1300, 0x1400, 0x1500, 0x1600, 0x1640, 0x1700, 0x1800, 0x1a00, 0x1b00):
+    targets = (("27.0", ""), ("15.0", "-at-15"), ("17.0", "-at-17")) if version in (0x0900, 0x1000, 0x1500, 0x1700, 0x1b00) else (("27.0", ""),)
+    for target, suffix in targets:
+        for family, documents, document in (("docversion", EXPERIMENTS, OLD_XIB), ("docversion-deviceless", EXPERIMENTS, OLD_DEVICELESS),
+                                            ("sb-docversion", STORYBOARDS, SCENE_320), ("sb-docversion-deviceless", STORYBOARDS, SCENE_320_DEVICELESS)):
+            documents[f"{family}-{version:04x}{suffix}"] = versioned(document, version)
+            OPTIONS[f"{family}-{version:04x}{suffix}"] = {"deployment": target}
+for version in (0x0900, 0x1100, 0x1500, 0x1700):
+    STORYBOARDS[f"sb-warn-guide-docversion-{version:04x}"] = versioned(guided(TOP_GUIDE), version)
+    STORYBOARDS[f"sb-warn-guide-no-safe-docversion-{version:04x}"] = versioned(guided(TOP_GUIDE, safe=False), version)
+
+
+for version in (0x0900, 0x1500):
+    for shape in ("push-two", "modal-push", "push-three"):
+        STORYBOARDS[f"sb-segue-{shape}-docversion-{version:04x}"] = versioned(STORYBOARDS[f"sb-segue-{shape}"], version)
+
+
+# Round 141: a document's version beside features that need a later iOS.
+SAFE_XIB = constrained(subview("sss-ss-ss1"), "", safe=True)
+SAFE_PINNED_XIB = constrained(subview("sss-ss-ss1"), constraint(0, "sss-ss-ss1", "top", SAFE_GUIDE, "top"), safe=True)
+SAFE_SUBVIEW_XIB = constrained(subview("sss-ss-ss1").replace("                </view>", '                    <viewLayoutGuide key="safeArea" id="sss-gd-sf1"/>\n                </view>'), "").replace(' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"').replace('        <capability name="documents saved', SAFE_AREA_CAPABILITY + '        <capability name="documents saved')
+NAMED_RESOURCE = '        <namedColor name="Accent">\n            <color red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n        </namedColor>\n'
+NAMED_XIB = constrained(subview("sss-ss-ss1").replace("                </view>", '                    <color key="backgroundColor" name="Accent"/>\n                </view>'), "", resources=NAMED_RESOURCE)
+NAMED_SCENE = storyboard(scene(view_extra=SUBVIEW + '                        <color key="backgroundColor" name="Accent"/>\n')).replace("    </scenes>\n", f"    </scenes>\n    <resources>\n{NAMED_RESOURCE}    </resources>\n")
+SAFE_PINNED_SCENE = guided('                            <constraint firstItem="sub-vi-ew1" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" id="gsa-aa-aa1"/>\n')
+EXPERIMENTS["docbundle-safe-unversioned"] = SAFE_XIB
+EXPERIMENTS["docbundle-safe-subview-unversioned"] = SAFE_SUBVIEW_XIB
+EXPERIMENTS["docbundle-named-unversioned"] = NAMED_XIB
+EXPERIMENTS["docbundle-safe-cell-unversioned"] = cell_xib(safe=True)
+for version in (0x0800, 0x0900, 0x0930, 0x1000, 0x1100, 0x1220, 0x1300, 0x1700, 0x1b00):
+    name = f"{version:04x}"
+    EXPERIMENTS[f"docbundle-safe-{name}"] = versioned(SAFE_XIB, version)
+    EXPERIMENTS[f"docbundle-safe-pinned-{name}"] = versioned(SAFE_PINNED_XIB, version)
+    EXPERIMENTS[f"docbundle-safe-subview-{name}"] = versioned(SAFE_SUBVIEW_XIB, version)
+    EXPERIMENTS[f"docbundle-safe-cell-{name}"] = versioned(cell_xib(safe=True), version)
+    EXPERIMENTS[f"docbundle-named-{name}"] = versioned(NAMED_XIB, version)
+    STORYBOARDS[f"sb-docbundle-safe-{name}"] = versioned(guided(""), version)
+    STORYBOARDS[f"sb-docbundle-safe-pinned-{name}"] = versioned(SAFE_PINNED_SCENE, version)
+    STORYBOARDS[f"sb-docbundle-named-{name}"] = versioned(NAMED_SCENE, version)
+
+
+# Round 142: a collection view's safe area beside its layout (the survey's woocommerce ProductImagesHeaderTableViewCell).
+EXPERIMENTS["collection-safe-area"] = constrained(collection(extra='<viewLayoutGuide key="safeArea" id="cvs-aa-aa1"/>\n'), "")
+EXPERIMENTS["collection-safe-area-constrained"] = constrained(collection(extra='<constraints>\n<constraint firstAttribute="height" constant="160" id="cvh-aa-aa1"/>\n</constraints>\n<viewLayoutGuide key="safeArea" id="cvs-aa-aa1"/>\n'), "")
+
+
+# Round 143: runtime attribute pairs of a view beside its size class masks, 30 attributed siblings bracketing its sort key.
+def style_attribute(indent):
+    pad = " " * indent
+    return f'{pad}<userDefinedRuntimeAttributes>\n{pad}    <userDefinedRuntimeAttribute type="string" keyPath="styleName" value="S"/>\n{pad}</userDefinedRuntimeAttributes>\n'
+
+
+def size_class_masks(excluded, indent):
+    pad = " " * indent
+    if not excluded:
+        return ""
+    return (f'{pad}<variation key="default">\n{pad}    <mask key="constraints">\n' + "".join(f'{pad}        <exclude reference="{ref}"/>\n' for ref in excluded) + f'{pad}    </mask>\n{pad}</variation>\n'
+            f'{pad}<variation key="heightClass=compact">\n{pad}    <mask key="constraints">\n' + "".join(f'{pad}        <include reference="{ref}"/>\n' for ref in excluded) + f'{pad}    </mask>\n{pad}</variation>\n')
+
+
+def mask_pairs(excluded, total=4, safe=False, siblings=30):
+    subviews = "".join(subview(f"sv{k:02d}-aa-aaa").replace("                </view>", style_attribute(20) + "                </view>") for k in range(siblings))
+    constraints = "".join(constraint(k, f"sv{k:02d}-aa-aaa", "top", ROOT, "top") for k in range(total))
+    point = '            <point key="canvasLocation"'
+    return constrained(subviews, constraints, safe=safe).replace(point, style_attribute(12) + size_class_masks([f"c{k:02d}-aa-aaa" for k in range(excluded)], 12) + point)
+
+
+def mask_pairs_inner(excluded, total=4, siblings=30):
+    inner = "".join(f'                        <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="in{k:02d}-aa-aaa">\n                            <rect key="frame" x="0" y="0" width="10" height="10"/>\n                        </view>\n' for k in range(total))
+    own = "".join(constraint(k, f"in{k:02d}-aa-aaa", "top", "own-aa-aaa", "top", indent=24) for k in range(total))
+    owner = ('                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="own-aa-aaa">\n                    <rect key="frame" x="0" y="0" width="100" height="100"/>\n'
+             f'                    <subviews>\n{inner}                    </subviews>\n                    <constraints>\n{own}                    </constraints>\n'
+             + style_attribute(20) + size_class_masks([f"c{k:02d}-aa-aaa" for k in range(excluded)], 20) + '                </view>\n')
+    subviews = owner + "".join(subview(f"sv{k:02d}-aa-aaa").replace("                </view>", style_attribute(20) + "                </view>") for k in range(siblings))
+    return constrained(subviews, "")
+
+
+def mask_pairs_variant(variation_key, kind, references):
+    point = '            <point key="canvasLocation"'
+    masks = (f'            <variation key="{variation_key}">\n                <mask key="{kind}">\n' + "".join(f'                    <exclude reference="{ref}"/>\n' for ref in references)
+             + '                </mask>\n            </variation>\n')
+    return mask_pairs(0).replace(point, masks + point)
+
+
+for count in (1, 2, 3):
+    EXPERIMENTS[f"mask-pairs-regular-{count}"] = mask_pairs_variant("heightClass=regular", "constraints", [f"c{k:02d}-aa-aaa" for k in range(count)])
+    EXPERIMENTS[f"mask-pairs-compact-{count}"] = mask_pairs_variant("heightClass=compact", "constraints", [f"c{k:02d}-aa-aaa" for k in range(count)])
+    EXPERIMENTS[f"mask-pairs-subviews-{count}"] = mask_pairs_variant("default", "subviews", [f"sv{k + 10:02d}-aa-aaa" for k in range(count)])
+    EXPERIMENTS[f"mask-pairs-subviews-regular-{count}"] = mask_pairs_variant("heightClass=regular", "subviews", [f"sv{k + 10:02d}-aa-aaa" for k in range(count)])
+def nested_child(identifier):
+    return (f'                    <subviews>\n                        <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="{identifier}">\n'
+            '                            <rect key="frame" x="0" y="0" width="10" height="10"/>\n' + style_attribute(28) + '                        </view>\n                    </subviews>\n')
+
+
+EXPERIMENTS["mask-pairs-subviews-nested"] = mask_pairs_variant("default", "subviews", ["sv10-aa-aaa"]).replace(
+    'id="sv10-aa-aaa">\n                    <rect key="frame" x="10" y="20" width="100" height="50"/>\n', 'id="sv10-aa-aaa">\n                    <rect key="frame" x="10" y="20" width="100" height="50"/>\n' + nested_child("nes-aa-aaa"))
+def attributed_box(identifier, children=0, constraints="", masks=""):
+    inner = "".join(f'                        <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="{identifier[:2]}{k:01d}-{k // 10:02d}-aaa">\n                            <rect key="frame" x="0" y="0" width="10" height="10"/>\n'
+                    + style_attribute(28) + '                        </view>\n' for k in range(children))
+    subviews = f'                    <subviews>\n{inner}                    </subviews>\n' if inner else ""
+    listed = f'                    <constraints>\n{constraints}                    </constraints>\n' if constraints else ""
+    return (f'                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="{identifier}">\n                    <rect key="frame" x="0" y="0" width="100" height="100"/>\n'
+            f'{subviews}{listed}' + style_attribute(20) + masks + '                </view>\n')
+
+
+def mask_pairs_tree(on_root, on_inner, grandchildren=36):
+    pins = "".join(constraint(k, ("bx0", "bx1", "bx2", "bx3")[k] + "-aa-aaa", "top", ROOT, "top") for k in range(4))
+    inner_pins = "".join(constraint(k + 10, f"ch{k:01d}-00-aaa", "top", "bx0-aa-aaa", "top", indent=24) for k in range(4))
+    boxes = (attributed_box("bx0-aa-aaa", grandchildren, inner_pins, size_class_masks([f"c{k + 10:02d}-aa-aaa" for k in range(on_inner)], 20)).replace('id="bx', 'id="ch', 0)
+             + "".join(attributed_box(f"bx{k}-aa-aaa") for k in (1, 2, 3)))
+    boxes = re.sub(r'id="bx(\d)-(\d\d)-aaa"', lambda m: f'id="ch{m[1]}-{m[2]}-aaa"', boxes)
+    point = '            <point key="canvasLocation"'
+    return constrained(boxes, pins).replace(point, style_attribute(12) + size_class_masks([f"c{k:02d}-aa-aaa" for k in range(on_root)], 12) + point)
+
+
+for count in (1, 2, 3):
+    EXPERIMENTS[f"mask-pairs-tree-root-{count}"] = mask_pairs_tree(count, 0)
+    EXPERIMENTS[f"mask-pairs-tree-inner-{count}"] = mask_pairs_tree(0, count)
+    EXPERIMENTS[f"mask-pairs-tree-both-{count}"] = mask_pairs_tree(count, count)
+for excluded in range(5):
+    EXPERIMENTS[f"mask-pairs-root-{excluded}"] = mask_pairs(excluded)
+    EXPERIMENTS[f"mask-pairs-root-safe-{excluded}"] = mask_pairs(excluded, safe=True)
+    EXPERIMENTS[f"mask-pairs-inner-{excluded}"] = mask_pairs_inner(excluded)
 
 
 def main():
