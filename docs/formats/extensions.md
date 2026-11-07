@@ -75,6 +75,14 @@ A framework held by a framework carries its immediate parent's name, not its own
 `framework-framework-deep`). A framework in an extension or a watch app keeps its own. Other code inside
 a framework is not observed, and `nomac export` refuses it (B-314).
 
+## Thinning
+
+Thinned for all variants (`extension_experiments.py compare-thinning`, by
+`distribution_experiments.py`'s comparison): `nomac export` matches Xcode's for `widget`, `widget-intent`,
+`live-activity`, `notification-service`, `notification-content`, `share`, `action`, `appclip-script`,
+`watch` and `framework-share`. It refuses a watch app holding an extension (`watch-widget`, `all`; B-465),
+whose rule is not written yet: Xcode's output for both is in the experiments' references.
+
 ## Linking
 
 An extension's link adds `-e _NSExtensionMain -fapplication-extension` to the app's. Which library

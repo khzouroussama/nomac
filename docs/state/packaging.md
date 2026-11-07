@@ -43,8 +43,9 @@ with an export (the IPA without its entry times, `DistributionSummary.plist`, `E
 10 of the first 11 before `DistributionSummary.plist` nested, with `watch-widget` differing. `appclip`
 has no export: Xcode refuses its ad hoc archive. `nomac verify` replayed the signing steps of the 11
 cases then captured, all identical. `widget` on Linux (before the `extension` checks existed) was
-equivalent at build, archive and IPA for the extension, the host `App` differing through B-313. Not measured yet: the other cases on Linux, the corpus apps' `extension`
-checks and thinning. Not covered: entitlements on nested products and real App Clips (a profile, B-302),
+equivalent at build, archive and IPA for the extension, the host `App` differing through B-313. Thinned exports on the Mac: 10 of 12 identical, `watch-widget` and `all` refused
+(a watch app holding an extension, B-465). Not measured yet: the other cases on Linux and the corpus
+apps' `extension` checks. Not covered: entitlements on nested products and real App Clips (a profile, B-302),
 device installs. B-313 needs the clang workstream, as it changes the LLVM tools' stamp.
 
 ## What's left and what it needs
@@ -264,7 +265,8 @@ device installs. B-313 needs the clang workstream, as it changes the LLVM tools'
    (its script is `lnight.sh` beside it: nomac on Linux, the extension experiments one at a time,
    `compare-thinning`, then the corpus apps with extensions), its reports in `e/reports-Linux` and
    `lc-reports`. Fix what differs, one general rule at a time, then regenerate the progress line
-   (`nomac corpus results`) from those reports over the newest set: it reads 0% until then. If the
+   (`nomac corpus results`) from those reports over the newest set: it reads 0% until then. Then
+   thinning of a watch app holding an extension (B-465), from `watch-widget`'s and `all`'s references. If the
    log stops early, rerun `lnight.sh`. A build in a copied `.build` recompiles everything, since
    SwiftPM sees new inodes, so keep the `nomac-ext` volume's.
 1. Stopped until the owner provides an identity and profile for nomac (B-302, pending; above):

@@ -13,7 +13,7 @@ outputs with Xcode's file by file on any host, with the `extension` checks of ea
     extension_experiments.py capture <out> [case...]   # Mac, Xcode 27.0
     extension_experiments.py thinning <out> [case...]  # Mac: Xcode's thin-for-all-variants exports
     extension_experiments.py verify <out> <nomac> <developer dir> [case...]   # Mac or Linux
-    extension_experiments.py compare-thinning <out> <nomac> [case...]         # Mac or Linux, with DEVELOPER_DIR
+    extension_experiments.py compare-thinning <out> <nomac> [case...]         # Mac or Linux
     extension_experiments.py summary <out>
 
 `<out>` stays outside the repository and at the same absolute path on every host; the checkouts go
@@ -22,15 +22,14 @@ to /private/tmp/nomac-ext/<case>, as nomac's paths have to be Xcode's.
 
 import json
 import os
-import plistlib
 import shutil
 import subprocess
 import sys
 import tempfile
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import distribution_experiments
 from signing_experiments import BASE_SETTINGS, CLIP_SIGN_SCRIPT, EXPORT_OPTIONS, OFFLINE, Project
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -567,59 +566,23 @@ def tally(report_path):
     return " ".join(f"{kind} {good}/{total}" for kind, (good, total) in sorted(counts.items()))
 
 
-def plist_or_bytes(data):
-    try:
-        return plistlib.loads(data)
-    except Exception:
-        return data
-
-
 def compare_thinning(output, nomac, cases):
-    """`nomac export` of Xcode's archive thinned for all variants against Xcode's, each IPA's
-    entries by name and contents (`app-thinning.plist` and the summary as property lists)."""
-    failures = 0
-    for case in cases:
-        archive = output / "reference" / case / "archive"
-        expected = archive / "export-thinned"
-        found = list(archive.glob("*.xcarchive"))
-        if not found or not expected.is_dir():
-            continue
-        with tempfile.TemporaryDirectory(prefix="nomac-ext-thin-") as work:
-            actual = Path(work) / "export"
-            completed = subprocess.run([nomac, "export", "-archivePath", str(found[0]), "-exportPath", str(actual),
-                                        "-exportOptionsPlist", str(archive / "ExportOptions-thinned.plist"),
-                                        "--developer-dir", os.environ["DEVELOPER_DIR"]], capture_output=True, text=True)
-            differences = [] if completed.returncode == 0 else [f"nomac export exit {completed.returncode}: {completed.stderr.strip()[:300]}"]
-            if completed.returncode == 0:
-                differences = tree_of_ipas(expected, actual)
-        print(f"{'identical' if not differences else 'DIFFERENT'}: {case} thinned export")
-        for difference in differences[:12]:
-            print(f"    {difference}")
-        failures += bool(differences)
-    return failures
-
-
-def tree_of_ipas(expected, actual):
-    differences = []
-    left = {path.relative_to(expected): path for path in expected.rglob("*") if path.is_file()}
-    right = {path.relative_to(actual): path for path in actual.rglob("*") if path.is_file()}
-    for name in sorted(set(left) | set(right), key=str):
-        if name.name == "Packaging.log":
-            continue
-        if name not in left or name not in right:
-            differences.append(f"{'extra' if name in right else 'missing'} {name}")
-        elif name.suffix == ".ipa":
-            one, other = zipfile.ZipFile(left[name]), zipfile.ZipFile(right[name])
-            first = {info.filename: info for info in one.infolist()}
-            second = {info.filename: info for info in other.infolist()}
-            differences += [f"{name}: only in Xcode's {entry}" for entry in first if entry not in second]
-            differences += [f"{name}: only in nomac's {entry}" for entry in second if entry not in first]
-            for entry in first:
-                if entry in second and one.read(entry) != other.read(entry):
-                    differences.append(f"{name}: {entry}")
-        elif plist_or_bytes(left[name].read_bytes()) != plist_or_bytes(right[name].read_bytes()):
-            differences.append(f"different {name}")
-    return differences
+    """`nomac export` of Xcode's archive thinned for all variants against Xcode's, by
+    distribution_experiments.py's comparison, which matches the variants by their descriptors
+    (xcodebuild names them with a random UUID): each case laid out as its experiments are."""
+    with tempfile.TemporaryDirectory(prefix="nomac-ext-thin-") as work:
+        for case in cases:
+            archive = output / "reference" / case / "archive"
+            found = list(archive.glob("*.xcarchive"))
+            if not found or not (archive / "export-thinned").is_dir():
+                continue
+            folder = Path(work) / case
+            folder.mkdir()
+            (folder / "adhoc.xcarchive").symlink_to(found[0])
+            (folder / "export-thinning-all.plist").symlink_to(archive / "ExportOptions-thinned.plist")
+            (folder / "export-thinning-all").symlink_to(archive / "export-thinned")
+            (folder / "export-thinning-all.json").write_text("{}\n")
+        return distribution_experiments.compare_thinning(Path(work), nomac)
 
 
 def summary(output):
