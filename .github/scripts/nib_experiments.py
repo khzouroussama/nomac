@@ -7583,6 +7583,600 @@ STORYBOARDS["sb-color-matched-device-white"] = storyboard(scene(view_extra='    
 STORYBOARDS["sb-color-matched-white"] = storyboard(scene(view_extra='                        <color key="backgroundColor" white="0.3" alpha="0.33333333333333331" colorSpace="calibratedWhite"/>\n'))
 
 
+# Cell family: a cell style's image view, the value2 style, a guide in a content view, colorLabel, a
+# static cell's rowHeight, an old cell frame inset, a cell with no frame.
+def cm_image(image="", frame=(16, 3, 37, 37)):
+    x, y, w, h = frame
+    return ('                    <subviews>\n'
+            f'                        <imageView opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleToFill"{image} id="img-aa-aa1">\n'
+            f'                            <rect key="frame" x="{x}" y="{y}" width="{w}" height="{h}"/>\n'
+            '                            <autoresizingMask key="autoresizingMask"/>\n'
+            '                        </imageView>\n                    </subviews>\n')
+
+
+CM_LOGO = '        <image name="Logo" width="37" height="37"/>\n'
+CM_TITLE = style_label("tlb-aa-aa1", "Title", (68, 0, 236, 44))
+CM_DETAIL = style_label("dlb-aa-aa1", "Detail", (68, 25, 44, 14.5), size=12)
+CM_XIBS = {
+    "cm-image-default": styled_cell("IBUITableViewCellStyleDefault", [CM_TITLE, cm_image(' image="Logo"')], {"textLabel": "tlb-aa-aa1", "imageView": "img-aa-aa1"}).replace(
+        "    </objects>\n", "    </objects>\n    <resources>\n" + CM_LOGO + "    </resources>\n"),
+    "cm-image-first": styled_cell("IBUITableViewCellStyleDefault", [cm_image(' image="Logo"'), CM_TITLE], {"textLabel": "tlb-aa-aa1", "imageView": "img-aa-aa1"}).replace(
+        "    </objects>\n", "    </objects>\n    <resources>\n" + CM_LOGO + "    </resources>\n"),
+    "cm-image-none": styled_cell("IBUITableViewCellStyleDefault", [CM_TITLE, cm_image()], {"textLabel": "tlb-aa-aa1", "imageView": "img-aa-aa1"}),
+    "cm-image-value1": styled_cell("IBUITableViewCellStyleValue1", [CM_TITLE, CM_DETAIL, cm_image()], {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1", "imageView": "img-aa-aa1"}),
+    "cm-image-subtitle": styled_cell("IBUITableViewCellStyleSubtitle", [CM_TITLE, CM_DETAIL, cm_image()], {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1", "imageView": "img-aa-aa1"}),
+    "cm-image-without-style": cell_xib(' imageView="img-aa-aa1"', content=cm_image()),
+    "cm-image-attrs": styled_cell("IBUITableViewCellStyleDefault", [CM_TITLE, cm_image().replace(' id="img-aa-aa1"', ' insetsLayoutMarginsFromSafeArea="NO" id="img-aa-aa1"')],
+                                  {"textLabel": "tlb-aa-aa1", "imageView": "img-aa-aa1"}),
+    "cm-value2": styled_cell("IBUITableViewCellStyleValue2", [CM_TITLE, CM_DETAIL], {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1"}),
+    "cm-value2-image": styled_cell("IBUITableViewCellStyleValue2", [CM_TITLE, CM_DETAIL, cm_image()], {"textLabel": "tlb-aa-aa1", "detailTextLabel": "dlb-aa-aa1", "imageView": "img-aa-aa1"}),
+    "cm-color-label": cell_xib(' colorLabel="IBBuiltInLabel-Blue"'),
+    "cm-color-label-red": cell_xib(' colorLabel="IBBuiltInLabel-Red" customClass="Cell" customModule="T" customModuleProvider="target"'),
+    "cm-base": cell_xib(),
+    "cm-content-guide": cell_xib(content='                <viewLayoutGuide key="safeArea" id="cgd-aa-aa1"/>\n'),
+    "cm-content-guide-only": cell_xib(safe=False, content='                <viewLayoutGuide key="safeArea" id="cgd-aa-aa1"/>\n').replace(
+        ' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"'),
+    "cm-content-guide-no-safe": cell_xib(safe=False, content='                <viewLayoutGuide key="safeArea" id="cgd-aa-aa1"/>\n'),
+    "cm-content-guide-label": cell_xib(content=cell_label().rstrip("\n") + '\n                <viewLayoutGuide key="safeArea" id="cgd-aa-aa1"/>\n'),
+}
+EXPERIMENTS.update(CM_XIBS)
+CM_STATIC_LABEL = tvc_label()
+
+
+def cm_static(cell):
+    return storyboard(tvc_scene(STATIC.format(header="", cells=cell), data_mode="static"), initial="tvc-aa-aaa")
+
+
+def cm_proto(cell):
+    return storyboard(tvc_scene(prototypes(cell)), initial="tvc-aa-aaa")
+
+
+CM_NO_RECT = '                                <rect key="frame" x="0.0" y="28" width="393" height="44"/>\n'
+CM_INSET = '                                <frame key="frameInset" minY="28" width="393" height="44"/>\n'
+STORYBOARDS.update({
+    "cm-sb-static-base": cm_static(tvc_cell(1, y=0, attributes="")),
+    "cm-sb-static-row-44": cm_static(tvc_cell(1, y=0, attributes=' rowHeight="44"')),
+    "cm-sb-static-row-60": cm_static(tvc_cell(1, y=0, height=60, attributes=' rowHeight="60"')),
+    "cm-sb-static-row-60-frame-44": cm_static(tvc_cell(1, y=0, attributes=' rowHeight="60"')),
+    "cm-sb-static-row-auto": cm_static(tvc_cell(1, y=0, attributes=' rowHeight="-1"')),
+    "cm-sb-static-row-two": cm_static(tvc_cell(1, y=0, height=60, attributes=' rowHeight="60"') + tvc_cell(2, y=60, attributes="")),
+    "cm-sb-proto-row-60": cm_proto(tvc_cell(1, height=60, attributes=' reuseIdentifier="Cell" rowHeight="60"')),
+    "cm-sb-proto-base": cm_proto(tvc_cell(1)),
+    "cm-sb-proto-frame-inset": cm_proto(tvc_cell(1).replace(CM_NO_RECT, CM_INSET)),
+    "cm-sb-proto-no-rect": cm_proto(tvc_cell(1).replace(CM_NO_RECT, "")),
+    "cm-sb-static-no-rect": cm_static(tvc_cell(1, attributes="").replace(CM_NO_RECT, "")),
+    "cm-sb-static-frame-inset": cm_static(tvc_cell(1, attributes="").replace(CM_NO_RECT, CM_INSET)),
+    "cm-sb-proto-color-label": cm_proto(tvc_cell(1, attributes=' reuseIdentifier="Cell" colorLabel="IBBuiltInLabel-Blue"')),
+    "cm-sb-proto-no-reuse-label": cm_proto(tvc_cell(1, attributes="", content_subviews=tvc_label() + LABEL_MARGINS)),
+    "cm-sb-proto-no-reuse-two": storyboard(tvc_scene(prototypes(tvc_cell(1, attributes=""), tvc_cell(2, y=72, attributes=""))), initial="tvc-aa-aaa"),
+    "cm-sb-proto-no-reuse-and-reuse": storyboard(tvc_scene(prototypes(tvc_cell(1, attributes=""), tvc_cell(2, y=72))), initial="tvc-aa-aaa"),
+    "cm-sb-proto-empty-reuse": cm_proto(tvc_cell(1, attributes=' reuseIdentifier=""')),
+})
+
+
+# Bars and toolbars: toolbars' items and bar attributes, navigation bars' attributes, navigation
+# items' several bar button items and attributes, as the survey's documents have them.
+BARS_SYSTEM_ITEMS = ["flexibleSpace", "fixedSpace", "done", "cancel", "add", "save", "action", "stop", "refresh", "edit", "trash", "search", "compose",
+                     "organize", "play", "reply", "bookmarks", "rewind", "fastForward", "undo", "camera", "redo"]
+BARS_SQUARE = '        <image name="square" catalog="system" width="128" height="114"/>\n'
+BARS_NAMED = '        <image name="Icon" width="16" height="16"/>\n'
+BARS_RED = 'red="1" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"'
+BARS_BLUE = 'red="0.0" green="0.0" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"'
+
+
+def bars_toolbar(items="", attributes="", extra="", resources=""):
+    body = f"<items>\n{items}</items>" if items else "<items/>"
+    view = toolbar(items=body, extra="\n" + extra if extra else "").replace(' id="tbr-aa-aa1"', f'{attributes} id="tbr-aa-aa1"')
+    return constrained(view, "", resources=resources)
+
+
+def bars_item(attributes, number=1, body=""):
+    if not body:
+        return f'    <barButtonItem {attributes} id="bbi-aa-aa{number}"/>\n'
+    return f'    <barButtonItem {attributes} id="bbi-aa-aa{number}">\n{body}    </barButtonItem>\n'
+
+
+def bars_owner(document, outlets):
+    return document.replace('        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File\'s Owner"/>\n',
+                            '        <placeholder placeholderIdentifier="IBFilesOwner" id="-1" userLabel="File\'s Owner" customClass="Owner">\n'
+                            f'            <connections>\n{outlets}            </connections>\n        </placeholder>\n')
+
+
+BARS_ACTION = '        <connections>\n            <action selector="tap:" destination="-1" id="act-aa-aa1"/>\n        </connections>\n'
+BARS = {
+    "bars-tb-base": bars_toolbar(),
+    "bars-tb-flex": bars_toolbar(bars_item('style="plain" systemItem="flexibleSpace"')),
+    "bars-tb-sys-all": bars_toolbar("".join(bars_item(f'systemItem="{name}"', number) for number, name in enumerate(BARS_SYSTEM_ITEMS))),
+    "bars-tb-sys-style-done": bars_toolbar(bars_item('style="done" systemItem="done"')),
+    "bars-tb-sys-pause": bars_toolbar(bars_item('systemItem="pause"')),
+    "bars-tb-sys-pagecurl": bars_toolbar(bars_item('systemItem="pageCurl"')),
+    "bars-tb-sys-close": bars_toolbar(bars_item('systemItem="close"')),
+    "bars-tb-fixed-width": bars_toolbar(bars_item('width="42" systemItem="fixedSpace"')),
+    "bars-tb-title": bars_toolbar(bars_item('title="Item"')),
+    "bars-tb-title-space": bars_toolbar(bars_item('title=" "')),
+    "bars-tb-title-plain": bars_toolbar(bars_item('style="plain" title="Item"')),
+    "bars-tb-title-done": bars_toolbar(bars_item('style="done" title="Item"')),
+    "bars-tb-title-width": bars_toolbar(bars_item('title="Item" width="42"')),
+    "bars-tb-no-title": bars_toolbar(bars_item('style="plain"')),
+    "bars-tb-image": bars_toolbar(bars_item('image="square" catalog="system"'), resources=BARS_SQUARE),
+    "bars-tb-image-title": bars_toolbar(bars_item('title="Item" image="square" catalog="system"'), resources=BARS_SQUARE),
+    "bars-tb-image-named": bars_toolbar(bars_item('image="Icon"'), resources=BARS_NAMED),
+    "bars-tb-disabled": bars_toolbar(bars_item('enabled="NO" systemItem="add"')),
+    "bars-tb-title-disabled": bars_toolbar(bars_item('enabled="NO" title="Item"')),
+    "bars-tb-tag": bars_toolbar(bars_item('tag="3" systemItem="add"')),
+    "bars-tb-title-tag": bars_toolbar(bars_item('tag="3" title="Item"')),
+    "bars-tb-class": bars_toolbar(bars_item('title="Item" customClass="MyItem"')),
+    "bars-tb-class-module": bars_toolbar(bars_item('title="Item" customClass="MyItem" customModule="App" customModuleProvider="target"')),
+    "bars-tb-label": bars_toolbar(bars_item('title="Item" userLabel="Thing"')),
+    "bars-tb-tint": bars_toolbar(bars_item('title="Item"', body=f'        <color key="tintColor" {BARS_RED}/>\n')),
+    "bars-tb-sys-tint": bars_toolbar(bars_item('systemItem="add"', body=f'        <color key="tintColor" {BARS_RED}/>\n')),
+    "bars-tb-action": bars_toolbar(bars_item('title="Item"', body=BARS_ACTION)),
+    "bars-tb-sys-action": bars_toolbar(bars_item('systemItem="add"', body=BARS_ACTION)),
+    "bars-tb-two": bars_toolbar(bars_item('title="One"', 1) + bars_item('systemItem="flexibleSpace"', 2) + bars_item('title="Two"', 3)),
+    "bars-tb-outlet": bars_owner(bars_toolbar(bars_item('title="Item"')), outlet("item", "bbi-aa-aa1", 0)),
+    "bars-tb-translucent-no": bars_toolbar(attributes=' translucent="NO"'),
+    "bars-tb-translucent-yes": bars_toolbar(attributes=' translucent="YES"'),
+    "bars-tb-style-black": bars_toolbar(attributes=' barStyle="black"'),
+    "bars-tb-style-black-translucent": bars_toolbar(attributes=' barStyle="blackTranslucent"'),
+    "bars-tb-style-black-opaque": bars_toolbar(attributes=' barStyle="blackOpaque"'),
+    "bars-tb-style-black-no": bars_toolbar(attributes=' barStyle="black" translucent="NO"'),
+    "bars-tb-bartint": bars_toolbar(extra=f'<color key="barTintColor" {BARS_RED}/>'),
+    "bars-tb-tintcolor": bars_toolbar(extra=f'<color key="tintColor" {BARS_RED}/>'),
+    "bars-nb-base": constrained(sub_nav_bar(), ""),
+    "bars-nb-style-black": constrained(sub_nav_bar(attributes=' barStyle="black"'), ""),
+    "bars-nb-style-black-translucent": constrained(sub_nav_bar(attributes=' barStyle="blackTranslucent"'), ""),
+    "bars-nb-style-black-opaque": constrained(sub_nav_bar(attributes=' barStyle="blackOpaque"'), ""),
+    "bars-nb-style-black-no": constrained(sub_nav_bar(attributes=' barStyle="black" translucent="NO"'), ""),
+    "bars-nb-large": constrained(sub_nav_bar(attributes=' largeTitles="YES"'), ""),
+    "bars-nb-title-system": constrained(sub_nav_bar('<navigationItem title="Hello" id="nvi-aa-aa1">\n    <barButtonItem key="leftBarButtonItem" title="Back" id="bbi-aa-aa1"/>\n    <barButtonItem key="rightBarButtonItem" systemItem="trash" id="bbi-aa-aa2"/>\n</navigationItem>'), ""),
+}
+EXPERIMENTS.update(BARS)
+
+
+def bars_nav(bar_attributes="", bar_body=""):
+    document = storyboard(navigation_scene("vc1-aa-aaa", bar_attributes=bar_attributes), controller_scene(1), initial="nvc-aa-aaa")
+    return document.replace('                        <autoresizingMask key="autoresizingMask"/>\n                    </navigationBar>',
+                            f'                        <autoresizingMask key="autoresizingMask"/>\n{bar_body}                    </navigationBar>')
+
+
+def bars_ni(items="", attributes="", resources=""):
+    document = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=navigation_item("Root", items, attributes)), initial="nvc-aa-aaa")
+    return document.replace("    </scenes>\n", f"    </scenes>\n    <resources>\n{resources}    </resources>\n") if resources else document
+
+
+def bars_ni_item(attributes, number=1, indent=24, key=""):
+    pad = " " * indent
+    key_text = f'key="{key}" ' if key else ""
+    return f'{pad}<barButtonItem {key_text}{attributes} id="bbi-aa-aa{number}"/>\n'
+
+
+def bars_vc_items(items):
+    return storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=f"                    <toolbarItems>\n{items}                    </toolbarItems>\n"), initial="nvc-aa-aaa")
+
+
+STORYBOARDS.update({
+    "bars-sbn-base": bars_nav(),
+    "bars-sbn-clips-clears": bars_nav(' clipsSubviews="YES" clearsContextBeforeDrawing="NO"'),
+    "bars-sbn-opaque-touch": bars_nav(' opaque="NO" multipleTouchEnabled="YES"'),
+    "bars-ni-plain-left": bars_ni(bars_ni_item('style="plain" systemItem="add"', key="leftBarButtonItem")),
+    "bars-ni-plain-back": bars_ni(bars_ni_item('style="plain" title="Item"', key="backBarButtonItem")),
+    "bars-ni-plain-list": bars_ni('<rightBarButtonItems>\n    <barButtonItem style="plain" systemItem="add" id="bbi-aa-aa1"/>\n    <barButtonItem style="plain" systemItem="save" id="bbi-aa-aa2"/>\n</rightBarButtonItems>'),
+    "bars-sbn-translucent-no": bars_nav(' translucent="NO"'),
+    "bars-sbn-translucent-yes": bars_nav(' translucent="YES"'),
+    "bars-sbn-style-black": bars_nav(' barStyle="black"'),
+    "bars-sbn-style-black-translucent": bars_nav(' barStyle="blackTranslucent"'),
+    "bars-sbn-style-black-opaque": bars_nav(' barStyle="blackOpaque"'),
+    "bars-sbn-style-black-no": bars_nav(' barStyle="black" translucent="NO"'),
+    "bars-sbn-large": bars_nav(' largeTitles="YES"'),
+    "bars-sbn-bartint": bars_nav(bar_body=f'                        <color key="barTintColor" {BARS_RED}/>\n'),
+    "bars-sbn-tint": bars_nav(bar_body=f'                        <color key="tintColor" {BARS_RED}/>\n'),
+    "bars-sbn-tint-bartint": bars_nav(bar_body=f'                        <color key="tintColor" {BARS_RED}/>\n                        <color key="barTintColor" {BARS_BLUE}/>\n'),
+    "bars-sbn-text-color": bars_nav(bar_body=f'                        <textAttributes key="titleTextAttributes">\n                            <color key="textColor" {BARS_RED}/>\n                        </textAttributes>\n'),
+    "bars-sbn-large-text-color": bars_nav(bar_body=f'                        <textAttributes key="largeTitleTextAttributes">\n                            <color key="textColor" {BARS_RED}/>\n                        </textAttributes>\n'),
+    "bars-sbn-text-font": bars_nav(bar_body='                        <textAttributes key="titleTextAttributes">\n                            <fontDescription key="fontDescription" name="Avenir-Medium" family="Avenir" pointSize="17"/>\n                        </textAttributes>\n'),
+    "bars-sbn-class": bars_nav(' customClass="MyBar"'),
+    "bars-sbn-class-module": bars_nav(' customClass="MyBar" customModule="App" customModuleProvider="target"'),
+    "bars-sbn-clears": bars_nav(' clearsContextBeforeDrawing="NO"'),
+    "bars-sbn-misplaced": bars_nav(' misplaced="YES"'),
+    "bars-ni-base": bars_ni(),
+    "bars-ni-always": bars_ni(attributes=' largeTitleDisplayMode="always"'),
+    "bars-ni-never": bars_ni(attributes=' largeTitleDisplayMode="never"'),
+    "bars-ni-label": bars_ni(attributes=' userLabel="Thing"'),
+    "bars-ni-prompt": bars_ni(attributes=' prompt="Hello"'),
+    "bars-ni-supplement": bars_ni(attributes=' leftItemsSupplementBackButton="YES"'),
+    "bars-ni-right-one": bars_ni('                        <rightBarButtonItems>\n' + bars_ni_item('systemItem="add"', 1, 28) + '                        </rightBarButtonItems>\n'),
+    "bars-ni-right-two": bars_ni('                        <rightBarButtonItems>\n' + bars_ni_item('systemItem="add"', 1, 28) + bars_ni_item('title="Two"', 2, 28) + '                        </rightBarButtonItems>\n'),
+    "bars-ni-left-two": bars_ni('                        <leftBarButtonItems>\n' + bars_ni_item('systemItem="add"', 1, 28) + bars_ni_item('title="Two"', 2, 28) + '                        </leftBarButtonItems>\n'),
+    "bars-ni-both-two": bars_ni('                        <leftBarButtonItems>\n' + bars_ni_item('systemItem="add"', 1, 28) + bars_ni_item('title="Two"', 2, 28) + '                        </leftBarButtonItems>\n'
+                                '                        <rightBarButtonItems>\n' + bars_ni_item('systemItem="done"', 3, 28) + bars_ni_item('title="Four"', 4, 28) + '                        </rightBarButtonItems>\n'),
+    "bars-ni-item-label": bars_ni(bars_ni_item('systemItem="add" userLabel="Thing"', key="rightBarButtonItem")),
+    "bars-ni-item-title-label": bars_ni(bars_ni_item('title="Item" userLabel="Thing"', key="rightBarButtonItem")),
+    "bars-ni-item-image": bars_ni(bars_ni_item('image="square" catalog="system"', key="rightBarButtonItem"), resources=BARS_SQUARE),
+    "bars-ni-item-image-named": bars_ni(bars_ni_item('image="Icon"', key="leftBarButtonItem"), resources=BARS_NAMED),
+    "bars-ni-item-empty": bars_ni(bars_ni_item('style="plain"', key="rightBarButtonItem")),
+    "bars-ni-item-class": bars_ni(bars_ni_item('title="Item" customClass="MyItem"', key="rightBarButtonItem")),
+    "bars-ni-item-tag": bars_ni(bars_ni_item('tag="3" title="Item"', key="rightBarButtonItem")),
+    "bars-ni-item-width": bars_ni(bars_ni_item('title="Item" width="42"', key="rightBarButtonItem")),
+    "bars-ni-sys-all": bars_ni(bars_ni_item('systemItem="undo"', 1, key="rightBarButtonItem") + bars_ni_item('systemItem="redo"', 2, key="leftBarButtonItem")),
+    "bars-vc-items-flex": bars_vc_items(bars_ni_item('systemItem="flexibleSpace"')),
+    "bars-vc-items-title": bars_vc_items(bars_ni_item('title="Item"')),
+    "bars-vc-items-two": bars_vc_items(bars_ni_item('title="One"', 1) + bars_ni_item('systemItem="add"', 2)),
+})
+
+
+BARS2_TITLE_TEXT = f'                        <textAttributes key="titleTextAttributes">\n                            <color key="textColor" {BARS_RED}/>\n                        </textAttributes>\n'
+BARS2_LARGE_TEXT = f'                        <textAttributes key="largeTitleTextAttributes">\n                            <color key="textColor" {BARS_BLUE}/>\n                        </textAttributes>\n'
+BARS2_FONT = '<fontDescription key="fontDescription" name="Avenir-Medium" family="Avenir" pointSize="17"/>'
+
+
+def bars_scene_toolbar(items):
+    return storyboard(scene(view_extra="                        <subviews>\n" + toolbar(frame=(0, 0, 393, 49), items=f"<items>\n{items}</items>") + "                        </subviews>\n"))
+
+
+BARS2 = {
+    "bars-tb-combo": bars_toolbar(bars_item('style="done" tag="3" title="Item" image="square" catalog="system" width="42"', body=f'        <color key="tintColor" {BARS_RED}/>\n'), resources=BARS_SQUARE),
+    "bars-tb-fixed-tint": bars_toolbar(bars_item('tag="2" width="42" systemItem="fixedSpace"', body=f'        <color key="tintColor" {BARS_RED}/>\n')),
+    "bars-tb-flex-plain-tag": bars_toolbar(bars_item('style="plain" tag="2" systemItem="flexibleSpace"')),
+    "bars-tb-flex-width": bars_toolbar(bars_item('width="42" systemItem="flexibleSpace"')),
+    "bars-tb-class-sys": bars_toolbar(bars_item('systemItem="add" customClass="MyItem"')),
+    "bars-tb-bar-combo": bars_toolbar(attributes=' barStyle="black" translucent="NO"', extra=f'<color key="tintColor" {BARS_RED}/>\n<color key="barTintColor" {BARS_BLUE}/>'),
+    "bars-tb-two-actions": bars_toolbar(bars_item('title="One"', 1, BARS_ACTION.replace("tap:", "zed:")) + bars_item('title="Two"', 2, BARS_ACTION.replace("tap:", "abc:").replace("act-aa-aa1", "act-aa-aa2"))),
+    "bars-tb-two-toolbars": constrained(toolbar(items='<items>\n' + bars_item('title="One"') + '</items>') + toolbar(frame=(0, 100, 393, 49)).replace("tbr-aa-aa1", "tbr-aa-aa2"), ""),
+    "bars-tb-action-outlet": bars_owner(bars_toolbar(bars_item('title="Item"', body=BARS_ACTION)), outlet("item", "bbi-aa-aa1", 0)),
+    "bars-nb-bartint": constrained(sub_nav_bar().replace("<items>", f'<color key="barTintColor" {BARS_RED}/>\n                    <items>', 1), ""),
+    "bars-nb-text": constrained(sub_nav_bar().replace("</navigationBar>", BARS2_TITLE_TEXT + "                </navigationBar>"), ""),
+    "bars-nb-plain-sys": constrained(sub_nav_bar('<navigationItem title="Hello" id="nvi-aa-aa1">\n    <barButtonItem key="rightBarButtonItem" style="plain" systemItem="add" id="bbi-aa-aa2"/>\n</navigationItem>'), ""),
+    "bars-nb-item-title": constrained(sub_nav_bar('<navigationItem title="Hello" id="nvi-aa-aa1">\n    <barButtonItem key="rightBarButtonItem" title="Go" id="bbi-aa-aa2"/>\n</navigationItem>'), ""),
+}
+EXPERIMENTS.update(BARS2)
+STORYBOARDS.update({
+    "bars-sb-toolbar": bars_scene_toolbar(bars_item('title="Item"')),
+    "bars-sb-toolbar-action": bars_scene_toolbar(bars_item('title="Item"', body='        <connections>\n            <action selector="tap:" destination="BYZ-38-t0r" id="act-aa-aa1"/>\n        </connections>\n')),
+    "bars-sbn-combo": bars_nav(' barStyle="black" translucent="NO" largeTitles="YES"', f'                        <color key="tintColor" {BARS_RED}/>\n                        <color key="barTintColor" {BARS_BLUE}/>\n' + BARS2_TITLE_TEXT + BARS2_LARGE_TEXT),
+    "bars-sbn-text-both": bars_nav(bar_body=f'                        <textAttributes key="titleTextAttributes">\n                            <color key="textColor" {BARS_RED}/>\n                            {BARS2_FONT}\n                        </textAttributes>\n'),
+    "bars-sbn-text-shadow": bars_nav(bar_body=f'                        <textAttributes key="titleTextAttributes">\n                            <color key="textColor" {BARS_RED}/>\n                            <color key="textShadowColor" {BARS_BLUE}/>\n                            <offsetWrapper key="textShadowOffset" horizontal="0.0" vertical="0.0"/>\n                        </textAttributes>\n'),
+    "bars-sbn-text-empty": bars_nav(bar_body='                        <textAttributes key="titleTextAttributes"/>\n'),
+    "bars-ni-plain-sys": bars_ni(bars_ni_item('style="plain" systemItem="add"', key="rightBarButtonItem")),
+    "bars-ni-plain-title": bars_ni(bars_ni_item('style="plain" title="Item"', key="rightBarButtonItem")),
+    "bars-ni-order": bars_ni(bars_ni_item('title="L"', 1, key="leftBarButtonItem") + bars_ni_item('title="R"', 2, key="rightBarButtonItem"), attributes=' prompt="Hello" leftItemsSupplementBackButton="YES" largeTitleDisplayMode="always"'),
+    "bars-ni-back-right": bars_ni(bars_ni_item('title="Back"', 1, key="backBarButtonItem") + bars_ni_item('title="R"', 2, key="rightBarButtonItem")),
+    "bars-ni-back-left": bars_ni(bars_ni_item('title="Back"', 1, key="backBarButtonItem") + bars_ni_item('title="L"', 2, key="leftBarButtonItem")),
+    "bars-ni-item-combo": bars_ni('                        <barButtonItem key="rightBarButtonItem" style="done" tag="3" title="Item" image="square" catalog="system" width="42" id="bbi-aa-aa1">\n'
+                                  f'                            <color key="tintColor" {BARS_RED}/>\n                        </barButtonItem>\n', resources=BARS_SQUARE),
+    "bars-ni-item-bare": bars_ni('                        <barButtonItem key="rightBarButtonItem" id="bbi-aa-aa1"/>\n'),
+    "bars-ni-nil": bars_ni('                        <nil key="title"/>\n'),
+    "bars-ni-nil-attr": storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view='                    <navigationItem key="navigationItem" id="nvi-aa-aaa">\n                        <nil key="title"/>\n                    </navigationItem>\n'), initial="nvc-aa-aaa"),
+    "bars-ni-right-two-actions": bars_ni('                        <rightBarButtonItems>\n'
+                                         '                            <barButtonItem title="One" id="bbi-aa-aa1">\n                                <connections>\n                                    <action selector="zed:" destination="vc1-aa-aaa" id="act-aa-aa1"/>\n                                </connections>\n                            </barButtonItem>\n'
+                                         '                            <barButtonItem title="Two" id="bbi-aa-aa2">\n                                <connections>\n                                    <action selector="abc:" destination="vc1-aa-aaa" id="act-aa-aa2"/>\n                                </connections>\n                            </barButtonItem>\n'
+                                         '                        </rightBarButtonItems>\n'),
+    "bars-ni-both-two-labels": bars_ni('                        <leftBarButtonItems>\n' + bars_ni_item('title="A"', 1, 28) + bars_ni_item('title="B"', 2, 28) + '                        </leftBarButtonItems>\n'
+                                       '                        <rightBarButtonItems>\n' + bars_ni_item('title="C"', 3, 28) + '                        </rightBarButtonItems>\n'),
+    "bars-vc-standalone-items": storyboard(controller_scene(1, after_view="                    <toolbarItems>\n" + bars_ni_item('title="One"', 1) + bars_ni_item('systemItem="flexibleSpace"', 2) + "                    </toolbarItems>\n"), initial="vc1-aa-aaa"),
+    "bars-vc-items-action": bars_vc_items('                        <barButtonItem title="One" id="bbi-aa-aa1">\n                            <connections>\n                                <action selector="tap:" destination="vc1-aa-aaa" id="act-aa-aa1"/>\n                            </connections>\n                        </barButtonItem>\n'),
+    "bars-vc-items-and-ni": storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view="                    <toolbarItems>\n" + bars_ni_item('title="One"', 1) + "                    </toolbarItems>\n"
+                                       + navigation_item("Root", bars_ni_item('title="R"', 2, key="rightBarButtonItem"))), initial="nvc-aa-aaa"),
+})
+
+
+STORYBOARDS.update({
+    "bars-ni-prompt-lproj": bars_ni(attributes=' prompt="Hello"'),
+    "bars-ni-back-prompt": bars_ni(bars_ni_item('title="Back"', 1, key="backBarButtonItem"), attributes=' prompt="Hello" leftItemsSupplementBackButton="YES"'),
+    "bars-ni-right-two-same": bars_ni('                        <rightBarButtonItems>\n'
+                                      '                            <barButtonItem title="One" id="bbi-aa-aa1">\n                                <connections>\n                                    <action selector="tap:" destination="vc1-aa-aaa" id="act-aa-aa1"/>\n                                </connections>\n                            </barButtonItem>\n'
+                                      '                            <barButtonItem title="Two" id="bbi-aa-aa2">\n                                <connections>\n                                    <action selector="tap:" destination="vc1-aa-aaa" id="act-aa-aa2"/>\n                                </connections>\n                            </barButtonItem>\n'
+                                      '                        </rightBarButtonItems>\n'),
+})
+LPROJ_STORYBOARDS.add("bars-ni-prompt-lproj")
+BARS3 = {
+    "bars-tb-title-lproj": bars_toolbar(bars_item('title="Item"')),
+    "bars-tb-two-same": bars_toolbar(bars_item('title="One"', 1, BARS_ACTION) + bars_item('title="Two"', 2, BARS_ACTION.replace("act-aa-aa1", "act-aa-aa2"))),
+}
+EXPERIMENTS.update(BARS3)
+LPROJ_XIBS.add("bars-tb-title-lproj")
+
+
+# Constraints with baselines, custom classes, anchors, margins and the safe area of a collection
+# view cell (B-265).
+def cs_pair(*ties, second=(150, 20, 100, 50)):
+    return constrained(subview("xxx-xx-xx1") + subview("yyy-yy-yy1", second),
+                       pin("xxx-xx-xx1", 0, 10, 20) + pin("yyy-yy-yy1", 1, int(second[0]), int(second[1]))
+                       + "".join(constraint(10 + k, *tie) for k, tie in enumerate(ties)))
+
+
+def cs_sibling(first, second, extra=""):
+    return ("xxx-xx-xx1", first, "yyy-yy-yy1", second, extra)
+
+
+def cs_cell(*constraints):
+    return cv_cell(CV_LABEL, OLD_EXTRA + "            <constraints>\n" + "".join(
+        constraint(k, *tie, indent=16) for k, tie in enumerate(constraints)) + "            </constraints>\n", old=True).replace('colorMatched="YES">', 'useSafeAreas="YES" colorMatched="YES">')
+
+
+CS_LABEL = "lll-ll-ll1"
+CS_SAFE = "sfa-aa-aa1"
+CS_ALL_ATTRIBUTES = ["centerX", "leading", "centerY", "bottom", "baseline", "firstBaseline", "top", "height"]
+CS_HAIRLINE = ' customClass="HairlineConstraint" customModule="T" customModuleProvider="target"'
+CS_XIBS = {
+    "cs-base": cs_pair(),
+    "cs-baseline-alone": cs_pair(cs_sibling("baseline", "baseline")),
+    "cs-baseline-constant": cs_pair(cs_sibling("baseline", "baseline", ' constant="8"')),
+    "cs-baseline-attributes": cs_pair(*[cs_sibling(name, name) for name in CS_ALL_ATTRIBUTES]),
+    "cs-baseline-first": cs_pair(cs_sibling("baseline", "firstBaseline")),
+    "cs-first-baseline": cs_pair(cs_sibling("firstBaseline", "baseline")),
+    "cs-baseline-crossed": cs_pair(*[cs_sibling(a, b, f' constant="{k}"') for k, (a, b) in enumerate(
+        [("baseline", "firstBaseline"), ("firstBaseline", "baseline"), ("baseline", "baseline"), ("top", "baseline"), ("baseline", "top"),
+         ("centerY", "baseline"), ("baseline", "centerY"), ("bottom", "baseline"), ("baseline", "bottom"), ("firstBaseline", "firstBaseline"),
+         ("top", "firstBaseline"), ("firstBaseline", "top"), ("bottom", "firstBaseline"), ("firstBaseline", "bottom"),
+         ("centerY", "firstBaseline"), ("firstBaseline", "centerY")])]),
+    "cs-baseline-view": cs_pair(("xxx-xx-xx1", "baseline", ROOT, "centerY"), ("xxx-xx-xx1", "baseline", ROOT, "bottom", ' constant="-3"'),
+                                (ROOT, "bottom", "yyy-yy-yy1", "baseline", ' constant="4"'), (None, "top", "yyy-yy-yy1", "baseline", ' constant="-5"'),
+                                ("xxx-xx-xx1", "centerY", ROOT, "baseline")),
+    "cs-first-baseline-view": cs_pair(("xxx-xx-xx1", "firstBaseline", ROOT, "centerY"), ("xxx-xx-xx1", "firstBaseline", ROOT, "bottom", ' constant="-3"'),
+                                      (ROOT, "bottom", "yyy-yy-yy1", "firstBaseline", ' constant="4"'), (None, "top", "yyy-yy-yy1", "firstBaseline", ' constant="-5"'),
+                                      ("xxx-xx-xx1", "centerY", ROOT, "firstBaseline")),
+    "cs-first-baseline-view-top": cs_pair(("xxx-xx-xx1", "firstBaseline", ROOT, "top", ' constant="30"')),
+    "cs-first-baseline-owner-top": cs_pair((None, "top", "xxx-xx-xx1", "firstBaseline", ' constant="-30"')),
+    "cs-baseline-view-top": cs_pair(("xxx-xx-xx1", "baseline", ROOT, "top", ' constant="30"')),
+    "cs-baseline-owner-bottom": cs_pair((None, "bottom", "xxx-xx-xx1", "baseline", ' constant="30"')),
+    "cs-custom-width": cs_pair((None, "width", None, None, ' constant="393"' + CS_HAIRLINE)).replace('<constraint firstAttribute="width"', '<constraint firstAttribute="width"'),
+    "cs-custom-sibling": cs_pair(cs_sibling("bottom", "bottom", ' constant="1"' + CS_HAIRLINE)),
+    "cs-custom-no-module": cs_pair(cs_sibling("bottom", "bottom", ' customClass="I"')),
+    "cs-custom-other-module": cs_pair(cs_sibling("bottom", "bottom", ' customClass="KeyboardLayoutConstraint" customModule="Spring"')),
+    "cs-custom-two": cs_pair(cs_sibling("bottom", "bottom", ' customClass="A1"'), cs_sibling("top", "top", ' customClass="A1"'), cs_sibling("leading", "leading", ' customClass="B2"')),
+    "cs-symbol-anchor": cs_pair(cs_sibling("top", "bottom", ' constant="8" symbolType="layoutAnchor"')),
+    "cs-symbol-anchor-baseline": cs_pair(cs_sibling("firstBaseline", "baseline", ' constant="20" symbolType="layoutAnchor"')),
+    "cs-symbol-anchor-relation": cs_pair(cs_sibling("firstBaseline", "baseline", ' relation="greaterThanOrEqual" constant="21" symbolType="layoutAnchor"')),
+    "cs-verify-off": constrained(subview("xxx-xx-xx1", attributes=' verifyAmbiguity="off"'), pin("xxx-xx-xx1", 0, 10, 20)),
+    "cs-verify-off-root": constrained(subview("xxx-xx-xx1"), pin("xxx-xx-xx1", 0, 10, 20)).replace(f'contentMode="scaleToFill" id="{ROOT}"', f'contentMode="scaleToFill" verifyAmbiguity="off" id="{ROOT}"'),
+    "cs-verify-ignore": constrained(subview("xxx-xx-xx1", attributes=' verifyAmbiguity="ignoreSizes"'), pin("xxx-xx-xx1", 0, 10, 20)),
+    "cs-margin-multiplier": cs_pair(("xxx-xx-xx1", "leadingMargin", ROOT, "leading", ' multiplier="0.5"')),
+    "cs-margin-second-multiplier": cs_pair(("xxx-xx-xx1", "leading", ROOT, "leadingMargin", ' multiplier="0.5" constant="3"')),
+    "cs-margin-both-multiplier": cs_pair(("xxx-xx-xx1", "bottomMargin", ROOT, "bottomMargin", ' multiplier="2"')),
+    "cs-margin-symbolic": cs_pair(("xxx-xx-xx1", "leading", ROOT, "leadingMargin", ' constant="8" symbolic="YES"')),
+    "cs-cvsafe-center": cs_cell((CS_LABEL, "centerX", CS_SAFE, "centerX"), (CS_LABEL, "centerY", CS_SAFE, "centerY")),
+    "cs-cvsafe-edges": cs_cell((CS_LABEL, "leading", CS_SAFE, "leading"), (CS_LABEL, "top", CS_SAFE, "top"), (CS_SAFE, "trailing", CS_LABEL, "trailing"), (CS_SAFE, "bottom", CS_LABEL, "bottom")),
+    "cs-cvsafe-mixed": cs_cell((CS_LABEL, "leading", CV_CELL, "leading"), (CS_LABEL, "top", CS_SAFE, "top"), (CS_SAFE, "trailing", CS_LABEL, "trailing"), (None, "bottom", CS_LABEL, "bottom"), (CS_LABEL, "centerY", CS_SAFE, "centerY")),
+}
+CS_VARIED = '<variation key="heightClass=compact" constant="7"/>'
+CS_XIBS["cs-margin-variation"] = cs_pair(("xxx-xx-xx1", "leading", ROOT, "leadingMargin", ' constant="3"')).replace(
+    ' id="c10-aa-aaa"/>', f' id="c10-aa-aaa">{CS_VARIED}</constraint>')
+CS_XIBS["cs-plain-variation"] = cs_pair(("xxx-xx-xx1", "leading", ROOT, "leading", ' constant="3"')).replace(
+    ' id="c10-aa-aaa"/>', f' id="c10-aa-aaa">{CS_VARIED}</constraint>')
+CS_Y_ATTRIBUTES = ["centerY", "bottom", "top", "baseline", "firstBaseline"]
+CS_ALL_PAIRS = [(a, b) for a in CS_Y_ATTRIBUTES for b in CS_Y_ATTRIBUTES] + [("centerX", "centerX"), ("width", "width"), ("height", "height"), ("trailing", "trailing"), ("leading", "leading")]
+CS_PAIR_FRAME = (10, 20, 100, 50)
+CS_XIBS["cs-verify-base"] = constrained(subview("xxx-xx-xx1"), pin("xxx-xx-xx1", 0, 10, 20))
+CS_XIBS["cs-pairs-sub-first"] = constrained(subview("xxx-xx-xx1"), "".join(constraint(k, "xxx-xx-xx1", a, ROOT, b, f' constant="{k + 1}"') for k, (a, b) in enumerate(CS_ALL_PAIRS)))
+CS_XIBS["cs-pairs-view-first"] = constrained(subview("xxx-xx-xx1"), "".join(constraint(k, None, a, "xxx-xx-xx1", b, f' constant="{k + 1}"') for k, (a, b) in enumerate(CS_ALL_PAIRS)))
+CS_XIBS["cs-pairs-sub-safe"] = constrained(subview("xxx-xx-xx1"), "".join(constraint(k, "xxx-xx-xx1", a, SAFE_GUIDE, b, f' constant="{k + 1}"') for k, (a, b) in enumerate(CS_ALL_PAIRS)), safe=True)
+CS_XIBS["cs-pairs-safe-sub"] = constrained(subview("xxx-xx-xx1"), "".join(constraint(k, SAFE_GUIDE, a, "xxx-xx-xx1", b, f' constant="{k + 1}"') for k, (a, b) in enumerate(CS_ALL_PAIRS)), safe=True)
+CS_XIBS["cs-pairs-both-baselines"] = constrained(subview("xxx-xx-xx1"), "".join(
+    constraint(k, "xxx-xx-xx1", a, ROOT, b, f' constant="{k + 1}"') for k, (a, b) in enumerate([("baseline", "bottom"), ("baseline", "top")]))
+    + "".join(constraint(k + 10, None, a, "xxx-xx-xx1", b, f' constant="{k + 1}"') for k, (a, b) in enumerate([("bottom", "baseline"), ("top", "baseline"), ("bottom", "bottom"), ("top", "top"), ("height", "height")])))
+EXPERIMENTS.update(CS_XIBS)
+
+
+# Colors left, accessibility traits by every value and small details: the survey's values, one
+# change from a plain base each (docs/formats/nib.md "UIColor", "Accessibility").
+MX_COLOR_NAMES = ("disabledControlTextColor", "textColor", "keyboardFocusIndicatorColor", "secondaryLabelColor", "controlDarkShadowColor",
+                  "secondarySelectedControlColor", "selectedMenuItemTextColor", "quaternaryLabelColor", "controlHighlightColor", "windowFrameColor",
+                  "tertiaryLabelColor", "selectedContentBackgroundColor", "highlightColor", "controlShadowColor", "controlLightHighlightColor",
+                  "controlBackgroundColor", "controlAccentColor", "labelColor", "controlTextColor", "windowBackgroundColor")
+MX = {"mx-base": xib(view())}
+for mx_trait in ("searchField", "allowsDirectInteraction", "keyboardKey", "updatesFrequently", "causesPageTurn", "startsMediaSession", "playsSound", "tabBar"):
+    MX[f"mx-trait-{mx_trait}"] = constrained(with_runtime(accessibility("", f'<accessibilityTraits key="traits" {mx_trait}="YES"/>\n')), "")
+MX["mx-trait-search-button"] = constrained(with_runtime(accessibility("", '<accessibilityTraits key="traits" button="YES" searchField="YES"/>\n')), "")
+MX["mx-trait-none-button"] = constrained(with_runtime(accessibility("", '<accessibilityTraits key="traits" none="YES" button="YES"/>\n')), "")
+MX["mx-trait-key-accessibilityTraits"] = constrained(with_runtime(accessibility("", '<accessibilityTraits key="accessibilityTraits" button="YES" staticText="YES"/>\n')), "")
+MX["mx-a11y-string-label"] = constrained(with_runtime(accessibility("", '<string key="label">Close</string>\n')), "")
+MX["mx-a11y-string-hint"] = constrained(with_runtime(accessibility("", '<string key="hint">Closes</string>\n')), "")
+for mx_name in MX_COLOR_NAMES:
+    MX[f"mx-catalog-{mx_name}"] = colored(f'<color key="backgroundColor" name="{mx_name}" catalog="System" colorSpace="catalog"/>')
+MX["mx-catalog-unmatched-textColor"] = MX["mx-catalog-textColor"].replace(' colorMatched="YES"', "")
+for mx_name in ("systemWhiteColor", "viewFlipsideBackgroundColor", "underPageBackgroundColor", "tableCellGroupedBackgroundColor", "systemBlackColor"):
+    MX[f"mx-system-{mx_name}"] = colored(f'<color key="backgroundColor" systemColor="{mx_name}"/>')
+    MX[f"mx-system-defined-{mx_name}"] = colored(f'<color key="backgroundColor" systemColor="{mx_name}"/>', system_color(mx_name, gray(0.5, 1)))
+for mx_name in ("systemGreenColor", "systemRedColor", "systemOrangeColor", "systemYellowColor", "systemIndigoColor", "systemBlueColor", "systemPurpleColor",
+                "tableCellGroupedBackgroundColor", "underPageBackgroundColor", "systemBackgroundColor", "labelColor"):
+    MX[f"mx-cocoa-{mx_name}"] = colored(f'<color key="backgroundColor" cocoaTouchSystemColor="{mx_name}"/>')
+for mx_key, mx_form in (("x11", "xcode11CocoaTouchSystemColor"), ("pair", "systemColor")):
+    MX[f"mx-{mx_key}-label"] = colored(f'<color key="backgroundColor" {mx_form}="labelColor" cocoaTouchSystemColor="darkTextColor"/>')
+    MX[f"mx-{mx_key}-label-white"] = colored(f'<color key="backgroundColor" {mx_form}="labelColor" cocoaTouchSystemColor="whiteColor"/>')
+    MX[f"mx-{mx_key}-secondary-light"] = colored(f'<color key="backgroundColor" {mx_form}="secondaryLabelColor" cocoaTouchSystemColor="lightTextColor"/>')
+    MX[f"mx-{mx_key}-label-unmatched"] = MX[f"mx-{mx_key}-label"].replace(' colorMatched="YES"', "")
+    MX[f"mx-{mx_key}-label-defined"] = colored(f'<color key="backgroundColor" {mx_form}="labelColor" cocoaTouchSystemColor="darkTextColor"/>', system_color("labelColor", gray(0.5, 1)))
+MX["mx-named-undefined"] = colored('<color key="backgroundColor" name="ActionTint"/>')
+MX["mx-named-system-name"] = colored('<color key="backgroundColor" name="labelColor"/>')
+MX["mx-named-space"] = EXPERIMENTS["named-color"].replace('"Brand"', '"Tint Color"')
+for mx_name in ("lookupSuggestion", "flightNumber", "shipmentTrackingNumber", "money", "physicalValue", "none"):
+    MX[f"mx-detect-{mx_name}"] = constrained(text_view(children=TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS
+                                                       + f'<dataDetectorType key="dataDetectorTypes" {mx_name}="YES"/>\n'), "", resources=TVR)
+MX["mx-detect-seven"] = constrained(text_view(children=TV_BACKGROUND + TV_TEXT + TV_FONT + TV_TRAITS
+    + '<dataDetectorType key="dataDetectorTypes" phoneNumber="YES" link="YES" address="YES" calendarEvent="YES" shipmentTrackingNumber="YES" flightNumber="YES" lookupSuggestion="YES"/>\n'), "", resources=TVR)
+for mx_key, mx_replace in (("retina3_5", '<device id="retina3_5"'), ("retina6_72", '<device id="retina6_72"')):
+    MX[f"mx-tl-{mx_key}-15"] = top_level().replace('<device id="retina6_12"', mx_replace)
+    MX[f"mx-tl-{mx_key}-16"] = MX[f"mx-tl-{mx_key}-15"]
+    MX[f"mx-tl-{mx_key}-landscape-15"] = MX[f"mx-tl-{mx_key}-15"].replace('orientation="portrait"', 'orientation="landscape"')
+    OPTIONS.update({f"mx-tl-{mx_key}-15": {"deployment": "15.0"}, f"mx-tl-{mx_key}-16": {"deployment": "16.0"},
+                    f"mx-tl-{mx_key}-landscape-15": {"deployment": "15.0"}})
+MX["mx-tl-retina3_5-subview-15"] = constrained(subview("sub-aa-aa1", tag="view"), "").replace('<device id="retina6_12"', '<device id="retina3_5"')
+OPTIONS["mx-tl-retina3_5-subview-15"] = {"deployment": "15.0"}
+MX_KEYBOARD = '<keyboardLayoutGuide key="keyboard" id="kbd-gg-aaa"/>\n'
+MX["mx-keyboard-guide"] = constrained(subview("sub-aa-aa1"), "").replace('            <point key="canvasLocation"', "            " + MX_KEYBOARD + '            <point key="canvasLocation"')
+MX["mx-keyboard-guide-constraint"] = constrained(subview("sub-aa-aa1"), constraint(1, "sub-aa-aa1", "bottom", "kbd-gg-aaa", "top")).replace(
+    '            <constraints>\n', "            " + MX_KEYBOARD + '            <constraints>\n')
+MX["mx-keyboard-guide-safe"] = constrained(subview("sub-aa-aa1"), constraint(1, "sub-aa-aa1", "bottom", "kbd-gg-aaa", "top"), safe=True).replace(
+    '            <constraints>\n', "            " + MX_KEYBOARD + '            <constraints>\n')
+MX["mx-section-index-color"] = table_with(extra='                    ' + gray(0.5, 1).replace("backgroundColor", "sectionIndexColor") + '\n')
+MX["mx-section-index-tracking"] = table_with(extra='                    ' + gray(0.5, 1).replace("backgroundColor", "sectionIndexTrackingBackgroundColor") + '\n')
+MX["mx-section-index-all"] = table_with(extra='                    ' + gray(0.5, 1).replace("backgroundColor", "sectionIndexColor")
+                                        + '\n                    ' + gray(0.25, 1).replace("backgroundColor", "sectionIndexBackgroundColor")
+                                        + '\n                    ' + gray(0.75, 1).replace("backgroundColor", "sectionIndexTrackingBackgroundColor") + '\n')
+EXPERIMENTS.update(MX)
+STORYBOARDS["mx-sb-base"] = storyboard(scene())
+for mx_name in ("textColor", "secondaryLabelColor", "disabledControlTextColor"):
+    STORYBOARDS[f"mx-sb-catalog-{mx_name}"] = storyboard(scene(view_extra=f'                        <color key="backgroundColor" name="{mx_name}" catalog="System" colorSpace="catalog"/>\n'))
+for mx_name in ("systemWhiteColor", "viewFlipsideBackgroundColor", "tableCellGroupedBackgroundColor"):
+    STORYBOARDS[f"mx-sb-system-{mx_name}"] = storyboard(scene(view_extra=f'                        <color key="backgroundColor" systemColor="{mx_name}"/>\n'))
+STORYBOARDS["mx-sb-cocoa-systemRedColor"] = storyboard(scene(view_extra='                        <color key="backgroundColor" cocoaTouchSystemColor="systemRedColor"/>\n'))
+STORYBOARDS["mx-sb-pair-label"] = storyboard(scene(view_extra='                        <color key="backgroundColor" systemColor="labelColor" cocoaTouchSystemColor="darkTextColor"/>\n'))
+STORYBOARDS["mx-sb-x11-label"] = storyboard(scene(view_extra='                        <color key="backgroundColor" xcode11CocoaTouchSystemColor="labelColor" cocoaTouchSystemColor="darkTextColor"/>\n'))
+STORYBOARDS["mx-sb-named-undefined"] = storyboard(scene(view_extra='                        <color key="backgroundColor" name="ActionTint"/>\n'))
+STORYBOARDS["mx-sb-tint-undefined"] = tinted(storyboard(scene()), '    <color key="tintColor" name="ActionTint"/>\n')
+STORYBOARDS["mx-sb-tint-space"] = tinted(storyboard(scene()), '    <color key="tintColor" name="Tint Color"/>\n')
+STORYBOARDS["mx-sb-keyboard-guide"] = storyboard(scene(view_extra=f'                        {MX_KEYBOARD}'))
+STORYBOARDS["mx-sb-keyboard-guide-constraint"] = storyboard(scene(view_extra=SUBVIEW + SAFE_AREA + f'                        {MX_KEYBOARD}'
+    + '                        <constraints>\n                            <constraint firstItem="sub-vi-ew1" firstAttribute="bottom" secondItem="kbd-gg-aaa" secondAttribute="top" id="kbc-aa-aaa"/>\n                        </constraints>\n'))
+
+
+# Cell family: a label's mask of its own constraints, with and beside a font variation; a size-class
+# mask inside a content view; a variation's frame and its misplaced, ambiguous and fixedFrame
+# attributes; hidden in a variation; a text field's background images.
+CM_OWN = ('                    <constraints>\n'
+          + constraint(10, None, "width", extra=' constant="42"', indent=24) + constraint(11, None, "height", extra=' constant="21"', indent=24)
+          + '                    </constraints>\n')
+CM_PINS = constraint(0, "lll-ll-ll1", "leading", ROOT, "leading") + constraint(1, "lll-ll-ll1", "top", ROOT, "top")
+
+
+def cm_label(extra=""):
+    return constrained(label(extra=CM_OWN + extra), CM_PINS)
+
+
+CM_FONT_22 = '<fontDescription key="fontDescription" type="system" pointSize="22"/>\n'
+CM_RECT = '                        <rect key="frame" x="9" y="7" width="42" height="21"/>\n'
+CM_VIEW_RECT = '                        <rect key="frame" x="9" y="7" width="100" height="50"/>\n'
+
+
+def cm_variation(key, attributes="", children=""):
+    return f'                    <variation key="{key}"{attributes}>\n{children}                    </variation>\n'
+
+
+def cm_mask(verb, reference):
+    return f'                        <mask key="constraints">\n                            <{verb} reference="{reference}"/>\n                        </mask>\n'
+
+
+def cm_view(extra=""):
+    return constrained(subview("sss-ss-ss1").replace('                </view>\n', extra + '                </view>\n'),
+                       constraint(0, "sss-ss-ss1", "leading", ROOT, "leading") + constraint(1, "sss-ss-ss1", "top", ROOT, "top"))
+
+
+def cm_cell_sub(extra="", deep=False):
+    inner = ('                    <constraints>\n' + constraint(10, None, "width", extra=' constant="42"', indent=24)
+             + constraint(11, None, "height", extra=' constant="21"', indent=24) + '                    </constraints>\n' + extra)
+    sub = (f'                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="sss-ss-ss1">\n'
+           f'                    <rect key="frame" x="10" y="5" width="42" height="21"/>\n{inner}                </view>\n')
+    if deep:
+        sub = ('                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="ddd-dd-dd1">\n'
+               '                    <rect key="frame" x="0" y="0" width="100" height="40"/>\n                    <subviews>\n' + sub
+               + '                    </subviews>\n                </view>\n')
+    return cell_xib(content=f'                    <subviews>\n{sub}                    </subviews>\n')
+
+
+CM_SC_MASK = cm_variation("default", children=cm_mask("exclude", "c10-aa-aaa")) + cm_variation(RC, children=cm_mask("include", "c10-aa-aaa"))
+EXPERIMENTS.update({
+    "cm-label-own": cm_label(),
+    "cm-label-mask-default": cm_label(cm_variation("default", children=cm_mask("exclude", "c10-aa-aaa"))),
+    "cm-label-mask-sc": cm_label(CM_SC_MASK),
+    "cm-label-mask-sc-only": cm_label(cm_variation(RC, children=cm_mask("exclude", "c10-aa-aaa"))),
+    "cm-label-mask-font": cm_label(cm_variation("default", children=cm_mask("exclude", "c10-aa-aaa"))
+                                   + cm_variation(RC, children='                        ' + CM_FONT_22 + cm_mask("include", "c10-aa-aaa"))),
+    "cm-label-mask-font-two": cm_label(CM_SC_MASK + cm_variation(CC, children='                        ' + CM_FONT_22)),
+    "cm-label-mask-empty": cm_label(cm_variation("default", children='                        <mask key="constraints"/>\n')),
+    "cm-cell-sub-own": cm_cell_sub(),
+    "cm-cell-sub-mask-default": cm_cell_sub(cm_variation("default", children=cm_mask("exclude", "c10-aa-aaa"))),
+    "cm-cell-sub-mask-sc": cm_cell_sub(CM_SC_MASK),
+    "cm-cell-sub-mask-sc-only": cm_cell_sub(cm_variation(RC, children=cm_mask("exclude", "c10-aa-aaa"))),
+    "cm-cell-deep-mask-sc": cm_cell_sub(CM_SC_MASK, deep=True),
+    "cm-var-misplaced-label": cm_label(cm_variation(HR, ' misplaced="YES"', CM_RECT)),
+    "cm-var-ambiguous-label": cm_label(cm_variation(HC, ' ambiguous="YES"', CM_RECT)),
+    "cm-var-ambiguous-misplaced-label": cm_label(cm_variation(HC, ' ambiguous="YES" misplaced="YES"', CM_RECT)),
+    "cm-var-fixed-label": cm_label(cm_variation(HR, ' fixedFrame="YES"', CM_RECT)),
+    "cm-var-misplaced-view": cm_view(cm_variation(HR, ' misplaced="YES"', CM_VIEW_RECT)),
+    "cm-var-fixed-view": cm_view(cm_variation(HR, ' fixedFrame="YES"', CM_VIEW_RECT)),
+    "cm-var-rect-only-view": cm_view(cm_variation(HR, children=CM_VIEW_RECT)),
+    "cm-var-misplaced-no-rect": cm_view(cm_variation(HR, ' misplaced="YES"')),
+    "cm-var-view-base": cm_view(),
+    "cm-var-hidden-view": cm_view(cm_variation(RC, ' hidden="YES"')),
+    "cm-var-hidden-no-view": cm_view(cm_variation(RC, ' hidden="NO"')),
+    "cm-var-hidden-label": cm_label(cm_variation(RC, ' hidden="YES"')),
+    "cm-var-hidden-default": cm_view(cm_variation("default", ' hidden="YES"')),
+    "cm-tf-base": constrained(text_field(), PIN_FIELD),
+    "cm-tf-background": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" background="Logo"')), PIN_FIELD, resources=CM_LOGO),
+    "cm-tf-disabled": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" disabledBackground="Logo"')), PIN_FIELD, resources=CM_LOGO),
+    "cm-tf-both": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" background="Logo" disabledBackground="Other"')), PIN_FIELD,
+                              resources=CM_LOGO + '        <image name="Other" width="20" height="20"/>\n'),
+    "cm-tf-same": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" background="Logo" disabledBackground="Logo"')), PIN_FIELD, resources=CM_LOGO),
+})
+CM_SB_VIEW = ('                            <subviews>\n'
+              '                                <view contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="YES" id="sss-ss-ss1">\n'
+              '                                    <rect key="frame" x="10" y="20" width="100" height="50"/>\n{extra}                                </view>\n'
+              '                            </subviews>\n')
+STORYBOARDS.update({
+    "cm-sb-var-base": storyboard(scene(view_extra=CM_SB_VIEW.format(extra=""))),
+    "cm-sb-var-fixed-match": storyboard(scene(view_extra=CM_SB_VIEW.format(extra=cm_variation(HR, ' fixedFrame="YES"', CM_VIEW_RECT)))),
+    "cm-sb-var-fixed-other": storyboard(scene(view_extra=CM_SB_VIEW.format(extra=cm_variation(HC, ' fixedFrame="YES"', CM_VIEW_RECT)))),
+    "cm-sb-var-hidden-match": storyboard(scene(view_extra=CM_SB_VIEW.format(extra=cm_variation(HR, ' hidden="YES"')))),
+    "cm-sb-var-hidden-other": storyboard(scene(view_extra=CM_SB_VIEW.format(extra=cm_variation(HC, ' hidden="YES"')))),
+})
+
+
+EXPERIMENTS.update({
+    "cm-tf-background-bezel": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" borderStyle="bezel" background="Logo" clearsOnBeginEditing="YES"')),
+                                          PIN_FIELD, resources=CM_LOGO),
+    "cm-tf-disabled-rounded": constrained(text_field(TEXT_FIELD.replace('placeholder="Name"', 'placeholder="Name" borderStyle="roundedRect" disabledBackground="Logo" clearsOnBeginEditing="YES"')),
+                                          PIN_FIELD, resources=CM_LOGO),
+})
+for mx_name in ("controlAccentColor", "windowFrameColor", "secondaryLabelColor", "labelColor"):
+    MX[f"mx-catalog-unmatched-{mx_name}"] = MX[f"mx-catalog-{mx_name}"].replace(' colorMatched="YES"', "")
+MX["mx-named-undefined-unmatched"] = MX["mx-named-undefined"].replace(' colorMatched="YES"', "")
+MX["mx-named-defined-unmatched"] = EXPERIMENTS["named-color"].replace(' colorMatched="YES"', "")
+MX_BLACK = '<color key="backgroundColor" name="textColor" catalog="System" colorSpace="catalog"/>\n'
+MX["mx-catalog-dedupe"] = constrained(with_runtime(MX_BLACK) + with_runtime(rgb(0, 0, 0, 1) + "\n", "sss-ss-ss2"), "")
+MX["mx-catalog-dedupe-system"] = constrained(with_runtime(MX_BLACK) + with_runtime('<color key="backgroundColor" systemColor="blackColor"/>\n', "sss-ss-ss2"), "")
+MX["mx-named-undefined-twice"] = constrained(with_runtime('<color key="backgroundColor" name="A"/>\n') + with_runtime('<color key="backgroundColor" name="B"/>\n', "sss-ss-ss2"), "")
+MX["mx-catalog-label"] = constrained(label(extra='<color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>\n'), "")
+MX["mx-section-index-separator"] = table_with(extra='                    ' + gray(0.5, 1).replace("backgroundColor", "sectionIndexTrackingBackgroundColor")
+                                              + '\n                    ' + gray(0.25, 1).replace("backgroundColor", "separatorColor")
+                                              + '\n                    ' + gray(0.75, 1).replace("backgroundColor", "sectionIndexColor") + '\n')
+MX["mx-tl-retina3_5-resized-15"] = (constrained(subview("sub-aa-aa1", attributes=' autoresizesSubviews="NO"'), "")
+    .replace('<device id="retina6_12"', '<device id="retina3_5"').replace('width="393" height="852"', 'width="320" height="480"')
+    .replace(' translatesAutoresizingMaskIntoConstraints="NO"', '').replace(' autoresizesSubviews="NO"', ''))
+MX["mx-tl-retina3_5-resized-mask-15"] = (constrained(subview("sub-aa-aa1"), "").replace('<device id="retina6_12"', '<device id="retina3_5"')
+    .replace('width="393" height="852"', 'width="320" height="480"').replace(' translatesAutoresizingMaskIntoConstraints="NO"', '')
+    .replace('                </view>\n', '                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES" widthSizable="YES" flexibleMaxY="YES"/>\n                </view>\n'))
+MX["mx-tl-retina3_5-freeform-15"] = top_level(freeform=True).replace('<device id="retina6_12"', '<device id="retina3_5"')
+for mx_key in ("resized", "resized-mask", "freeform"):
+    OPTIONS[f"mx-tl-retina3_5-{mx_key}-15"] = {"deployment": "15.0"}
+MX["mx-a11y-string-label-lproj"] = MX["mx-a11y-string-label"]
+MX["mx-a11y-string-hint-lproj"] = MX["mx-a11y-string-hint"]
+LPROJ_XIBS.update(("mx-a11y-string-label-lproj", "mx-a11y-string-hint-lproj"))
+MX["mx-keyboard-guide-first-item"] = constrained(subview("sub-aa-aa1"), constraint(1, "kbd-gg-aaa", "top", "sub-aa-aa1", "bottom")).replace(
+    '            <constraints>\n', "            " + MX_KEYBOARD + '            <constraints>\n')
+MX["mx-keyboard-guide-two"] = constrained(subview("sub-aa-aa1"), constraint(1, "sub-aa-aa1", "bottom", "kbd-gg-aaa", "top") + constraint(2, "sub-aa-aa1", "leading", "kbd-gg-aaa", "leading")
+                                          + constraint(3, "sub-aa-aa1", "top", ROOT, "top")).replace(
+    '            <constraints>\n', "            " + MX_KEYBOARD + '            <constraints>\n')
+MX["mx-keyboard-guide-and-safe"] = constrained(subview("sub-aa-aa1"), constraint(1, "sub-aa-aa1", "bottom", "kbd-gg-aaa", "top") + constraint(2, "sub-aa-aa1", "top", SAFE_GUIDE, "top"), safe=True).replace(
+    '            <constraints>\n', "            " + MX_KEYBOARD + '            <constraints>\n')
+MX["mx-keyboard-guide-subview"] = constrained(subview("sub-aa-aa1", tag="view", attributes="", constraints="") + subview("sub-aa-aa2"), constraint(1, "sub-aa-aa2", "bottom", "kbd-gg-aaa", "top")).replace(
+    '            <constraints>\n', '            <constraints>\n', 1).replace(
+    '                </view>\n', "                    " + MX_KEYBOARD + '                </view>\n', 1)
+MX["mx-keyboard-guide-16"] = MX["mx-keyboard-guide-constraint"]
+OPTIONS["mx-keyboard-guide-16"] = {"deployment": "16.0"}
+MX["mx-keyboard-guide-15"] = MX["mx-keyboard-guide-constraint"]
+OPTIONS["mx-keyboard-guide-15"] = {"deployment": "15.0"}
+MX["mx-keyboard-guide-13"] = MX["mx-keyboard-guide-constraint"]
+OPTIONS["mx-keyboard-guide-13"] = {"deployment": "13.0"}
+EXPERIMENTS.update(MX)
+STORYBOARDS["mx-sb-catalog-unmatched-windowFrameColor"] = storyboard(scene(view_extra='                        <color key="backgroundColor" name="windowFrameColor" catalog="System" colorSpace="catalog"/>\n')).replace(' colorMatched="YES"', "")
+STORYBOARDS["mx-sb-named-undefined-unmatched"] = STORYBOARDS["mx-sb-named-undefined"].replace(' colorMatched="YES"', "")
+STORYBOARDS["mx-sb-keyboard-guide-real"] = storyboard(scene(view_extra=SUBVIEW + SAFE_AREA + f'                        {MX_KEYBOARD}'
+    + '                        <color key="backgroundColor" systemColor="systemBackgroundColor"/>\n'
+    + '                        <constraints>\n                            <constraint firstItem="sub-vi-ew1" firstAttribute="top" secondItem="8bC-Xf-vdC" secondAttribute="topMargin" id="kbb-aa-aaa"/>\n'
+    + '                            <constraint firstItem="sub-vi-ew1" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="kbd-aa-aaa"/>\n'
+    + '                            <constraint firstItem="sub-vi-ew1" firstAttribute="bottom" secondItem="kbd-gg-aaa" secondAttribute="top" id="kbc-aa-aaa"/>\n                        </constraints>\n'))
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
