@@ -8,18 +8,10 @@ docs/formats/asset-catalog.md, the decisions in ADRs 0200, 0201 and 0202. BACKLO
 
 ## Current step
 
-Icon Composer icons (`.icon`, B-210) compile: every byte of `Assets.car` but the rendered
-images' pixels is actool's (expo-default's catalog and every `icons` case), the icon PNGs differ
-only in their image data, and `nomac verify` judges them equivalent (ADR 0203 for actool's
-run-to-run variations, ADR 0204 for the rendered pixels, the owner's B-211 decision of
-2026-10-30). expo-default's `ExpoDefault.app/Assets.car` and icon PNGs, compiled by nomac on its
-Xcode build's command line, are equivalent to that build's products (`nomac products`).
-Color sets, data sets, asset symbols, image sets for deployment targets of iOS 13.0 and later,
-multi-size app icon sets, launch image sets without files, sprite atlases and sticker catalogs
-are reproduced byte for byte. Of the corpus's 40 `CompileAssetCatalogVariant` tasks, 12 gave
-Xcode's outputs on 2026-10-24; the corpus checkouts are being restored, so the count is not
-measured again yet. Next: the other rendered-pixel features (resized app icons, SVG images,
-symbol glyphs) under ADR 0204, then the corpus's `.icon` files (swiftfin, icecubes, signal).
+Almost every catalog compiles: of the coverage survey's sample of 60 projects, 53 at iOS 15 and 46 of
+52 at their own deployment targets; what is left is ranked under Measure and Next actions. Bytes
+match actool except rendered pixels, which ADR 0204 calls equivalent, and what is measured there as
+different: mostly PDF vector renditions (B-215, B-216) and large images at old targets (B-220).
 
 ## Measure
 
@@ -29,10 +21,13 @@ the coverage survey's sample of 60 projects with actool and with nomac on the sa
 The work order follows the sample, the only set not chosen by hand: well-kept corpus apps have
 complete icon sets, and 20 of those 60 projects did not.
 
-| 2026-11-07 | sample at iOS 15: compile all, match actool | sample at each project's own target | corpus refused, different | holdout | sweep |
+| 2026-11-07 | sample at iOS 15: compile all, match actool | sample at each project's own target | corpus: compile all, match, of 19 | holdout, of 20 | sweep, of 98 |
 |---|---|---|---|---|---|
-| main 85c5aab0 | 23, 14 of 60 | not measured | 23, 10 of 128 | 21, 5 of 75 | 4, 2 of 171 |
-| this branch | 38, 34 of 60 | 13, 12 of 50 | 21, 10 | 17, 5 | 4, 2 |
+| main 85c5aab0 | 23, 14 of 60 | not measured | 7, 6 | 3, 2 | 95, 94 |
+| this branch | 53, 51 of 60 | 46, 33 of 52 | 9, 6 | 11, 8 | 96, 94 |
+
+Loose PNGs (`loose_png_sweep.py`): 468 of 468 files of the corpus, holdout and sample identical to
+copypng, against 17 apps stopped on main.
 
 The survey's own count was 21 of 60 with a debug binary, 3 projects timing out at 600 s. The 3 watch
 catalogs it counts as refused also stop actool on its iOS command line. The column that matters
@@ -47,6 +42,14 @@ holdout; tvOS targets, which nomac does not build (B-206).
 
 ## Just finished
 
+- Deployment targets before iOS 13 (`old-targets`): every image per variant from 8.0 up. The top cause
+  at projects' own targets: 23 of 50 sampled projects stopped on it alone.
+- `copypng` as Xcode's on every loose PNG measured: other depths and APNGs copied, chunks by the icon
+  rules, `IDAT` of at most 524,288 bytes, files libpng cannot read reported without output.
+- Launch image sets (`launch-images`), PNG gamma (`png-gamma`), tvOS brand assets on iOS, JPEG Exif as
+  ImageIO writes it (`jpeg-exif`), tables past one leaf (`large-tables`), and the families in
+  `catalog_rules_experiments.py`. SVG drawing over the rows a shape reaches and PDF image colors
+  without per-pixel arrays: duckduckgo's `HomeMessage` catalog went from 151 s to 33 s in release.
 - Incomplete app icon sets: required-icon warnings, entries without a slot, images of the wrong size,
   missing files, car icons, the error for a set of other platforms only (`incomplete-icons` 25
   cases, `icon-entries` 32). `--warnings` and `--notices` now choose what prints.
@@ -332,21 +335,15 @@ command lines of retro-rampage, tofu, flappy-fly-bird, uncloudnotes and swiftfin
 
 By the sample's ranking, with `catalog_sweep.py run <root> --only refused,different` after each:
 
-Ready but not built or run in nomac, as files outside the repository under
-`~/nomac-out/wt-scratch/assets` (each folder has `rule.md` with the rule and its counts against
-actool, `tests.swift`, and `cases.py`): `launch-wip/apply_b2.py` (launch images, PNG gamma, brand
-assets on iOS, SVG and PDF speed); `agents/oldtargets/oldtargets.diff` (deployment targets before
-iOS 13, first by far); `agents/misc/misc.diff`, `agents/b201/b201.diff`, `agents/exif/JPEGFile.swift`;
-`agents/svg/svg.diff`, which conflicts with apply_b2's speed patch in `IconRenderer.draw`.
-`integ/` is a copy of the tree with apply_b2, misc, b201, exif and their experiments and tests applied
-and conflicts resolved, not compiled. Copy its files over a checkout of this branch, build, run the
-experiments, commit by family.
-
-1. Deployment targets before iOS 13 (B-200): `oldtargets.diff`.
-2. Launch images and gamma: `apply_b2.py`.
-3. misc, B-201, Exif, SVG. Exif adds a new refusal for rewritten IPTC APP13 (9 of 110 JPEGs), which
-   nomac dropped silently before; decide that when measuring it.
-4. 16-bit PNGs (B-209), catalogs' speed under load (duckduckgo's `HomeMessage` took 151 s in release).
+1. SVG (filters stop 4 apps, patterns 2, dashes, `xlink:href`, `isolation`, a px height): the rule is
+   found, a patch written outside the repository, in `~/nomac-out/wt-scratch/assets/agents/svg/`
+   (`rule.md`, `svg.diff`, `cases.py`, `tests.swift`), not compiled, conflicting with the row-based
+   drawing in `IconRenderer.draw`. CoreSVG applies no filter: a shape with one is not drawn.
+2. JPEG: rewritten IPTC APP13 (4 apps stop, B-200), whose dataset order was not found, and Apple
+   maker notes. nomac dropped IPTC silently before, and differed; deciding between stopping and
+   that was left as stopping, AGENTS.md's rule.
+3. PDF: blend modes (3 apps), then the single causes in B-215.
+4. Old-target payloads of large images (B-220), 16-bit PNGs (B-209).
 
 To test with the machine loaded, build one target (`swift build --target NomacAssetsTests -j 4`) and
 run its bundle with `swiftpm-testing-helper --test-bundle-path <bundle>/Contents/MacOS/<name>
