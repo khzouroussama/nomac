@@ -1224,31 +1224,22 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
 
 - Components are those written with `colorSpace="custom"` and `customColorSpace`
   `genericGamma22GrayColorSpace` (gray) or `sRGB` (RGB). ibtool converts the other color spaces by
-  color management. A `calibratedWhite` gray (either form) becomes a generic gray of a float white:
-  0 and 1 stay (and take the gray names), 0.5 gives 0.572306752204895, 0.333… 0.40781933069229126,
-  0.666… 0.7233663201332092, 0.96 0.9681890606880188, 0.97 0.9761723875999451 (`calibrated-white`,
-  `cw-*`: the corpus's values; nomac refuses others, B-281). `calibratedRGB`, `deviceRGB` and
-  custom `displayP3` colors become sRGB floats ColorSync computes, possibly negative (extended
-  sRGB), so no `-Double` follows them; alpha keeps the document's value, rounded in storyboards
-  as above (`converted-*`, `sb-converted-*`: the corpus's 60 such colors, which `NibColor.convertedColors`
-  lists; nomac refuses others, B-281). `deviceRGB` is not the display's profile: on a Display P3
-  panel it gave sRGB within 2.4e-4 (`sweep-deviceRGB-*`); ColorSync of another macOS may differ.
+  color management ("Color conversions" below). A `calibratedWhite` gray (either form) becomes a
+  generic gray of a float white: 0 and 1 stay (and take the gray names), 0.5 gives 0.572306752204895
+  (`calibrated-white`, `cw-*`, `matched-ramp-calibratedWhite`). `calibratedRGB`, `deviceRGB` and custom
+  `displayP3` colors become sRGB floats, possibly negative (extended sRGB), so no `-Double` follows them;
+  alpha keeps the document's value, rounded in storyboards as above (`converted-*`, `sb-converted-*`,
+  `color-grid-*`, `sweep-deviceRGB-*`, `sb-color-matched-white`). A matched `deviceWhite` is refused: its
+  `-Double`s follow no rule found (`matched-ramp-deviceWhite`).
 - In a document without `colorMatched="YES"` ibtool converts colors otherwise, to Generic RGB values
-  it then writes as sRGB (`unmatched-*`; each route matches CoreGraphics' on every recorded component:
-  `unmatched-grid-*` 300 colors, `unmatched-ramp-*` 25 grays): `calibratedRGB` components are written
-  unconverted, as sRGB ones with their `-Double`s, rounded in storyboards as above; `sRGB` and
-  `deviceRGB` convert from sRGB, `displayP3` from Display P3, `calibratedWhite` from Generic Gray,
-  `deviceWhite` and `genericGamma22GrayColorSpace` from Generic Gray Gamma 2.2. nomac compiles the
-  first, and the `calibratedWhite` grays 0, 0.5 and 1 of alpha 0 or 1 (the corpus's flutter
-  storyboards); the others wait for the pipeline (B-281). `cocoaTouchSystemColor` and `systemColor`
-  stay what a matched document writes, except that a storyboard's `blackColor`, `whiteColor` or
-  `clearColor` makes ibtool exit with 255, writing nothing (`sb-unmatched-cocoa-white`,
-  `sb-color-unmatched-cocoa-*`); nomac refuses those. A `systemColor` that also writes components
-  ignores them (`system-components-*`).
-- ibtool's other routes, each matching on every recorded component (B-281): a matched `calibratedRGB`
-  goes from Generic RGB through Display P3 to extended sRGB (`color-grid-calibratedRGB`, 900 components),
-  a matched `displayP3` from Display P3 to extended sRGB (`color-grid-displayP3`, 900), and a matched
-  `calibratedWhite` from Generic Gray to Generic Gray Gamma 2.2 (`matched-ramp-calibratedWhite`, 25).
+  it then writes as sRGB (`unmatched-*`): `calibratedRGB` components are written unconverted, as sRGB
+  ones with their `-Double`s; `sRGB` and `deviceRGB` convert from sRGB, `displayP3` from Display P3,
+  `calibratedWhite` from Generic Gray, `deviceWhite` and `genericGamma22GrayColorSpace` from Generic
+  Gray Gamma 2.2. All are rounded in storyboards as above, so the converted ones gain `-Double`s there
+  (`sb-color-unmatched-*`). `cocoaTouchSystemColor` and `systemColor` stay what a matched document
+  writes, except that a storyboard's `blackColor`, `whiteColor` or `clearColor` makes ibtool exit with
+  255, writing nothing (`sb-unmatched-cocoa-white`, `sb-color-unmatched-cocoa-*`); nomac refuses those.
+  A `systemColor` that also writes components ignores them (`system-components-*`).
 - A storyboard keeps 10 significant digits of an sRGB or gray component (`%.10g`: 0.50980392156862742
   writes `-Double` 0.5098039216), a xib the document's double; named colors and converted
   `calibratedWhite` grays keep theirs (`precise-*`, `sb-precise-*`, `sb-cw-*`; the corpus's 15
@@ -1263,6 +1254,46 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
 - Equal colors are one object, and so are equal color names (`same-color-twice`,
   `same-system-color-twice`, `rgb-then-same-gray`).
 
+
+### Color conversions
+
+Found by observing CoreGraphics on macOS (scratch tools, `nib_experiments.py` for ibtool itself); all
+in float32, with fused multiply-adds where written `fma`, so the same bits come out on Linux
+(`ColorManagement`). Every route below matched every component of 1.2 million random colors, k/255
+values, short decimals and out-of-range values through live `CGColor` conversions, and of the recorded
+experiments.
+
+| Color, document | Route, as `CGColor.converted(to:)` |
+|---|---|
+| `displayP3`, matched | Display P3 to extended sRGB |
+| `calibratedRGB`, matched | Generic RGB to Display P3 to extended sRGB |
+| `deviceRGB`, matched | sRGB to Display P3 to extended sRGB |
+| `calibratedWhite`, matched | Generic Gray to Generic Gray Gamma 2.2 |
+| `sRGB`, `deviceRGB`, unmatched | sRGB to Generic RGB |
+| `displayP3`, unmatched | Display P3 to Generic RGB |
+| `deviceWhite`, `genericGamma22GrayColorSpace`, unmatched | Generic Gray Gamma 2.2 to Generic RGB |
+| `calibratedWhite`, unmatched | Generic Gray to Generic RGB: not reproduced to the bit, so a table |
+
+Components are taken as floats within 0 to 1 (`converted-range-*`). A conversion is a curve per channel,
+a matrix, then a curve per channel, each as `ColorSyncTransformCopyProperty` reports it for the two
+profiles; a destination that is not extended clamps to 0 to 1.
+
+- Curve: `(a x + b)^g + e` from `d` up, `c x` below it, mirrored for negative values, `a x + b` by `fma`.
+  sRGB and Display P3 use g 2.4; Generic RGB g 1.8 with a linear toe (c 1/16, d 1/32), which a pure gamma
+  misses; the inverses come as their own curves.
+- Matrix row: `r = m1 y; r = fma(m0, x, r); r = fma(m2, z, r)`.
+- Power: `x^g = exp2(g log2(x))`, `g log2(x)` a plain product.
+- `log2`: `x = 2^e m`, m in √½ to √2 (the float of √½ decides), u = m - 1. Two polynomials of degree 7 in
+  u, one per sign of u, which differ from each other and from Taylor's: `A = fma(fma(fma(c7, z, c5), z,
+  c3), z, c1)`, `B = fma(fma(c6, z, c4), z, c2)`, z = u u, `value = fma(u, B, A) * u`, then `e + value`
+  unless e is 0. Recovered exactly through custom ICC curves of power-of-two exponents, which make
+  `g log2(x)` exact; 0 mismatches of 396,831 and 396,583 points, 360,000 across exponents.
+- `exp2`: `y = n + f`, f in 0 to 1; Horner by `fma` of degree 6 in f except the last step, `1 + (r f)`,
+  plainly; times 2^n. 0 mismatches of 3,000,000 points.
+
+A gray from Generic Gray to Generic RGB gives `exp2(log2(w))` on 99.7% of inputs and differs by one unit
+on the others, with no form found; the survey's 97 values there are observed
+(`unmatched-survey-whites`), others refused (B-281).
 ## Older documents
 
 What Xcode 6 to 8 saved changes no nib, on any view or controller, with a device or without, at 27.0 and

@@ -150,14 +150,6 @@ final class NibColor: NibArchivable {
         "viewFlipsideBackgroundColor": .rgb(red: 0.1215686275, green: 0.1294117647, blue: 0.1411764706, alpha: 1),
     ]
 
-    /// The whites ibtool converts `calibratedWhite` grays to, by color management, for the values
-    /// observed (nib-experiments `calibrated-white`, `cw-*`: the corpus's): floats, so no
-    /// `UIWhite-Double` follows; 0 and 1 convert to themselves and take the gray names.
-    static let calibratedWhites: [Double: Double] = [
-        0: 0, 1: 1, 0.5: Double(Float(0.572306752204895)), 0.66666666666666663: Double(Float(0.7233663201332092)),
-        0.33333333333333331: Double(Float(0.40781933069229126)), 0.96999999999999997: Double(Float(0.9761723875999451)),
-        0.95999999999999996: Double(Float(0.9681890606880188)),
-    ]
 
     /// `xcode11CocoaTouchSystemColor` or `systemColor` names, with the `cocoaTouchSystemColor` written
     /// beside them, observed: the first name is the color (`x11-system-background`,

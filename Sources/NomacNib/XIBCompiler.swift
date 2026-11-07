@@ -1158,8 +1158,8 @@ struct DocumentCompiler {
         } else {
             components = try documentComponents(element)
             let space = attributes["customColorSpace"] ?? attributes["colorSpace"] ?? ""
-            if isStoryboard, space != "calibratedWhite" {
-                components = ConvertedColor.spaces.contains(space) ? components.significantAlpha(10) : components.significant(10)
+            if isStoryboard {
+                components = ["calibratedRGB", "deviceRGB", "displayP3", "calibratedWhite"].contains(space) ? components.significantAlpha(10) : components.significant(10)
             }
             if case .gray(let white, let alpha) = components, let gray = NibColor.grayName(white: white, alpha: alpha) {
                 name = .system(gray)
@@ -1179,28 +1179,43 @@ struct DocumentCompiler {
         return color
     }
 
-    /// A color of a document without `colorMatched="YES"`: `calibratedRGB` components are written
-    /// as sRGB ones, unconverted (`unmatched-grid-calibratedRGB`, `unmatched-rgb-digits`), and a
-    /// `calibratedWhite` gray as the sRGB color of the same components, without a name
-    /// (`unmatched-cw-*`, the corpus's flutter storyboards); other colors are converted by ibtool
-    /// and not compiled yet.
+    /// A color of a document without `colorMatched="YES"`, converted to Generic RGB and written as
+    /// sRGB (docs/formats/nib.md "UIColor"): `calibratedRGB` components stay as they are.
     func unmatchedComponents(_ element: XIBElement) throws -> NibColor.Components {
         let attributes = element.attributes
         let space = attributes["colorSpace"] == "custom" ? attributes["customColorSpace"] : attributes["colorSpace"]
-        if space == "calibratedRGB", element.children.isEmpty, attributes["colorSpace"] != "custom",
-           Set(attributes.keys).isSubset(of: ["key", "red", "green", "blue", "alpha", "colorSpace"]),
-           let red = attributes["red"].flatMap(Double.init), let green = attributes["green"].flatMap(Double.init),
-           let blue = attributes["blue"].flatMap(Double.init), let alpha = attributes["alpha"].flatMap(Double.init) {
-            let components = NibColor.Components.rgb(red: red, green: green, blue: blue, alpha: alpha)
-            return isStoryboard ? components.significant(10) : components
-        }
-        guard element.children.isEmpty, Set(attributes.keys).isSubset(of: ["key", "white", "alpha", "colorSpace", "customColorSpace"]),
-              space == "calibratedWhite", attributes["colorSpace"] == "custom" || attributes["customColorSpace"] == nil,
-              let white = attributes["white"].flatMap(Double.init), let alpha = attributes["alpha"].flatMap(Double.init),
-              [0, 0.5, 1].contains(white), [0, 1].contains(alpha) else {
+        guard element.children.isEmpty, Set(attributes.keys).isSubset(of: ["key", "red", "green", "blue", "white", "alpha", "colorSpace", "customColorSpace"]) else {
             throw unsupportedColor("this color in a document without colorMatched=\"YES\"")
         }
-        return .rgb(red: white, green: white, blue: white, alpha: alpha)
+        func value(_ name: String) throws -> Double {
+            guard let text = attributes[name], let number = Double(text) else { throw unsupportedColor("this color in a document without colorMatched=\"YES\"") }
+            return number
+        }
+        func converted(_ red: Float, _ green: Float, _ blue: Float) throws -> NibColor.Components {
+            let components = NibColor.Components.rgb(red: Double(red), green: Double(green), blue: Double(blue), alpha: try value("alpha"))
+            return isStoryboard ? components.significant(10) : components
+        }
+        switch space {
+        case "calibratedRGB":
+            let components = NibColor.Components.rgb(red: try value("red"), green: try value("green"), blue: try value("blue"), alpha: try value("alpha"))
+            return isStoryboard ? components.significant(10) : components
+        case "sRGB", "deviceRGB":
+            let rgb = ColorManagement.sRGBToGenericRGB(ColorManagement.input([try value("red"), try value("green"), try value("blue")]))
+            return try converted(rgb[0], rgb[1], rgb[2])
+        case "displayP3":
+            let rgb = ColorManagement.displayP3ToGenericRGB(ColorManagement.input([try value("red"), try value("green"), try value("blue")]))
+            return try converted(rgb[0], rgb[1], rgb[2])
+        case "deviceWhite", "genericGamma22GrayColorSpace":
+            let white = ColorManagement.gamma22WhiteToGenericRGB(try value("white"))
+            return try converted(white, white, white)
+        case "calibratedWhite":
+            guard let white = NibColor.unmatchedCalibratedWhites[try value("white")] else {
+                throw unsupportedColor("the calibratedWhite \(attributes["white"] ?? "") in a document without colorMatched=\"YES\"")
+            }
+            return try converted(white, white, white)
+        default:
+            throw unsupportedColor("this color in a document without colorMatched=\"YES\"")
+        }
     }
 
     func documentComponents(_ element: XIBElement) throws -> NibColor.Components {
@@ -1215,19 +1230,15 @@ struct DocumentCompiler {
                                                        && attributes["customColorSpace"] == nil) else {
             throw unsupportedColor("colorSpace=\"\(attributes["colorSpace"] ?? "")\"")
         }
+        func converted(_ rgb: [Float]) throws -> NibColor.Components {
+            .rgb(red: Double(rgb[0]), green: Double(rgb[1]), blue: Double(rgb[2]), alpha: try value("alpha"))
+        }
         switch space {
-        case let space? where ConvertedColor.spaces.contains(space):
-            let key = ConvertedColor(space, try value("red"), try value("green"), try value("blue"))
-            guard let converted = NibColor.convertedColors[key] else {
-                throw unsupportedColor("the \(space) color \(attributes["red"] ?? "") \(attributes["green"] ?? "") \(attributes["blue"] ?? "")")
-            }
-            return .rgb(red: Double(converted.red), green: Double(converted.green), blue: Double(converted.blue), alpha: try value("alpha"))
+        case "calibratedRGB": return try converted(ColorManagement.calibratedRGB([try value("red"), try value("green"), try value("blue")]))
+        case "deviceRGB": return try converted(ColorManagement.deviceRGB([try value("red"), try value("green"), try value("blue")]))
+        case "displayP3": return try converted(ColorManagement.displayP3([try value("red"), try value("green"), try value("blue")]))
         case "calibratedWhite":
-            let white = try value("white")
-            guard let converted = NibColor.calibratedWhites[white] else {
-                throw unsupportedColor("the calibratedWhite \(attributes["white"] ?? "")")
-            }
-            return .gray(white: converted, alpha: try value("alpha"))
+            return .gray(white: Double(ColorManagement.calibratedWhite(try value("white"))), alpha: try value("alpha"))
         case "genericGamma22GrayColorSpace":
             return .gray(white: try value("white"), alpha: try value("alpha"))
         case "sRGB":
