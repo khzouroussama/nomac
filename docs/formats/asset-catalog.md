@@ -993,6 +993,19 @@ size and user comment is kept as it is (55 of the corpus's 64 image set JPEGs id
 Exif forms are rewritten (little-endian ones become big-endian, YCbCrPositioning goes, camera
 tags change), where nomac stops (B-200).
 
+
+ImageIO does not keep an Exif segment: it reads tags into a model and writes a new one, even when the
+result equals the input (`jpeg-exif`: 99 of the 110 distinct image set JPEGs of the corpus, holdout,
+sweep and sample identical, 11 stopped, none wrong; 283 of 304 self-written cases, 21 stopped). Only
+the first Exif APP1 counts. Each tag is read through a per-directory table of type and count, and
+others go: GPS and Interop with their pointers, YCbCrPositioning, image size tags, unknown types.
+Rationals are derived again from their double, Euclid on doubles until within 1e-9. An XMP packet
+fills tags the Exif lacks. A first directory holding only description, software, date and artist
+goes. The new segment is big-endian: IFD0, its values in tag order padded to even, the Exif directory
+and its values, a rebuilt thumbnail directory, its values, the thumbnail. The length field wraps at 16
+bits. nomac stops, B-200, on rewritten IPTC APP13 (9 of the 110, its dataset order not found), Apple
+maker notes (2), XMP `tiff:` and `exifEX:` properties, year or month XMP dates and UNICODE comments.
+
 ### Symbol sets (`symbol-sets`)
 
 A symbol set's template (SF Symbols' SVG template, versions 1 to 6 seen) gives one vector
@@ -1174,12 +1187,34 @@ A `vision` entry at 1x or 3x adds an unassigned child warning, and an entry nami
 a warning; nomac stops on those, on layers of several images (one of them is called unassigned)
 and on files other than PNGs (B-202), and on stacks with errors when generating symbols (B-204).
 
-### Deployment-target variants (observed; variant 0's format reproduced for app icons)
+### Deployment-target variants (`old-targets`)
 
-With a minimum deployment target of 11.x every image rendition exists three times, with the
-deployment-target attribute (25) 0, 3 and 5, and the key format has `dim1` and the deployment
-target between subtype and identifier; 12.x has 0 and 5; 13.0 and later one, without that
-attribute.
+824 of 1,413 surveyed projects target before iOS 13: 8.x 303, 9.x 149, 10.x 93, 12.x 86, 11.x 65, 7.x
+60, 3.x to 6.x 68. Every image rendition, atlas and link then exists once per variant:
+
+| Target | Key attribute | Variants | Atlases, `GA8` |
+|---|---|---|---|
+| 13.0 and later | none | one, deepmap2 | yes |
+| 12.0 to 12.5 | 25 | 0 palette or `dmap`, 5 deepmap2 | yes |
+| 9.3 to 11.4 | 25 | 0 plain, 3 palette or `dmap`, 5 deepmap2 | yes |
+| 9.0 to 9.2 | 5 | as 9.3 | yes |
+| 8.0 to 8.4 | 5 | 0 plain in an LZVN stream, 3, 5 | no atlases; gray images are `ARGB` |
+| 7.x and earlier | | gzip below 8.0, loose PNGs below 7.0: nomac stops | |
+
+The attribute goes in the key format after `dim1` and before the direction, and is written only when
+not 0. A link's atlas key names attribute 25 at every era. A key format with attribute 5 comes with a
+block `KEYFORMATWORKAROUND` right after `EXTENDED_METADATA`: a word per attribute, 25 for that one and
+0 for the others. Each variant packs by the rules of "Packing". Once only, without the attribute:
+colors, data sets, JPEGs, app icons, part-42 vectors and resizable entries. Below 11.0, multi-size
+icon sets write what `--standalone-icon-behavior all` writes; at 8.x data sets are loose files and
+icons do not pack. nomac stops, B-200, on image sets before 8.0, data sets before 9.0, language
+directions before 10.0, single-size icons before 11.0, and sprite atlases, symbol sets, stickers,
+Icon Composer icons, HEIC and wide-gamut images before 13.0, none measured.
+
+Palette or `dmap`: compression 8 for at most 1,024 (color, alpha) pairs and not gray, else
+compression 10, `dmap`, in tiles of 256 columns and bands of a third of the height from 20,480 bytes
+of unpadded rows. `model.py`-style checks against actool's bytes: 107 of 107 variant-3 payloads, 91
+of 91 variant-0 payloads at 8.0.
 
 - 5: deepmap2, as above.
 - 3: `CELM` compression 8, one LZFSE stream of a palette image: `0xCAFEF00D`, 1, the color
