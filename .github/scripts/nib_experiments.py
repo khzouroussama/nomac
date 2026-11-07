@@ -6982,6 +6982,56 @@ EXPERIMENTS["gesture-two-one-connections-reversed"] = gestures(recognizer() + re
     '<outletCollection property="gestureRecognizers" destination="tbp-aa-aa1" appends="YES" id="grtbp-aa-aa1"/>\n'
     '                        <outletCollection property="gestureRecognizers" destination="tap-aa-aa1" appends="YES" id="grtap-aa-aa1"/>')
 EXPERIMENTS["gesture-two-taps-attached"] = gestures(recognizer() + recognizer(identifier="tbp-aa-aa1"), attach=(("sss-ss-ss1", "tap-aa-aa1"), ("sss-ss-ss1", "tbp-aa-aa1")))
+# Colors in documents without colorMatched, and system colors that also write components: the color
+# spaces' grids and ramps, how ibtool converts each (BACKLOG B-281).
+def custom_space(space):
+    return f'colorSpace="{space}"' if space in ("calibratedRGB", "deviceRGB", "calibratedWhite", "deviceWhite") else f'colorSpace="custom" customColorSpace="{space}"'
+
+
+def color_subviews(colors):
+    return "".join(subview(f"cnv-{index:03d}-aa", (0, index, 10, 1)).replace("</view>", f'    <color key="backgroundColor" {color}/>\n                </view>')
+                   for index, color in enumerate(colors))
+
+
+def rgb_grid(space):
+    return [f'red="{r}" green="{g}" blue="{b}" alpha="1" {custom_space(space)}' for _, r, g, b, _ in color_grid(space)]
+
+
+_WHITE_RAMP = [f'{n / 20:g}' for n in range(21)] + ["0.33333333333333331", "0.66666666666666663", "0.96999999999999997", "0.1234567"]
+WHITE_SPACES = ("calibratedWhite", "deviceWhite", "genericGamma22GrayColorSpace")
+COLOR_ROUTES = {f"unmatched-grid-{space}": constrained(color_subviews(rgb_grid(space)), "").replace(' colorMatched="YES"', "")
+                for space in ("calibratedRGB", "sRGB", "displayP3", "deviceRGB")}
+for _space in WHITE_SPACES:
+    _ramp = [f'white="{w}" alpha="1" {custom_space(_space)}' for w in _WHITE_RAMP] + [f'white="0.25" alpha="{a}" {custom_space(_space)}' for a in ("0", "0.25", "0.5", "0.75")]
+    COLOR_ROUTES[f"unmatched-ramp-{_space}"] = constrained(color_subviews(_ramp), "").replace(' colorMatched="YES"', "")
+    COLOR_ROUTES[f"matched-ramp-{_space}"] = constrained(color_subviews(_ramp), "")
+COLOR_ROUTES["unmatched-alpha-calibratedRGB"] = constrained(color_subviews(
+    [f'red="0.25" green="0.5" blue="0.75" alpha="{a}" colorSpace="calibratedRGB"' for a in ("0", "0.25", "0.5", "0.75", "1")]), "").replace(' colorMatched="YES"', "")
+for _name, _attributes in {
+    "secondary-srgb": 'systemColor="secondaryLabelColor" red="0.2" green="0.4" blue="0.6" alpha="0.7" colorSpace="custom" customColorSpace="sRGB"',
+    "secondary-srgb-other": 'systemColor="secondaryLabelColor" red="0.9" green="0.1" blue="0.3" alpha="0.5" colorSpace="custom" customColorSpace="sRGB"',
+    "gray-srgb": 'systemColor="systemGrayColor" red="0.55686274509999997" green="0.55686274509999997" blue="0.57647058819999997" alpha="1" colorSpace="custom" customColorSpace="sRGB"',
+    "blue-srgb": 'systemColor="systemBlueColor" red="0" green="0.47843137254901957" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"',
+    "separator-srgb": 'systemColor="separatorColor" red="0.23529411759999999" green="0.23529411759999999" blue="0.26274509800000001" alpha="0.28999999999999998" colorSpace="custom" customColorSpace="sRGB"',
+    "background-srgb": 'systemColor="secondarySystemBackgroundColor" red="0.94901960780000005" green="0.94901960780000005" blue="0.96862745100000003" alpha="1" colorSpace="custom" customColorSpace="sRGB"',
+    "label-white": 'systemColor="labelColor" white="0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"',
+    "secondary-calibrated": 'systemColor="secondaryLabelColor" red="0.2" green="0.4" blue="0.6" alpha="0.7" colorSpace="calibratedRGB"',
+}.items():
+    COLOR_ROUTES[f"system-components-{_name}"] = constrained(color_subviews([_attributes]), "")
+for _name in ("black", "darkText", "lightText", "white", "clear", "groupTableViewBackground", "viewFlipsideBackground", "scrollViewTexturedBackground", "underPageBackground"):
+    COLOR_ROUTES[f"unmatched-cocoa-{_name}"] = constrained(color_subviews([f'cocoaTouchSystemColor="{_name}Color"']), "").replace(' colorMatched="YES"', "")
+_DIGITS = 'red="0.12345678901234567" green="0.40000000000000002" blue="0.87654321098765432" alpha="0.33333333333333331" colorSpace="calibratedRGB"'
+COLOR_ROUTES["unmatched-rgb-digits"] = constrained(color_subviews([_DIGITS]), "").replace(' colorMatched="YES"', "")
+COLOR_ROUTES["unmatched-white-digits"] = constrained(color_subviews(['white="0.12345678901234567" alpha="0.33333333333333331" colorSpace="calibratedWhite"']), "").replace(' colorMatched="YES"', "")
+EXPERIMENTS.update(COLOR_ROUTES)
+for _name, _color in {
+    "rgb-digits": _DIGITS, "rgb-short": 'red="0.2" green="0.4" blue="0.6" alpha="1" colorSpace="calibratedRGB"',
+    "white-digits": 'white="0.12345678901234567" alpha="0.33333333333333331" colorSpace="calibratedWhite"', "white-short": 'white="0.3" alpha="1" colorSpace="calibratedWhite"',
+    "dark-text": 'cocoaTouchSystemColor="darkTextColor"', "group-table": 'cocoaTouchSystemColor="groupTableViewBackgroundColor"',
+    "cocoa-black": 'cocoaTouchSystemColor="blackColor"', "cocoa-light-text": 'cocoaTouchSystemColor="lightTextColor"', "cocoa-clear": 'cocoaTouchSystemColor="clearColor"',
+    "cocoa-flipside": 'cocoaTouchSystemColor="viewFlipsideBackgroundColor"', "cocoa-textured": 'cocoaTouchSystemColor="scrollViewTexturedBackgroundColor"',
+}.items():
+    STORYBOARDS[f"sb-color-unmatched-{_name}"] = storyboard(scene(view_extra=f'                        <color key="backgroundColor" {_color}/>\n')).replace(' colorMatched="YES"', "")
 
 
 def main():
