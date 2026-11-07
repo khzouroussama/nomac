@@ -205,8 +205,8 @@ final class NibView: NibArchivable, NibObjectChildren {
         switch kind {
         case .cell(let cell):
             return [cell.contentView] + [cell.detailTextLabel].compactMap { $0 } + (safeAreaPlaceholder.map { [$0] } ?? [])
-                + [cell.textLabel].compactMap { $0 }
-                + cell.contentView.subviews.filter { view in !view.kind.isCellLabel && !cell.contentView.excludedSubviews.contains { $0 === view } }
+                + [cell.imageView].compactMap { $0 } + [cell.textLabel].compactMap { $0 }
+                + cell.contentView.subviews.filter { view in !view.kind.isCellLabel && view !== cell.imageView && !cell.contentView.excludedSubviews.contains { $0 === view } }
                 + constraints + movedOutConstraints
         case .cellContentView: return constraints + excludedSubviews
         case .cellSeparator, .systemBackground: return []

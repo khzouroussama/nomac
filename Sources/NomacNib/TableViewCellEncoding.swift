@@ -28,6 +28,8 @@ struct CellContent {
     let contentView: NibView
     var textLabel: NibView?
     var detailTextLabel: NibView?
+    /// A cell's `imageView`, a subview of its content view (`cm-image-*`).
+    var imageView: NibView?
 
     func encode(to encoder: NibEncoder) throws {
         if let reuseIdentifier { try encoder.encode(reuseIdentifier, forKey: "UIReuseIdentifier") }
@@ -46,7 +48,7 @@ struct CellContent {
         try encoder.encode(contentView, forKey: "UIContentView")
         try encoder.encode(textLabel, forKey: "UITextLabel")
         try encoder.encode(detailTextLabel, forKey: "UIDetailTextLabel")
-        encoder.encode(.null, forKey: "UIImageView")
+        try encoder.encode(imageView, forKey: "UIImageView")
     }
 }
 
@@ -102,7 +104,7 @@ extension DocumentCompiler {
     /// the separator view IB adds, 8 points in from the left along the cell's bottom (`cell-*`).
     mutating func tableViewCell(_ element: XIBElement) throws -> NibView {
         try check(element, attributes: ["id", "contentMode", "selectionStyle", "indentationWidth", "indentationLevel", "reuseIdentifier", "rowHeight",
-                                        "hidden", "tag", "userInteractionEnabled", "alpha", "insetsLayoutMarginsFromSafeArea", "focusStyle",
+                                        "hidden", "tag", "userInteractionEnabled", "alpha", "insetsLayoutMarginsFromSafeArea", "focusStyle", "imageView",
                                         "accessoryType", "editingAccessoryType", "showsReorderControl", "style", "textLabel", "detailTextLabel", "colorLabel", "clipsSubviews", "preservesSuperviewLayoutMargins", "restorationIdentifier", "opaque", "hidesAccessoryWhenEditing",
                                         "clearsContextBeforeDrawing", "layoutMarginsFollowReadableWidth",
                                         "customClass", "customModule", "customModuleProvider", "userLabel"],
@@ -259,6 +261,12 @@ extension DocumentCompiler {
     /// A cell of a built-in style: its style's labels, subviews of its content view of the class
     /// `UITableViewLabel` (`cell-style-*`).
     private func cellStyle(_ element: XIBElement, contentView: NibView, into content: inout CellContent) throws {
+        if let imageView = element.attributes["imageView"] {
+            guard let view = documentViews[imageView]?.view, contentView.subviews.contains(where: { $0 === view }), view.isImageView else {
+                throw unsupported("a table view cell's imageView that is not an image view of its content view")
+            }
+            content.imageView = view
+        }
         let labels = ["textLabel", "detailTextLabel"].filter { element.attributes[$0] != nil }
         guard let name = element.attributes["style"] else {
             guard labels.isEmpty else { throw unsupported("a table view cell's labels without a style") }

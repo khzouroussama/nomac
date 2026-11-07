@@ -753,7 +753,9 @@ A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClas
 `UIOriginalClassName` `UITableViewCell` for a custom class): a view's keys, among them `tag` (0 writes
 nothing), `userInteractionEnabled`, `hidden`, `alpha`, `insetsLayoutMarginsFromSafeArea` and `contentMode`
 as on any view (`cell-attr-*`, `cell-mode-*`), and `focusStyle="custom"` as `UIFocusStyle` 1 after the
-separator inset (`cell-attr-combination`) (no
+separator inset (`cell-attr-combination`). An `imageView`, one of the content view's image views, is written
+as `UIImageView` after the labels and listed in all objects after the safe area and before the text label,
+wherever the document has it, with or without a style (`cm-image-*`, `cm-sb-proto-image*`) (no
 `UIOpaque` for `opaque="NO"`: `cell-opaque-*`; no `UIAutoresizingMask` for an empty mask;
 `UIClearsContextBeforeDrawing` false for the cell's or its content view's
 `clearsContextBeforeDrawing="NO"`: `cell-clears-*`, `cell-content-clears-no`;
