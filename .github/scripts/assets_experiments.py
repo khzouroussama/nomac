@@ -349,7 +349,8 @@ def converted_files(catalogs):
             elif not srgb and len(gammas) == 1 and len(gammas[0]) == 4:
                 gamma = struct.unpack(">I", gammas[0])[0] / 100000
                 standard = chromaticities is None or chromaticities == struct.pack(">8I", 31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)
-                if gamma * 100000 > 15 and not (standard and abs(gamma - 1 / 2.2) < 0.0001) and (chromaticities is not None or abs(gamma - 2.2) >= 0.0001):
+                gray = data[25] in (0, 4)
+                if gamma * 100000 > 15 and not (standard and abs(gamma - 1 / 2.2) < 0.0001) and (chromaticities is not None or gray or abs(gamma * 100000 - 220000) >= 5):
                     found.add((p.parent.stem, p.name))
     return found
 

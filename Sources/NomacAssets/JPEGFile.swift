@@ -45,12 +45,10 @@ struct JPEGFile {
         let tiff = segments.first { $0.marker == 0xE1 && body($0.range).starts(with: Array("Exif\0".utf8)) }.map { Array(body($0.range).dropFirst(6)) }
 
         var applications: [(marker: UInt8, bytes: [UInt8])] = []
-        var orientation: UInt32 = 1
+        orientation = tiff.map(JPEGMetadata.orientation(tiff:)) ?? 1
         if tiff != nil || xmp != nil, let exif = try JPEGMetadata.exif(tiff ?? [], xmp: xmp, path: path) {
             applications.append((0xE1, exif))
-            orientation = JPEGMetadata.orientation(inSegment: exif)
         }
-        self.orientation = orientation
         var others: [UInt8] = []
         for segment in segments {
             switch segment.marker {
@@ -76,16 +74,27 @@ struct JPEGFile {
 enum JPEGMetadata {
     static let xmpPrefix = Array("http://ns.adobe.com/xap/1.0/\0".utf8)
 
-    /// The orientation in a segment as this file writes it: FF E1, its length, `Exif` and two NULs,
-    /// an 8-byte big-endian TIFF header, then the first directory.
-    static func orientation(inSegment segment: [UInt8]) -> UInt32 {
-        let directory = 4 + 6 + 8
-        guard segment.count >= directory + 2 else { return 1 }
-        let count = Int(segment[directory]) << 8 | Int(segment[directory + 1])
-        for index in 0..<count {
-            let entry = directory + 2 + 12 * index
-            guard entry + 10 <= segment.count else { break }
-            if segment[entry] == 0x01, segment[entry + 1] == 0x12 { return UInt32(segment[entry + 8]) << 8 | UInt32(segment[entry + 9]) }
+    /// The orientation property 1006 takes from the input's Exif, read more loosely than the
+    /// segment (`jpeg-exif`): whatever the magic number and type, as many entries as fit, the first
+    /// such tag of the first directory, then the next one; 1 when it is not 1 to 8.
+    static func orientation(tiff: [UInt8]) -> UInt32 {
+        guard tiff.count >= 8, tiff.starts(with: [0x49, 0x49]) || tiff.starts(with: [0x4D, 0x4D]) else { return 1 }
+        let little = tiff[0] == 0x49
+        func u16(_ at: Int) -> Int { little ? Int(tiff[at + 1]) << 8 | Int(tiff[at]) : Int(tiff[at]) << 8 | Int(tiff[at + 1]) }
+        func u32(_ at: Int) -> Int { little ? u16(at + 2) << 16 | u16(at) : u16(at) << 16 | u16(at + 2) }
+        var directory = u32(4)
+        for _ in 0..<2 {
+            guard directory + 2 <= tiff.count else { break }
+            let declared = u16(directory)
+            let count = min(declared, (tiff.count - directory - 2) / 12)
+            for index in 0..<count where u16(directory + 2 + 12 * index) == 0x0112 {
+                let entry = directory + 2 + 12 * index
+                let value = u16(entry + 2) == 4 ? u32(entry + 8) : u16(entry + 8)
+                return (1...8).contains(value) ? UInt32(value) : 1
+            }
+            guard declared == count, directory + 6 + 12 * count <= tiff.count else { break }
+            directory = u32(directory + 2 + 12 * count)
+            if directory == 0 { break }
         }
         return 1
     }

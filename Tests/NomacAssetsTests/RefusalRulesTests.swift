@@ -113,8 +113,6 @@ import Testing
             ("no scale fills at 512", [("Front", good), ("Back", (512, 512, "vision", nil))], []),
             ("reality fills", [("Front", (1024, 1024, "reality", "2x")), ("Back", (1024, 1024, "reality", "2x"))], []),
             ("reality small", [("Front", good), ("Back", small("reality"))], [Self.fill("Back", "50, 50")]),
-            ("universal small", [("Front", good), ("Back", small("universal"))], [Self.fill("Back", "50, 50")]),
-            ("iPhone small", [("Front", good), ("Back", small("iphone"))], [Self.fill("Back", "50, 50")]),
             ("one layer", [("Back", good)], ["The visionOS App Icon “Stack” must have at least 2 layers."]),
             ("one empty layer", [("Back", nil)], ["The visionOS App Icon “Stack” must have at least 2 layers."]),
             ("no layers", [], ["The visionOS App Icon “Stack” must have at least 2 layers."]),

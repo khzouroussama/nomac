@@ -71,7 +71,8 @@ public enum AssetCatalogComparison {
         guard !chunks.contains(where: { $0.type == "sRGB" }), gammas.count == 1, gammas[0].data.count == 4 else { return false }
         func numbers(_ data: [UInt8]) -> [Int] { stride(from: 0, to: data.count, by: 4).map { data[$0..<$0 + 4].reduce(0) { $0 << 8 | Int($1) } } }
         let chromaticities = chunks.first { $0.type == "cHRM" && $0.data.count == 32 }.map { numbers($0.data) }
-        return ICCProfile(pngGamma: numbers(gammas[0].data)[0], chromaticities: chromaticities, gray: false) != nil
+        let colorType = chunks.first { $0.type == "IHDR" }.flatMap { $0.data.count > 9 ? $0.data[9] : nil }
+        return ICCProfile(pngGamma: numbers(gammas[0].data)[0], chromaticities: chromaticities, gray: colorType == 0 || colorType == 4) != nil
     }
 
     /// zlib data decompressed, or `nil` when it does not end.
