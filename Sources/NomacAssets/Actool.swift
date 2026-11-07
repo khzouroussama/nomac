@@ -208,7 +208,11 @@ public struct Actool {
                 continue
             }
             let catalogPath = catalogPaths.first { asset.path.hasPrefix($0 + "/") } ?? catalogPaths[0]
-            var compiled = try AppIconSet.compile(asset, icons: icons, problems: problems, catalog: catalogPath, standaloneBehavior: options.standaloneIconBehavior,
+            let oldIconFiles = !platform.watch && ImageVariants.writesAllIconFiles(iOSTarget: deploymentTarget)
+            if oldIconFiles && icons.first?.idiom == "universal" {
+                throw NomacError("actool: single-size app icons for deployment targets before iOS 11.0 are not supported yet (BACKLOG B-200)", path: asset.path)
+            }
+            var compiled = try AppIconSet.compile(asset, icons: icons, problems: problems, catalog: catalogPath, standaloneBehavior: options.standaloneIconBehavior ?? (oldIconFiles ? "all" : nil),
                                                   targetDevices: options.targetDevices, alternate: asset.name != options.appIcon)
             if asset.name != options.appIcon {
                 guard compiled.notices.isEmpty else { throw NomacError("actool: alternate app icon sets of legacy sizes are not supported yet (BACKLOG B-202)", path: asset.path) }
@@ -260,7 +264,12 @@ public struct Actool {
         for asset in catalog.assets {
             switch asset.type {
             case "colorset": renditions += try ColorSet.renditions(asset, idioms: idioms, watch: platform.watch)
-            case "dataset": renditions += try DataSet.renditions(asset, idioms: idioms)
+            case "dataset":
+                // Before iOS 9 data sets become loose files beside the catalog (`old-targets`).
+                guard platform.iOSMajorVersion(deploymentTarget) >= 9 else {
+                    throw NomacError("actool: data sets for deployment targets before iOS 9.0 are not supported yet (BACKLOG B-200)", path: asset.path)
+                }
+                renditions += try DataSet.renditions(asset, idioms: idioms)
             default: break
             }
         }
@@ -282,8 +291,9 @@ public struct Actool {
         }
         var compiledIcons: [(icon: IconComposerIcon, compiled: IconComposerIcon.Compiled)] = []
         if !images.isEmpty || !spriteAtlases.isEmpty || !icons.isEmpty {
-            guard platform.iOSMajorVersion(deploymentTarget) >= 13 else {
-                throw NomacError("actool: image sets for deployment targets before iOS 13.0 are not supported yet (BACKLOG B-200)")
+            let variants = try platform.iOSMajorVersion(deploymentTarget) >= 13 ? ImageVariants.current : ImageVariants(iOSTarget: deploymentTarget)
+            guard variants.variants.count == 1 || spriteAtlases.isEmpty && icons.isEmpty && symbolSets.isEmpty && stickers == nil else {
+                throw NomacError("actool: sprite atlases, symbol sets, stickers and Icon Composer icons before iOS 13.0 are not supported yet (BACKLOG B-200)")
             }
             let names = renditions.map(\.name) + images.map(\.name) + spriteAtlases.flatMap { [$0.atlas.name] + $0.members.map(\.name) }
                 + icons.flatMap(\.facetNames)
@@ -297,7 +307,7 @@ public struct Actool {
             if compiledIcons.contains(where: { !$0.compiled.pngs.isEmpty }) && !options.compressPNGs {
                 throw NomacError("actool: Icon Composer icons without --compress-pngs are not supported yet (BACKLOG B-210)")
             }
-            renditions += try ImageSet.renditions(images + compiledIcons.flatMap(\.compiled.sources), identifiers: identifiers)
+            renditions += try ImageSet.renditions(images + compiledIcons.flatMap(\.compiled.sources), identifiers: identifiers, variants: variants)
             for (atlas, members) in spriteAtlases {
                 renditions += try SpriteAtlas.renditions(atlas, members: members, identifiers: identifiers)
             }

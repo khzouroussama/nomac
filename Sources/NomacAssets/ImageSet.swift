@@ -2,9 +2,9 @@ import Foundation
 import NomacCore
 import NomacLZFSE
 
-/// Compiles `.imageset` assets for deployment targets of iOS 13.0 and later, where actool writes
-/// one deepmap2 rendition per image (docs/formats/asset-catalog.md, "Images"): small images packed
-/// into atlases, the others on their own.
+/// Compiles `.imageset` assets: from iOS 13.0 one deepmap2 rendition per image
+/// (docs/formats/asset-catalog.md, "Images"), small images packed into atlases, the others on their
+/// own; before it one per `ImageVariants` variant.
 enum ImageSet {
     struct Source {
         var name: String
@@ -378,13 +378,20 @@ enum ImageSet {
         return payload.bytes
     }
 
-    /// deepmap2, or for app icons and their atlases the payload without it.
-    static func payload(_ pixels: [UInt8], gray: Bool, width: Int, height: Int, opaque: Bool, plain: Bool) throws -> [UInt8] {
+    /// The payload of an image or atlas in a variant's encoding; app icons and their atlases are plain.
+    static func payload(_ pixels: [UInt8], gray: Bool, width: Int, height: Int, opaque: Bool, encoding: ImageVariants.Encoding) throws -> [UInt8] {
         let format = format(gray: gray).deepmap
-        if plain {
-            return PlainImagePayload.payload(pixels, format: format, width: width, height: height, opaque: opaque)
+        switch encoding {
+        case .plain: return PlainImagePayload.payload(pixels, format: format, width: width, height: height, opaque: opaque)
+        case .plainLZVN: return PlainImagePayload.lzvn(pixels, width: width, height: height, opaque: opaque)
+        case .palette: return try PaletteImagePayload.payload(pixels, format: format, width: width, height: height, opaque: opaque)
+        case .deepmap2: return try Deepmap2.payload(pixels, format: format, width: width, height: height, opaque: opaque)
         }
-        return try Deepmap2.payload(pixels, format: format, width: width, height: height, opaque: opaque)
+    }
+
+    /// Property 1007 of a stored image in an encoding: iOS 8's plain rows have no padding.
+    static func rowBytes(width: Int, opaque: Bool, gray: Bool, encoding: ImageVariants.Encoding) -> UInt32 {
+        encoding == .plainLZVN ? UInt32(width * 4) : rowBytes(width: width, opaque: opaque, gray: gray, plain: encoding == .plain)
     }
 
     /// An image's CSI; `wide`, its display-gamut-1 rendition's: `RGBW`, color model 4.
@@ -398,9 +405,28 @@ enum ImageSet {
     /// Images of at most `Atlas.areaLimit(scale:)` pixels make a class packable when there are
     /// two or more of them; its images below the limit are packed, even a single one
     /// (`images`, scale-limit cases).
-    static func renditions(_ sources: [Source], identifiers: [String: UInt16]) throws -> [CARRendition] {
+    static func renditions(_ sources: [Source], identifiers: [String: UInt16], variants: ImageVariants = .current) throws -> [CARRendition] {
+        try variants.check(sources)
+        var renditions: [CARRendition] = []
+        for (position, variant) in variants.variants.enumerated() {
+            // App icons, JPEGs and resizable images exist once, in the first variant's encoding
+            // (`old-targets`); each variant packs what it has.
+            var own = position == 0 ? sources : sources.filter { $0.kind == .image && $0.jpeg == nil && $0.resizing == nil }
+            if !variants.keepsGray { own = own.map { source in var source = source; source.isGray = false; return source } }
+            let compiled = try self.renditions(own, identifiers: identifiers, variants: variants, variant: variant, first: position == 0)
+            renditions += compiled.map { rendition in
+                var rendition = rendition
+                if variant.value != 0 { rendition.attributes[variants.attribute] = variant.value }
+                return rendition
+            }
+        }
+        return renditions
+    }
+
+    static func renditions(_ sources: [Source], identifiers: [String: UInt16], variants: ImageVariants, variant: ImageVariants.Variant, first: Bool) throws -> [CARRendition] {
         func area(_ source: Source) -> Int { source.image.width * source.image.height }
         func packing(_ indices: [Int], gamut: UInt16) -> [PackingClass: [Int]] {
+            guard variants.packs else { return [:] }
             let candidates = indices.filter { sources[$0].jpeg == nil && sources[$0].heif == nil && area(sources[$0]) <= Atlas.areaLimit(scale: sources[$0].scale) }
             return Dictionary(grouping: candidates) { index -> PackingClass in
                 var packingClass = sources[index].packingClass
@@ -418,9 +444,10 @@ enum ImageSet {
         let packed = Set(packable.values.joined()), widePacked = Set(widePackable.values.joined())
         var renditions: [CARRendition] = []
         // An Icon Composer icon's rendered image is stored once per idiom, with the same pixels.
-        var payloads: [(pixels: [UInt8], gray: Bool, opaque: Bool, plain: Bool, payload: [UInt8])] = []
+        var payloads: [(pixels: [UInt8], gray: Bool, opaque: Bool, encoding: ImageVariants.Encoding, payload: [UInt8])] = []
         for source in sources {
-            if let data = source.vectorData {
+            // `preserves-vector-representation`'s part 42 rendition exists once, the others per variant.
+            if let data = source.vectorData, first || !source.preservesVector {
                 renditions.append(vectorRendition(source, data: data, pixelFormat: source.filename.lowercased().hasSuffix(".pdf") ? "PDF " : "SVG "))
             }
         }
@@ -434,19 +461,19 @@ enum ImageSet {
                 continue
             }
             let image = source.image
-            let plain = source.kind == .appIcon
+            let encoding = source.kind == .appIcon ? variants.iconEncoding : variant.encoding
             // A rasterized image stored alone is stored as opaque when all its pixels are, though its
             // flags and packing class stay translucent (`vector-images` opaque cases).
             let opaque = source.isOpaque || source.rasterized && stride(from: 3, to: image.pixels.count, by: 4).allSatisfy { image.pixels[$0] == 255 }
-            let rowBytes = rowBytes(width: image.width, opaque: opaque, gray: source.isGray, plain: plain)
+            let rowBytes = rowBytes(width: image.width, opaque: opaque, gray: source.isGray, encoding: encoding)
             let properties = geometry(source) + commonProperties + [(1007, little(rowBytes))]
             let pixels = stored(image.pixels, gray: source.isGray, opaque: opaque)
             let payload: [UInt8]
-            if let earlier = payloads.first(where: { $0.gray == source.isGray && $0.opaque == opaque && $0.plain == plain && $0.pixels == pixels }) {
+            if let earlier = payloads.first(where: { $0.gray == source.isGray && $0.opaque == opaque && $0.encoding == encoding && $0.pixels == pixels }) {
                 payload = earlier.payload
             } else {
-                payload = try self.payload(pixels, gray: source.isGray, width: image.width, height: image.height, opaque: opaque, plain: plain)
-                payloads.append((pixels, source.isGray, opaque, plain, payload))
+                payload = try self.payload(pixels, gray: source.isGray, width: image.width, height: image.height, opaque: opaque, encoding: encoding)
+                payloads.append((pixels, source.isGray, opaque, encoding, payload))
             }
             // A symbol set's raster stored alone has layout 0 (home-assistant's watch app).
             let csi = imageCSI(source, layout: source.resizing?.layout ?? (source.kind == .symbol ? .none : .image), properties: properties, payload: payload)
@@ -472,7 +499,7 @@ enum ImageSet {
             let atlases = Atlas.split(items, scale: packingClass.scale)
             for index in atlases.indices.sorted(by: { String($0).utf8.lexicographicallyPrecedes(String($1).utf8) }) {
                 let group = [packingClass.scale, Int(packingClass.idiom), Int(packingClass.subtype), Int(packingClass.gamut), Int(packingClass.appearance)]
-                renditions += try atlas(atlases[index], sources: sources, number: numbers[group, default: 0], packingClass: packingClass)
+                renditions += try atlas(atlases[index], sources: sources, number: numbers[group, default: 0], packingClass: packingClass, variants: variants, variant: variant)
                 numbers[group, default: 0] += 1
             }
         }
@@ -551,7 +578,8 @@ enum ImageSet {
 
     /// An atlas rendition (no facet) and one link rendition per image, whose property 1010
     /// (`KLNI`) gives the image's place, y from the bottom, and the atlas's key.
-    static func atlas(_ items: [Atlas.Item], sources: [Source], number: UInt16, packingClass: PackingClass) throws -> [CARRendition] {
+    static func atlas(_ items: [Atlas.Item], sources: [Source], number: UInt16, packingClass: PackingClass, variants: ImageVariants = .current,
+                      variant: ImageVariants.Variant = ImageVariants.current.variants[0]) throws -> [CARRendition] {
         let (positions, width, height) = Atlas.layout(items)
         let wide = packingClass.gamut != 0
         let placed = items.map { item -> (pixels: [UInt8], width: Int, height: Int, x: Int, y: Int) in
@@ -562,11 +590,11 @@ enum ImageSet {
         let name = packingClass.atlasName
         let format = wide ? (pixelFormat: "RGBW", colorModel: UInt32(4), deepmap: Deepmap2.Format.rgbaHalf) : format(gray: packingClass.gray)
         // App icons packed with images, as on watchOS, are stored as images (pocket-casts' watch catalog).
-        let plain = items.allSatisfy { sources[$0.id].kind == .appIcon }
-        let rowBytes = wide ? UInt32((width * 8 + 31) / 32 * 32) : rowBytes(width: width, opaque: packingClass.opaque, gray: packingClass.gray, plain: plain)
+        let encoding = items.allSatisfy { sources[$0.id].kind == .appIcon } ? variants.iconEncoding : variant.encoding
+        let rowBytes = wide ? UInt32((width * 8 + 31) / 32 * 32) : rowBytes(width: width, opaque: packingClass.opaque, gray: packingClass.gray, encoding: encoding)
         let payload = wide ? try Deepmap2.payload(pixels, format: .rgbaHalf, width: width, height: height, opaque: packingClass.opaque)
             : try payload(stored(pixels, gray: packingClass.gray, opaque: packingClass.opaque), gray: packingClass.gray, width: width, height: height,
-                          opaque: packingClass.opaque, plain: plain)
+                          opaque: packingClass.opaque, encoding: encoding)
         let atlasCSI = CSI(name: name, layout: .atlas, width: UInt32(width), height: UInt32(height), colorModel: format.colorModel,
                            scale: UInt32(100 * packingClass.scale),
                            pixelFormat: format.pixelFormat,
@@ -580,7 +608,10 @@ enum ImageSet {
         if wide { attributes[.displayGamut] = 1 }
         var renditions = [CARRendition(name: name, kind: .packedImage, attributes: attributes, csi: atlasCSI.bytes, hasFacet: false)]
 
-        let key = keyBytes([(.element, FacetKind.packedImage.element), (.part, FacetKind.packedImage.part)] + attributes.map { ($0.key, $0.value) })
+        // The link names the variant with attribute 25 even where the key format has 5 (9.0, `old-targets`).
+        var linked = attributes
+        if variant.value != 0 { linked[.target] = variant.value }
+        let key = keyBytes([(.element, FacetKind.packedImage.element), (.part, FacetKind.packedImage.part)] + linked.map { ($0.key, $0.value) })
         for item in items {
             let source = sources[item.id]
             let position = positions[item.id]!

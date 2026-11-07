@@ -55,6 +55,39 @@ enum PlainImagePayload {
         return out.bytes
     }
 
+    /// iOS 8's (`old-targets`, 91 images, 130 streams): the rows without padding, below 4,096 bytes
+    /// run-length encoded when smaller, else as they are; from there `LZVN.encodeStream`, in bands
+    /// as `payload` counts them from these rows' bytes.
+    static func lzvn(_ pixels: [UInt8], width: Int, height: Int, opaque: Bool) -> [UInt8] {
+        var out = ByteWriter()
+        out.append(Array("MLEC".utf8))
+        let flags: UInt32 = opaque ? 2 : 0
+        if pixels.count < 4_096 {
+            let encoded = runLengthEncoded(pixels, pixelBytes: 4, width: width, height: height)
+            let compressed = encoded.count < pixels.count
+            for value in [flags, compressed ? 1 : 0, UInt32(compressed ? encoded.count : pixels.count)] { out.appendLE(value) }
+            out.append(compressed ? encoded : pixels)
+            return out.bytes
+        }
+        let bandRows = height / (pixels.count >= 20_480 ? 3 : 2)
+        guard width * height >= 4_096, bandRows >= 1 else {
+            let whole = LZVN.encodeStream(pixels)
+            for value in [flags, 3, UInt32(whole.count)] { out.appendLE(value) }
+            out.append(whole)
+            return out.bytes
+        }
+        let starts = Array(stride(from: 0, to: height, by: bandRows))
+        for value in [flags | 1, 3, UInt32(starts.count)] { out.appendLE(value) }
+        for start in starts {
+            let count = min(bandRows, height - start)
+            let band = LZVN.encodeStream(Array(pixels[start * width * 4..<(start + count) * width * 4]))
+            out.append(Array("KCBC".utf8))
+            for value in [0, 0, count, band.count] { out.appendLE(UInt32(value)) }
+            out.append(band)
+        }
+        return out.bytes
+    }
+
     /// The bytes per pixel (4, or 3 for gray and alpha), width and height, each row's offset (a
     /// row equal to the one above reuses its offset), then per row runs of at least 4 (6 for gray)
     /// equal pixels as `0x80000000 | n` and the pixel, the pixels between them as `n` and the

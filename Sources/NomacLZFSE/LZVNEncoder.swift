@@ -27,6 +27,18 @@ public enum LZVN {
     ///
     /// `lzvn_encode_buffer` refuses inputs over 4 GiB; passing one is a programming error.
     public static func encode(_ input: [UInt8], encoder: LZFSE.Encoder = .reference) -> [UInt8] {
+        encode(input, encoder: encoder, emitsPendingMatch: false)
+    }
+
+    /// libcompression's `compression_stream` given all of `input` at once, as actool uses it for
+    /// iOS 8's images (`old-targets`: 92 of 92 streams): four no-op opcodes, then
+    /// `compression_encode_buffer`'s choices with the last pending match emitted instead of
+    /// dropped.
+    public static func encodeStream(_ input: [UInt8]) -> [UInt8] {
+        [0x0E, 0x16, 0x16, 0x0E] + encode(input, encoder: .libcompression, emitsPendingMatch: true)
+    }
+
+    private static func encode(_ input: [UInt8], encoder: LZFSE.Encoder, emitsPendingMatch: Bool) -> [UInt8] {
         precondition(input.count <= LZVNEncoder.maxSourceSize, "lzvn_encode_buffer encodes at most 4 GiB")
         return input.withUnsafeBufferPointer { source in
             // Doubled until the stream fits; once it fits, its bytes do not depend on the size.
@@ -34,7 +46,7 @@ public enum LZVN {
             while true {
                 let dst = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: dstSize)
                 defer { dst.deallocate() }
-                let size = LZVNEncoder.encodeBuffer(dst: dst, source: source, encoder: encoder)
+                let size = LZVNEncoder.encodeBuffer(dst: dst, source: source, encoder: encoder, emitsPendingMatch: emitsPendingMatch)
                 if size > 0 {
                     return Array(dst[0..<size])
                 }
@@ -112,7 +124,8 @@ struct LZVNEncoder: ~Copyable {
 
     /// `lzvn_encode_buffer`: encodes all of `source` into `dst`, and returns the size written,
     /// or 0 if it does not fit.
-    static func encodeBuffer(dst: UnsafeMutableBufferPointer<UInt8>, source: UnsafeBufferPointer<UInt8>, encoder: LZFSE.Encoder = .reference) -> Int {
+    static func encodeBuffer(dst: UnsafeMutableBufferPointer<UInt8>, source: UnsafeBufferPointer<UInt8>, encoder: LZFSE.Encoder = .reference,
+                             emitsPendingMatch: Bool = false) -> Int {
         // lzvn_encode_partial
         if dst.count < minDestinationSize {
             return 0
@@ -122,6 +135,10 @@ struct LZVNEncoder: ~Copyable {
             state.srcCurrentEnd = source.count - minMargin
             state.initTable()
             state.encode()
+            let last = state.pending
+            if emitsPendingMatch && last.m != 0 {
+                _ = state.emitMatch(last)
+            }
         }
         // On failure srcLiteral stays behind, which fails the check below.
         _ = state.emitLiteral(state.srcEnd - state.srcLiteral)

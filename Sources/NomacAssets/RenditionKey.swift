@@ -5,6 +5,8 @@ public enum RenditionAttribute: UInt16, CaseIterable, Sendable {
     case element = 1
     case part = 2
     case direction = 4
+    /// The image variant's number (`ImageVariants`) before iOS 9.3; `target` from there.
+    case legacyTarget = 5
     case appearance = 7
     case dimension1 = 8
     case dimension2 = 9
@@ -20,7 +22,7 @@ public enum RenditionAttribute: UInt16, CaseIterable, Sendable {
 
     /// The order attributes take in `KEYFORMAT`.
     static let keyFormatOrder: [RenditionAttribute] = [
-        .appearance, .localization, .scale, .idiom, .subtype, .glyphWeight, .glyphSize, .dimension2, .dimension1, .target, .displayGamut,
+        .appearance, .localization, .scale, .idiom, .subtype, .glyphWeight, .glyphSize, .dimension2, .dimension1, .target, .legacyTarget, .displayGamut,
         .direction, .identifier, .element, .part,
     ]
 

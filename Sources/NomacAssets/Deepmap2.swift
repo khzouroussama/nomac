@@ -323,7 +323,23 @@ enum Deepmap2Planes {
         return out.bytes
     }
 
-    static func chunk(_ values: [Value], alpha: [UInt8], channels: Int, width: Int, top: Int, rows: Int) -> [UInt8] {
+    /// A whole image as one chunk, `dmap` tiles padded to 8 bytes (`old-targets`).
+    static func chunk(_ pixels: [UInt8], format: Deepmap2.Format, width: Int, height: Int, alignment: Int) -> [UInt8] {
+        let size = format.bytesPerPixel
+        var values = [Value](repeating: (0, 0, 0), count: width * height)
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        for pixel in 0..<width * height {
+            if format == .bgra {
+                values[pixel] = value(blue: Int(pixels[pixel * 4]), green: Int(pixels[pixel * 4 + 1]), red: Int(pixels[pixel * 4 + 2]))
+            } else {
+                values[pixel] = (Int(pixels[pixel * 2]), 0, 0)
+            }
+            alpha[pixel] = pixels[pixel * size + size - 1]
+        }
+        return chunk(values, alpha: alpha, channels: channels(format), width: width, top: 0, rows: height, alignment: alignment)
+    }
+
+    static func chunk(_ values: [Value], alpha: [UInt8], channels: Int, width: Int, top: Int, rows: Int, alignment: Int = 16) -> [UInt8] {
         var filterBytes: [UInt8] = []
         var codes: [UInt16] = []
         codes.reserveCapacity(width * rows * channels)
@@ -367,7 +383,7 @@ enum Deepmap2Planes {
             }
         }
         var body = Array(alpha[top * width..<(top + rows) * width]) + filterBytes + codes.map { UInt8($0 >> 8) } + codes.map { UInt8($0 & 0xFF) }
-        body += [UInt8](repeating: 0, count: (16 - body.count % 16) % 16)
+        body += [UInt8](repeating: 0, count: (alignment - body.count % alignment) % alignment)
         return body
     }
 }

@@ -3339,7 +3339,8 @@ def more_experiments():
     from catalog_rules_experiments import EXPERIMENTS as rules
     from jpeg_exif_experiment import exp_jpeg_exif
     from large_tables_experiment import exp_large_tables
-    return {**rules, "jpeg-exif": exp_jpeg_exif, "large-tables": exp_large_tables}
+    from old_targets_experiment import exp_old_targets
+    return {**rules, "jpeg-exif": exp_jpeg_exif, "large-tables": exp_large_tables, "old-targets": exp_old_targets}
 
 
 def main():
