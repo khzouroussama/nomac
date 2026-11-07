@@ -48,8 +48,9 @@ Then:
    Say `unknown` where nothing shows whether Xcode would fail too. `class` is a general name such as
    a refusal's BACKLOG number, never the project's contents.
 2. Where Xcode's behavior decides the verdict, `wild_sample.py xcode <owner/name>` on the Mac builds
-   the same commit under Xcode 27.0. The project's scripts run in a sandbox with no network during
-   the build and no read access to credentials (`mac_sandbox`).
+   the same commit under Xcode 27.0, with the results in `xcode/<owner>__<name>`. The project's scripts
+   run in a sandbox with no network during the build and no read access to credentials
+   (`mac_sandbox`). macOS does not nest sandboxes, so SwiftPM's and the macro plugins' own are off there.
 3. `wild_sample.py report --write` writes `corpus/wild-sample-results.json`: names, classes and counts
    only. Put the number in docs/PROGRESS.md stated as what was measured, with the date, the nomac
    commit, the interval and the not-measured count.
@@ -73,6 +74,9 @@ Read these with the numbers:
 - `ComputeTargetDependencyGraph` in `archive.log` marks the build's start. nomac's output reaches a
   file in blocks, so a build that began and wrote under one block before hanging would read as still
   cloning, which is unlikely in an hour. A hang before the build with no remote packages stays a stop.
+- `mozilla-mobile/focus-ios`'s first attempt is void: the manifest named the wrong folder for its
+  `./checkout.sh`, since fixed. `scratch/rerun_after.sh` takes it again once the driver's `END` line is
+  written; if that line is there and it has no later attempt, run `run mozilla-mobile/focus-ios`.
 - `immich-app/immich` needs Flutter and `flutter` is not installed, so it stays not measured.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded

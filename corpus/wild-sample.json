@@ -58,7 +58,7 @@
    ],
    "dependencies": [
     {
-     "cwd": "focus-ios",
+     "cwd": ".",
      "run": "./checkout.sh"
     }
    ],
@@ -540,6 +540,11 @@
    "verdict": "nomac",
    "class": "metal:shader (B-241)",
    "xcode": "not run: nomac has no metal compiler, and nomac check reports it"
+  },
+  "PallavAg/Apple-Intelligence-Chat": {
+   "verdict": "project",
+   "class": "source does not compile against the iOS 27.0 SDK",
+   "xcode": "fails on the same line under Xcode 27.0"
   }
  }
 }

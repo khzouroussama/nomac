@@ -219,6 +219,11 @@ def run_logged(command, cwd, env, log_path, timeout):
             running.discard(process)
 
 
+# macOS does not nest sandboxes, so under mac_sandbox the build's own would fail: SwiftPM's for manifests
+# and plugins, and the one the compiler starts for macro plugins (`produced malformed response`).
+NO_INNER_SANDBOX = ["-IDEPackageSupportDisableManifestSandbox=YES", "-IDEPackageSupportDisablePluginExecutionSandbox=YES"]
+
+
 def mac_sandbox(offline):
     rules = "".join(f'(deny file-read* (subpath "{Path.home() / name}"))' for name in SECRETS)
     profile = "(version 1)(allow default)" + rules
@@ -764,10 +769,11 @@ def xcode(arguments):
             archive = run / "dd" / f"{scheme}.xcarchive"
             with_network_retries(result, "packages", out / "resolve.log", lambda: run_logged(
                 [*mac_sandbox(offline=False), "xcodebuild", "-resolvePackageDependencies", flag, container, "-scheme", scheme, "-derivedDataPath", run / "dd" / "DerivedData",
-                 "-skipPackagePluginValidation", "-skipMacroValidation"], container.parent, env, out / "resolve.log", DEPS_TIMEOUT))
+                 "-skipPackagePluginValidation", "-skipMacroValidation", *NO_INNER_SANDBOX], container.parent, env, out / "resolve.log", DEPS_TIMEOUT))
             status = run_logged([*mac_sandbox(offline=True), "xcodebuild", "archive", flag, container, "-scheme", scheme, "-configuration", "Release", "-destination", "generic/platform=iOS",
-                                 "-derivedDataPath", run / "dd" / "DerivedData", "-archivePath", archive, "-jobs", JOBS_PER_BUILD, "-IDEBuildingContinueBuildingAfterErrors", "YES",
-                                 "-skipPackagePluginValidation", "-skipMacroValidation", *capture.ADHOC], container.parent, env, out / "archive.log", BUILD_TIMEOUT)
+                                 "-derivedDataPath", run / "dd" / "DerivedData", "-archivePath", archive, "-jobs", JOBS_PER_BUILD, "-IDEBuildingContinueBuildingAfterErrors=YES",
+                                 "-skipPackagePluginValidation", "-skipMacroValidation", *NO_INNER_SANDBOX, "OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox", *capture.ADHOC],
+                                container.parent, env, out / "archive.log", BUILD_TIMEOUT)
             ok = status == 0 and archive.exists()
             step(result, "archive", ok, started, status=status, errors=[] if ok else first_errors(out / "archive.log", 20))
             result["succeeded"] = ok
