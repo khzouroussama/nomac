@@ -7034,6 +7034,67 @@ for _name, _color in {
     STORYBOARDS[f"sb-color-unmatched-{_name}"] = storyboard(scene(view_extra=f'                        <color key="backgroundColor" {_color}/>\n')).replace(' colorMatched="YES"', "")
 
 
+# Text input traits by every value, the survey's and UIKit's; text fields' enabled and colors; table
+# view cells' other attributes; IB's empty <animations/> (the survey's B-260 causes, live projects first).
+TRAIT_VALUES = {
+    "autocapitalizationType": ["none", "words", "sentences", "allCharacters"], "autocorrectionType": ["default", "no", "yes"],
+    "spellCheckingType": ["default", "no", "yes"],
+    "keyboardType": ["default", "alphabet", "numbersAndPunctuation", "URL", "numberPad", "phonePad", "namePhonePad", "emailAddress", "decimalPad", "twitter", "webSearch", "asciiCapableNumberPad"],
+    "keyboardAppearance": ["default", "alert", "dark", "light"],
+    "returnKeyType": ["default", "go", "google", "join", "next", "route", "search", "send", "yahoo", "done", "emergencyCall", "continue"],
+    "smartDashesType": ["default", "no", "yes"], "smartInsertDeleteType": ["default", "no", "yes"], "smartQuotesType": ["default", "no", "yes"],
+    "textContentType": ["password", "username", "email", "name", "one-time-code", "url", "tel", "new-password", "address-level2", "address-line1", "address-line2", "address-level1",
+                        "postal-code", "cc-number", "location", "nickname", "given-name", "family-name", "honorific-prefix", "additional-name", "honorific-suffix", "organization-title",
+                        "organization", "street-address", "sublocality", "country-name", "tel-national", "tracking-number", "flight-number"],
+    "enablesReturnKeyAutomatically": ["NO", "YES"], "secureTextEntry": ["NO", "YES"],
+}
+TRAITS_ROUND = {f"tf-trait-{_attribute}-{_value.lower()}": constrained(text_field(traits=f' {_attribute}="{_value}"'), PIN_FIELD)
+                for _attribute, _values in TRAIT_VALUES.items() for _value in _values}
+TRAITS_ROUND.update({
+    "tf-traits-order": constrained(text_field(traits=' autocapitalizationType="words" autocorrectionType="no" spellCheckingType="no" keyboardType="URL" keyboardAppearance="alert" returnKeyType="done" enablesReturnKeyAutomatically="YES" smartDashesType="no" smartInsertDeleteType="no" smartQuotesType="no" textContentType="url"'), PIN_FIELD),
+    "tf-traits-order-secure": constrained(text_field(traits=' autocapitalizationType="words" spellCheckingType="yes" keyboardType="URL" keyboardAppearance="dark" returnKeyType="send" enablesReturnKeyAutomatically="YES" secureTextEntry="YES" smartQuotesType="yes" textContentType="new-password"'), PIN_FIELD),
+    "tf-enabled-no": constrained(text_field(TEXT_FIELD + ' enabled="NO"'), PIN_FIELD),
+    "tf-enabled-yes": constrained(text_field(TEXT_FIELD + ' enabled="YES"'), PIN_FIELD),
+    "tf-tint": constrained(text_field().replace("                </textField>", '                    <color key="tintColor" white="0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n                </textField>'), PIN_FIELD),
+    "tf-background-image": constrained(text_field(TEXT_FIELD + ' background="field"'), PIN_FIELD),
+    "tf-disabled-background-image": constrained(text_field(TEXT_FIELD + ' disabledBackground="field"'), PIN_FIELD),
+})
+for _name, _attributes in {
+    "insets-no": ' insetsLayoutMarginsFromSafeArea="NO"', "insets-yes": ' insetsLayoutMarginsFromSafeArea="YES"', "tag": ' tag="7"', "tag-0": ' tag="0"',
+    "no-interaction": ' userInteractionEnabled="NO"', "interaction": ' userInteractionEnabled="YES"', "hidden": ' hidden="YES"', "opaque-no": ' opaque="NO"',
+    "focus-custom": ' focusStyle="custom"', "access-none": ' propertyAccessControl="none"', "access-all": ' propertyAccessControl="all"', "access-localizable": ' propertyAccessControl="localizable"',
+    "preserves": ' preservesSuperviewLayoutMargins="YES"', "alpha": ' alpha="0.5"',
+}.items():
+    TRAITS_ROUND[f"cell-attr-{_name}"] = cell_xib(_attributes)
+for _mode in ("center", "scaleAspectFit", "scaleAspectFill", "top", "TopLeft"):
+    TRAITS_ROUND[f"cell-mode-{_mode.lower()}"] = cell_xib().replace('<tableViewCell contentMode="scaleToFill"', f'<tableViewCell contentMode="{_mode}"')
+_ORDER = ' autocapitalizationType="words" autocorrectionType="no" spellCheckingType="no" keyboardType="URL" keyboardAppearance="alert" returnKeyType="done" enablesReturnKeyAutomatically="YES" smartDashesType="no" smartInsertDeleteType="no" smartQuotesType="no" textContentType="url"'
+_ORDER_SECURE = ' autocapitalizationType="words" spellCheckingType="yes" keyboardType="URL" keyboardAppearance="dark" returnKeyType="send" enablesReturnKeyAutomatically="YES" secureTextEntry="YES" smartQuotesType="yes" textContentType="new-password"'
+TRAITS_ROUND.update({
+    "tf-unpinned-order": constrained(text_field(traits=_ORDER), ""),
+    "tf-unpinned-order-secure": constrained(text_field(traits=_ORDER_SECURE), ""),
+    "tf-unpinned-decimal": constrained(text_field(traits=' keyboardType="decimalPad"'), ""),
+    "tf-unpinned-disabled": constrained(text_field(TEXT_FIELD + ' enabled="NO"'), ""),
+})
+TRAITS_ROUND["cell-attr-plain"] = cell_xib("")
+TRAITS_ROUND["cell-attr-combination"] = cell_xib(' tag="7" userInteractionEnabled="NO" hidden="YES" alpha="0.5" insetsLayoutMarginsFromSafeArea="NO" focusStyle="custom"',
+                                                 cell_extra='            <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n            <inset key="separatorInset" minX="15" minY="0.0" maxX="0.0" maxY="0.0"/>\n')
+TRAITS_ROUND["view-access-all"] = constrained(subview("sss-ss-ss1", attributes=' propertyAccessControl="all"'), "")
+TRAITS_ROUND["view-access-none"] = constrained(subview("sss-ss-ss1", attributes=' propertyAccessControl="none"'), "")
+TRAITS_ROUND["view-plain-access-base"] = constrained(subview("sss-ss-ss1"), "")
+TRAITS_ROUND["view-tag-0"] = constrained(subview("sss-ss-ss1", attributes=' tag="0"'), "")
+TRAITS_ROUND["label-tag-0"] = constrained(label().replace("<label ", '<label tag="0" ', 1), "")
+TRAITS_ROUND["label-access-none"] = constrained(label().replace("<label ", '<label propertyAccessControl="none" ', 1), "")
+TRAITS_ROUND["tf-access-all"] = constrained(text_field(TEXT_FIELD + ' propertyAccessControl="all"'), PIN_FIELD)
+TRAITS_ROUND["cell-animations"] = cell_xib(cell_extra="            <animations/>\n")
+TRAITS_ROUND["cell-content-animations"] = cell_xib(content="                <animations/>\n")
+TRAITS_ROUND["view-animations"] = constrained(subview("sss-ss-ss1").replace("</view>", "    <animations/>\n                </view>"), "")
+TRAITS_ROUND["label-animations"] = constrained(label().replace("</label>", "    <animations/>\n                </label>"), "")
+TRAITS_ROUND["root-animations"] = constrained("", "").replace("<subviews", "<animations/>\n            <subviews", 1)
+EXPERIMENTS.update(TRAITS_ROUND)
+STORYBOARDS["sb-animations-view"] = storyboard(scene(view_extra="                        <animations/>\n"))
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
