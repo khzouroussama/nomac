@@ -134,6 +134,7 @@ public struct CorpusResults: Sendable {
         ("strings", "Strings", nil), ("nib", "Nibs", nil), ("assets", "Assets", nil), ("coredata", "Core Data", nil),
         ("signing", "Signing", nil), ("export", "Export", nil),
         ("build", "Build on Linux", "Linux"), ("build", "Build on the Mac (Xcode's compilers)", "macOS"),
+        ("extension", "Extensions on Linux", "Linux"),
     ]
 
     /// corpus/RESULTS.md. `source` says where the reports came from.

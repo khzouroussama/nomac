@@ -14,6 +14,7 @@ ADR 0006, ADR 0009 and ADR 0010; ADR 0008's Linux verification on Linux runners 
 | `strings`, `nib`, `assets`, `coredata`, `coreml` | the tasks of the build capture's log (`build/build.log`) that run `builtin-copyStrings`, `xcstringstool`, `ibtool`, `actool`, `momc`, `mapc` or `coremlc` (under `sandbox-exec`, which the check leaves out), and the files they wrote | the same command line run with nomac's tool of that name, on the same inputs | one check per task: every file Xcode's tool wrote byte-identical to nomac's after root rewrites ("Tool checks" below) |
 | `signing`, `export` | the archive capture (`capture_reference.py --archive`): each codesign step of an ad-hoc `xcodebuild archive`, its product before and after, and the archive's `debugging` export | `nomac codesign` with the step's arguments on the product as it was before; `nomac export` of the captured archive with its export options | one check per step: the product's files, links and permissions as codesign left them, its output and exit status; one check for the export: every file but `Packaging.log` byte-identical, the IPA once entry times, owner ids and `Payload/`'s permissions are set aside ("Signing and export checks" below) |
 | `archive`, `ipa` | the archive capture's `xcodebuild archive` (`archive/archive.log.cmd`), its `.xcarchive` and its `debugging` export | `nomac verify --build`: `nomac archive` with the capture's arguments (its `-archivePath` in the scratch folder, nomac's codesign for the capture's recording wrapper), then `nomac export` with its `ExportOptions.plist` | the archive's `Info.plist` but `CreationDate`; each product, dSYM and signature record, and each item of the IPA's `Payload`, by the build products' rules and the signing rules below; the export's other files but `Packaging.log` byte for byte, the IPA's entries by name and mode in order ("Archives that nomac built") |
+| `extension` | the `build` and archive captures | the products of `nomac verify --build`'s build, archive and export | one check per product nested in the app at each of those stages: its files by that stage's rules, and once signed, the signature its parent sealed ("Extension checks") |
 | `envelope` | the other checks | `nomac check` of the checkout for the loader domain, whose outputs the other checks compare, with the packages verification checked out | fails when every feature of the app is inside the envelope and another check differs: a verified feature then hides a difference (ADR 0011). Otherwise it lists the features outside the envelope; when every other check is identical, the unknown ones are those the app's comparison verifies |
 
 Where nomac cannot load the container or generate its PIF (an objectVersion Xcode refuses, a
@@ -38,7 +39,8 @@ never by estimate, and the overall figure as the weighted mean of the lines.
 | Strings and localization | `strings` | `checks` |
 | Core Data models | `coredata` | `checks` |
 | Packaging and signing | `signing`, `export` | `checks` |
-| Extensions; device workflow; distribution; rare file types; Metal and Core ML | none yet | 0%, printed as "no check kind yet" |
+| Extensions, App Clips, widgets, watch targets | `extension` | `checks`, from reports written on Linux only |
+| Device workflow; distribution; rare file types; Metal and Core ML | none yet | 0%, printed as "no check kind yet" |
 | Verification harness | none | `reports`: the share of corpus apps with a report |
 
 A check passes when it is identical, or equivalent where its kind documents equivalence (build
@@ -223,6 +225,28 @@ byte for byte; a step nomac's codesign stops on is *refused*. The export check r
 the export but `Packaging.log` (times and the machine); in an IPA, the DOS times and the `UX`
 fields of the entries (times and owner ids) and the permissions of `Payload/` (they follow the
 umask) are set aside, as in the packaging workstream's own comparison.
+
+## Extension checks
+
+With `--build`, each product nested in an app gets one `extension` check per stage that has it,
+named `<stage> <path>` (`ExtensionChecks`, docs/formats/extensions.md): `build` for the unsigned
+build's `<configuration>-iphoneos/<app>/…`, `archive` for the archive's `Products/Applications/<app>/…`
+and `ipa` for the IPA's `Payload/<app>/…`. A nested product is a bundle in `PlugIns`, `Extensions`,
+`AppClips` or `Watch` of an `.app`, at any depth, or an extension's dSYM in the archive's `dSYMs`.
+
+It passes when each of its files does, by the same comparison as the stage's own checks (the
+rules of "Build products" and "Archives that nomac built"): where it is embedded (a product
+elsewhere shows as missing and extra), its `Info.plist`, its resources, its compiled code, and at
+the signed stages its signature's fields, entitlements among them. Those stages add one rule the
+file comparison cannot see, the order of signing: the bundle holding a nested product must have
+sealed the files the product ended up with (`hash2` in its `CodeResources`), and a parent signed
+before its nested code would not have. Where Xcode's own tree does not hold it, nothing is claimed.
+
+Where nomac made no archive, each nested product of Xcode's counts as missing. The `build` stage's
+checks need only the reference's build capture, so every corpus app with extensions is measured,
+those whose ad-hoc archive Xcode refuses (entitlements need a profile) too. The progress line
+counts the reports written on Linux. `.github/scripts/extension_experiments.py` makes references of
+self-written apps with each kind of nested product and runs the same comparison.
 
 ## Archives that nomac built
 

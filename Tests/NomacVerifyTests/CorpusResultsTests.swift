@@ -88,7 +88,7 @@ import NomacVerify
 
     @Test func listsRefusalsByMessage() {
         let markdown = results.resultsMarkdown(date: "2026-10-22", runURL: nil)
-        #expect(markdown.contains("| a | A | identical | 1 / 1 | 0 | 0 | ✓ | – | 1 / 2 | – | – | – | – | 1 / 2 | 2 / 2 |\n"))
+        #expect(markdown.contains("| a | A | identical | 1 / 1 | 0 | 0 | ✓ | – | 1 / 2 | – | – | – | – | 1 / 2 | 2 / 2 | – |\n"))
         #expect(markdown.contains("| nib | 1 | 0 | 1 | 2 | 4 |\n"))
         #expect(markdown.contains("| nib | 2 | nomac does not compile <tableViewCell> in <objects> yet (BACKLOG B-260) |\n"))
     }

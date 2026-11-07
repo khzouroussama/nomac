@@ -15,7 +15,7 @@ Overall: 63% (weighted) · Corpus: 2 / 20 apps build on Linux (4 / 20 on the Mac
 - [x] Strings and localization · 100% · weight 3 · 3022 / 3022 strings checks in 13 apps
 - [x] Core Data models (momc replacement) · 100% · weight 4 · 11 / 11 coredata checks in 5 apps
 - [x] Packaging and signing (IPA, entitlements, dSYM) · 100% · weight 8 · 12 / 12 signing and export checks in 4 apps
-- [ ] Extensions, App Clips, widgets, watch targets · 0% · weight 5 · no check kind yet
+- [ ] Extensions, App Clips, widgets, watch targets · 0% · weight 5 · no extension checks compared on Linux yet
 - [ ] Device workflow (install, launch, XCTest on device) · 0% · weight 6 · no check kind yet
 - [ ] Distribution (TestFlight, App Store Connect) · 0% · weight 3 · no check kind yet
 - [ ] Rare file types (intents, SceneKit, texture atlases) · 0% · weight 2 · no check kind yet

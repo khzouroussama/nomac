@@ -106,7 +106,7 @@ struct VerifyCommand: AsyncParsableCommand {
             let tally = result.tally(kind: kind)
             print("\(result.app) \(kind): \(tally.identical)/\(tally.total) identical" + (tally.equivalent > 0 ? ", \(tally.equivalent) equivalent" : ""))
         }
-        for kind in ["strings", "nib", "assets", "coredata", "signing", "export"] + (build ? ["build", "archive", "ipa"] : []) where result.checks.contains(where: { $0.kind == kind }) {
+        for kind in ["strings", "nib", "assets", "coredata", "signing", "export"] + (build ? ["build", "archive", "ipa", "extension"] : []) where result.checks.contains(where: { $0.kind == kind }) {
             let tally = result.tally(kind: kind)
             let refused = result.checks.filter { $0.kind == kind && $0.status == .refused }.count
             print("\(result.app) \(kind): \(tally.identical)/\(tally.total) identical, \(tally.equivalent) equivalent, \(refused) refused")

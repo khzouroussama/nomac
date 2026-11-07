@@ -73,6 +73,7 @@ public struct BuildVerification {
         checks[0].detail += note
         #endif
         checks += Self.productChecks(results, detailLimit: detailLimit)
+        checks += ExtensionChecks.checks(results, stage: "build", detailLimit: detailLimit)
         return checks
     }
 
@@ -181,31 +182,34 @@ public struct BuildVerification {
         for result in results {
             products[result.path.split(separator: "/").prefix(depth).joined(separator: "/"), default: []].append(result)
         }
-        return products.keys.sorted().map { product in
-            var status = Check.Status.identical
-            var detail: [String] = []
-            for result in products[product]! {
-                switch result.outcome {
-                case .identical:
-                    continue
-                case .equivalent(let causes):
-                    if status == .identical { status = .equivalent }
-                    detail.append("equivalent \(result.path): " + causes.joined(separator: "; "))
-                case .different(let reasons):
-                    status = .different
-                    detail.append("different \(result.path): " + reasons.joined(separator: "; "))
-                case .missing:
-                    status = .different
-                    detail.append("missing \(result.path)")
-                case .extra:
-                    status = .different
-                    detail.append("extra \(result.path)")
-                }
+        return products.keys.sorted().map { productCheck(name: $0, results: products[$0]!, kind: kind, detailLimit: detailLimit) }
+    }
+
+    /// One product's check from its files' results: the worst of them, what differs in its detail.
+    static func productCheck(name: String, results: [BuildProducts.FileResult], kind: String, detailLimit: Int) -> Check {
+        var status = Check.Status.identical
+        var detail: [String] = []
+        for result in results {
+            switch result.outcome {
+            case .identical:
+                continue
+            case .equivalent(let causes):
+                if status == .identical { status = .equivalent }
+                detail.append("equivalent \(result.path): " + causes.joined(separator: "; "))
+            case .different(let reasons):
+                status = .different
+                detail.append("different \(result.path): " + reasons.joined(separator: "; "))
+            case .missing:
+                status = .different
+                detail.append("missing \(result.path)")
+            case .extra:
+                status = .different
+                detail.append("extra \(result.path)")
             }
-            if detail.count > detailLimit {
-                detail = detail.prefix(detailLimit) + ["... \(detail.count - detailLimit) more files"]
-            }
-            return Check(kind: kind, name: product, status: status, detail: detail)
         }
+        if detail.count > detailLimit {
+            detail = detail.prefix(detailLimit) + ["... \(detail.count - detailLimit) more files"]
+        }
+        return Check(kind: kind, name: name, status: status, detail: detail)
     }
 }

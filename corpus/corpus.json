@@ -14,7 +14,7 @@
     {"title": "Strings and localization", "weight": 3, "kinds": ["strings"], "measure": "checks"},
     {"title": "Core Data models (momc replacement)", "weight": 4, "kinds": ["coredata"], "measure": "checks"},
     {"title": "Packaging and signing (IPA, entitlements, dSYM)", "weight": 8, "kinds": ["signing", "export"], "measure": "checks"},
-    {"title": "Extensions, App Clips, widgets, watch targets", "weight": 5, "kinds": [], "measure": "checks"},
+    {"title": "Extensions, App Clips, widgets, watch targets", "weight": 5, "kinds": ["extension"], "measure": "checks", "host": "Linux"},
     {"title": "Device workflow (install, launch, XCTest on device)", "weight": 6, "kinds": [], "measure": "checks"},
     {"title": "Distribution (TestFlight, App Store Connect)", "weight": 3, "kinds": [], "measure": "checks"},
     {"title": "Rare file types (intents, SceneKit, texture atlases)", "weight": 2, "kinds": [], "measure": "checks"},

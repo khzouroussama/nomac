@@ -313,3 +313,10 @@ struct BigEndianWriter {
         bytes += data + [UInt8](repeating: 0, count: (4 - data.count % 4) % 4)
     }
 }
+
+/// The hash a bundle's `CodeResources` records for each file it holds (`hash2`).
+public enum SealedHashes {
+    public static func file(contents: [UInt8]) -> [UInt8] {
+        CodeSignature.sha256(contents)
+    }
+}

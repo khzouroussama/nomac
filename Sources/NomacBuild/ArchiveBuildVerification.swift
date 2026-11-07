@@ -52,13 +52,20 @@ public struct ArchiveBuildVerification {
         var checks = [Check(kind: "archive", name: "archive", status: result.exitStatus == 0 ? .identical : .different,
                             detail: result.exitStatus == 0 ? [] : ["nomac archive exited with status \(result.exitStatus) (\(logPath))"]
                                 + BuildVerification.failureSummary(result.outputString))]
-        guard FileSystem.isDirectory(ours) else { return checks }
+        guard FileSystem.isDirectory(ours) else {
+            // Nothing was archived: each nested product of Xcode's archive counts as missing.
+            let results = try BuildProducts.compare(reference: capture + "/" + xcodeArchive, other: scratchDirectory + "/no-archive")
+            return checks + ExtensionChecks.checks(results, stage: "archive", detailLimit: detailLimit)
+        }
         checks.append(infoCheck(capture + "/" + xcodeArchive + "/Info.plist", ours + "/Info.plist"))
+        var nested: [BuildProducts.FileResult] = []
         for folder in ["Products", "dSYMs", "Signatures"] where FileSystem.isDirectory(capture + "/" + xcodeArchive + "/" + folder) || FileSystem.isDirectory(ours + "/" + folder) {
             let results = try Self.compareSigned(reference: capture + "/" + xcodeArchive + "/" + folder, other: ours + "/" + folder)
-            checks += BuildVerification.productChecks(results.map { BuildProducts.FileResult(path: folder + "/" + $0.path, outcome: $0.outcome) },
-                                                      kind: "archive", depth: folder == "Products" ? 3 : 2, detailLimit: detailLimit)
+                .map { BuildProducts.FileResult(path: folder + "/" + $0.path, outcome: $0.outcome) }
+            checks += BuildVerification.productChecks(results, kind: "archive", depth: folder == "Products" ? 3 : 2, detailLimit: detailLimit)
+            nested += results
         }
+        checks += ExtensionChecks.checks(nested, stage: "archive", seals: (capture + "/" + xcodeArchive, ours), detailLimit: detailLimit)
         checks += try exportChecks(capture: capture, archive: ours)
         return checks
     }
@@ -242,6 +249,7 @@ public struct ArchiveBuildVerification {
         try right.extract(to: folder + "/nomac")
         let results = try Self.compareSigned(reference: folder + "/xcode", other: folder + "/nomac")
         checks += BuildVerification.productChecks(results, kind: "ipa", depth: 2, detailLimit: detailLimit)
+        checks += ExtensionChecks.checks(results, stage: "ipa", seals: (folder + "/xcode", folder + "/nomac"), detailLimit: detailLimit)
         return checks
     }
 
