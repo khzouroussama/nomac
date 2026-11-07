@@ -83,17 +83,18 @@ self-written cases. `--app-icon`, `--alternate-app-icon`, `--include-all-app-ico
 **What is listed.** Color, image and symbol sets, including those inside sprite atlases, that
 the build has something for: an entry for `universal` or a target device that names a file
 (image and symbol sets) or has a color (color sets; a dark-only color counts). On iPhone,
-`car` entries count for colors and symbols but not images; entries for `mac`, `tv`, `watch`
-or `vision` never count. Not listed: data sets, app icon sets, launch images (uncloudnotes'
+`car` entries count too; entries for `mac`, `tv`, `watch` or `vision` never count. Not listed: data sets, app icon sets, launch images (uncloudnotes'
 catalog), visionOS icon stacks, Icon Composer `.icon` inputs (swiftfin's six), a set folder
 without a `Contents.json` (tofu's `IssuerIcons/Philips.imageset`). A set without an entry for `universal`
 or for every target device is thinnable (below). actool warns, in a
 `/* com.apple.actool.document.warnings */` section printed twice in an order that changes, about
 an entry naming a missing file, a file no entry names with an extension it reads (in image sets
 `png`, `jpg`, `jpeg`, `pdf`, `svg` and `heic`, in symbol sets `svg`, case-sensitive; others such
-as flutter's `README.md` are ignored), a symbol file without the `svg` extension, image entries
-for `car`, `watch`, `vision` or `ios-marketing` and `ios-marketing` color and symbol entries;
-nomac stops on those (B-204). A folder whose extension is not an
+as flutter's `README.md` are ignored), a symbol file without the `svg` extension, and entries
+it calls unassigned children, with or without a file: `ios-marketing` ones of every kind of
+set, and image entries of a scale their idiom does not have (`image-entry-scales`: `car` 1x,
+`ipad`, `mac` and `tv` 3x, `vision` and `watch` 1x and 3x; no scale is never one); those sets
+are not listed. nomac stops on them (B-204). Sticker catalogs add nothing to these files. A folder whose extension is not an
 asset type (`ABC.DEF`) is a group like one without an extension. A folder or a sprite atlas
 whose `Contents.json` has `provides-namespace` is a namespace; a set's name is its folder name
 without extension, after its namespaces (`Space/Inner/deep`). Names keep the form the file
@@ -251,16 +252,31 @@ rest is zeros.
 A leaf holds at most (block size − 12) / 8 entries: 126 in `BITMAPKEYS` (a catalog of 127
 names already splits it), 510 in the others. Larger trees have branch nodes: 0 instead of 1,
 the separator count, next and previous 0, then (child, separator key) entries and a trailing
-child block, padded to the block size. nomac writes them for `BITMAPKEYS` (`bitmap-order`, 25
-catalogs of 127 to 510 names and flappy-fly-bird's 166 identifiers identical) and stops on
-the other tables beyond 510 entries (BACKLOG B-201).
+child block, padded to the block size. A separator refers to the block of the kept leaf's last
+key, no new block; when all keys have the same length a branch also copies its separators after
+the trailing child, and its block is as long as the block size plus the key length times the
+separators. A branch holds as many separators as a leaf holds entries.
 
-actool builds `BITMAPKEYS` one entry at a time, in the order it creates the values (below):
-each value block is created, then its entry inserted. A full leaf takes the new entry, keeps
-its first ⌈n / 2⌉ entries (64 of 127) and moves the others to a new leaf block created right
-then, after the value; the kept leaf's last key becomes the separator in the parent, and when
-the leaf was the root a new root branch block is created next, holding (kept leaf, separator)
-and the new leaf as its last child. Leaves are linked forward and backward in key order.
+actool builds every table one entry at a time, in the order it creates the values (below): each
+key block, then its value block, is created, then the entry inserted. A full leaf takes the new
+entry, keeps its first ⌈n / 2⌉ entries (64 of 127, 256 of 511) and moves the others to a new leaf
+block created right then, after the value; the kept leaf's last key becomes the separator in
+the parent, and when the leaf was the root a new root branch block is created next, holding
+(kept leaf, separator) and the new leaf as its last child. Leaves are linked forward and backward
+in key order. So `FACETKEYS`, created in key order, fills its last leaf and leaves the others
+at 256, and `RENDITIONS`, created middle-first, splits where the middles fall.
+
+A full `BITMAPKEYS` branch (127 separators) keeps its first ⌊n / 2⌋ (63), gives the next to its
+parent and moves the other 63 and their children to a new branch block, created right after the
+new leaf and before a new root; branches have no links (`large-tables`: 12,000 and 24,000 names,
+a root over branches and a branch under the root overflowing, whole stores identical). The
+4,096-byte tables would need about 130,000 entries for it, more than `large-tables` reached, and
+nomac stops there (BACKLOG B-201).
+
+`large-tables`: 53 catalogs of 510 to 24,000 names, three appearances, three idioms, display gamuts,
+data sets, image sets with atlases and a mix of them, every table past one leaf, reproduced whole
+after the appearance keys' order (Determinism). `APPEARANCEKEYS` holds a few names and has
+not been seen past one leaf.
 
 Each tree's header and root blocks are created together, before the blocks of its entries:
 `RENDITIONS`, `FACETKEYS` and `APPEARANCEKEYS` right after `CARHEADER`, `BITMAPKEYS` after
@@ -374,11 +390,14 @@ identifier's renditions use (bit *v* for value *v*: scale 1 → 2, idioms 0, 1, 
 
 actool creates the values in the slot order of an open-addressing hash table filled in
 rendition creation order, each identifier once (`bitmap-order`, 50 catalogs of 1 to 510
-names): slots `[3, 7, 13, 23, 41, 71, 127, 191, 251, ...]`, home slot
+names; `large-tables`, up to 24,000): slots `[3, 7, 13, 23, 41, 71, 127, 191, 251, 383, 631, 1087,
+1723, 2803, 4523, 7351, 11959, 19447, 31231, 50683, ...]`, home slot
 `identifier × 2654435761` (64 bits) modulo the size, linear probing upwards with wrap-around;
-after an insertion that makes the count exceed `[3, 6, 11, 19, 32, 52, 85, 118, 155, ...]` for
-the current size, and before inserting into a full table, the table moves to the next size,
-re-inserting the identifiers in slot order.
+after an insertion that makes the count exceed `[3, 6, 11, 19, 32, 52, 85, 118, 155, 237, 390, 672,
+1065, 1732, 2795, 4543, 7391, 12019, 19302, 31324, ...]` for the current size, and before inserting
+into a full table, the table moves to the next size, re-inserting the identifiers in slot order.
+These are CFBasicHash's tables (CF-Lite, public); nomac stops past 31,324 identifiers, the
+largest table seen in use (BACKLOG B-201).
 
 ## Thinning (`car-thinning`)
 
@@ -405,7 +424,9 @@ color set with a dark appearance; a single-size app icon with a dark one); `noma
   key and CSI blocks and a removed facet's name and token blocks are freed (index entry
   `0xFFFFFFFF`, `0xFFFFFFFF`; the free list stays empty); `RENDITIONS` and
   `FACETKEYS` keep their header and leaf blocks, written again with the remaining entries (the
-  leaf keeps the tree's declared key length and copies of fixed-length keys); `BITMAPKEYS` is
+  leaf keeps the tree's declared key length and copies of fixed-length keys; nomac stops on a table
+  of several leaves, whose nodes assetutil removes and merges by a rule not known yet, BACKLOG
+  B-201); `BITMAPKEYS` is
   built again for the remaining renditions as actool builds it, in new blocks after the last one
   (its old blocks freed, its variable moved); `CARHEADER`'s rendition count is updated; the other
   blocks are kept, and the store is laid out again in block order.
@@ -459,11 +480,16 @@ properties: 1004 with 0 and the float 1.0, 1005 with the type identifier (its le
 (25,000 bytes stay 25,000).
 
 The type identifier is `universal-type-identifier` when the entry has one, else the one macOS
-gives the file's extension: `txt` `public.plain-text`, `json` `public.json`, `bin`
-`com.apple.macbinary-archive`, `plist` `com.apple.property-list`, ... (the table in
-`DataSet.swift`, observed for 41 extensions). Extensions macOS does not know get a dynamic
-identifier (`db` → `dyn.age80k2u`, no extension → `dyn.age8u`); nomac does not compute those
-yet (BACKLOG B-208).
+gives the file's extension, in lowercase and canonically decomposed: `txt` `public.plain-text`,
+`json` `public.json`, `bin` `com.apple.macbinary-archive`, `PNG` `public.png`, ... (the table in
+`DataTypeIdentifiers.swift`: the 800 extensions `lsregister -dump` declares for types of macOS,
+its applications and Xcode, each compiled once, `type-identifier-table`; those only other
+applications declare are left out, a Mac with such an application may differ). An extension
+macOS does not know gets a dynamic identifier (`dynamic-identifiers`, 91 extensions): `dyn.a`
+and the bits of `1=<extension>` (UTF-8, with a backslash before `=`, `,`, `:` and `\`), five at
+a time from the top and zero-padded, each in the alphabet `abcdefghkmnpqrstuvwxyz0123456789`:
+`db` → `dyn.age80k2u`, `a=b` → `dyn.age80c1b7qk`. No extension, a hidden file's, a trailing
+dot's and one holding a space are `1=`: `dyn.age8u`.
 
 ### Colors (`colors`)
 
@@ -490,15 +516,18 @@ dark: `secondarySystemGroupedBackgroundColor` is gray 1.0 in light and extended 
 the components it resolves, 32-bit floats stored as doubles, and a second `COLR` block of
 version 1, the name's length and the name. The values are iOS 26's colors (`systemBlueColor`
 0, 0.533, 1, 1, that is #0088FF), the same at deployment targets 15.0 and 18.0, for every idiom
-and display gamut, and for the `ios` and `universal` platforms; `luminosity` `light` and
-`contrast` `high` give other values. 39 names are known (17 for `universal` without a warning,
-22 iOS-only ones). An iOS-only name for `universal` gets the document warning ``<set>
+and display gamut, and for every platform: `ios`, `universal`, `osx`, `tvos`, `watchos`, `xros`,
+`visionos` and none, which actool calls macOS (`system-color-platforms`); `luminosity` `light`
+and `contrast` `high` give other values. 40 names are known (17 without a warning for any
+platform, 23 iOS-only ones, `groupTableViewBackgroundColor` among them; it is the only name of
+real catalogs that was missing, and UIKit's other old names such as `viewFlipsideBackgroundColor`
+are unknown). An iOS-only name for another platform gets the document warning ``<set>
 references a system color named <name> for platform Universal, but the catalog is building
 for iOS. The color may appear differently at runtime.``; a name actool does not know gets
 (0.567, 0.464, 1, 1) in sRGB and ``Unable to find iOS system color named: <name>, older
-systems will not see the expected value`` (`Universal` for `universal`, after the other
-warning). Those warnings come in an order that changes from run to run; nomac stops on them,
-on other platforms and on other appearances (BACKLOG B-203).
+systems will not see the expected value`` (the platform's name instead of iOS, after the other
+warning). Those warnings come in an order that changes from run to run; nomac stops on them
+and on other appearances (BACKLOG B-203).
 
 ## Images (`images`, `packing`)
 
@@ -514,7 +543,8 @@ catalogs of gomap's, icecubes', kickstarter's and nextcloud's that use nothing e
   without a scale is 1x) and idiom 1 for `iphone`, 2 for `ipad`, none for `universal`; CSI scale
   100 times the scale, sizes in pixels. Entries for a device `--target-device` does not name
   add nothing, and a set left without renditions has no facet. `car` entries get renditions
-  (idiom 4); `vision` and `ios-marketing` entries, and iPad 3x ones, document warnings and
+  (idiom 4) with iPhone among the targets, also for colors (`car-entries`); of data sets, an
+  unassigned child warning and nothing, where nomac stops; `vision` and `ios-marketing` entries, and iPad 3x ones, document warnings and
   nothing else (B-200).
 - **Pixels.** The PNG's own values, without color conversion for color images without an ICC
   profile or with sRGB IEC61966-2.1's, and for gray images with any (other profiles convert
@@ -1126,12 +1156,23 @@ atlas of the sprite atlas's own instead of the classes above:
 ### visionOS icon stacks (`images`)
 
 An iOS build writes nothing for a `.solidimagestack`: the car and the partial Info.plist are
-identical with and without it. actool checks it, and reports twice, under
-`/* com.apple.actool.document.errors */`, `The last visionOS App Icon Layer with content, “Back”,
-must exactly fill the image stack. Its current frame is {{0, 0}, {32, 32}} while the visionOS
-App Icon's size is {512, 512}.` for a layer of 64 pixels at 2x; nomac accepts stacks whose layers
-with content hold one vision 2x PNG of 1,024 × 1,024 pixels, as icecubes' do, and stops on
-others.
+identical with and without it. actool checks it (`icon-stacks`, 30 cases), and reports twice,
+under `/* com.apple.actool.document.errors */` before the document warnings, as
+`<catalog>:./<stack>: error: <message>`, and still exits with 0, also when generating symbols:
+
+- `The last visionOS App Icon Layer with content, “Back”, must exactly fill the image stack. Its
+  current frame is {{0, 0}, {242, 256}} while the visionOS App Icon's size is {512, 512}.` for a
+  layer of 484 × 512 pixels at 2x. Only the last layer in the `layers` list with an entry naming
+  a file counts: other layers may have any size (vlc's), and a stack without content has no
+  such layer (sdwebimage's). The size in points is the PNG's over the entry's scale, no scale
+  being 1x (`{242.5, 256.5}` for 485 × 513), for the idioms `vision`, `reality` (a former name;
+  NetflixVisionPro's), `universal` and `iphone` alike.
+- `The visionOS App Icon “Icon” must have at least 2 layers.` and `... may not have more than 3
+  layers.`, counting layers in the list with or without content or folders, after the message above.
+
+A `vision` entry at 1x or 3x adds an unassigned child warning, and an entry naming a missing file
+a warning; nomac stops on those, on layers of several images (one of them is called unassigned)
+and on files other than PNGs (B-202), and on stacks with errors when generating symbols (B-204).
 
 ### Deployment-target variants (observed; variant 0's format reproduced for app icons)
 
@@ -1530,6 +1571,9 @@ nomac writes all of it but the rendered pixels, ADR 0204):
   primary icon's `CFBundleIcons` and `CFBundleIcons~ipad`, for the targeted devices as
   `CFBundleIconName`, get `CFBundleAlternateIcons`, each alternate's name mapped to its
   `CFBundleIconName`; without `--app-icon` there are no keys (`icons` alternate cases).
+- A compiled Icon Composer icon replaces the app icon set of its name, whichever input comes
+  first, as primary and as alternate: the set adds nothing and the name is listed once (firefox,
+  home-assistant; `same-name-icons`). actool still writes the set's document warnings (B-202).
 - Alternate app icon sets (`alternate-app-icons`, 17 cases identical or equivalent): the sets
   `--alternate-app-icon` names, or with `--include-all-app-icons` every set with an image
   besides `--app-icon`'s, give their renditions as a primary set would (single-size sets for
@@ -1581,6 +1625,23 @@ identical) compiled with `--include-sticker-content`, `--stickers-icon-role exte
   sizes' names in the order 60 × 45, 67 × 50, 74 × 55, 27 × 20, 32 × 24 whatever the set's, and
   no `CFBundleIconName`; `IMStickerPackPath` the pack's folder name;
   `MSMessagesExtensionStoreIconName` the set's name.
+- Stickers count only under `--app-icon` (`sticker-options`, 28 cases): without it icon sets and
+  packs add nothing, whatever the other options, and a stickers icon set it does not name never
+  adds anything, beside any other assets (bluewallet's, rainbow's). Without
+  `--include-sticker-content` there is no pack and no `IMStickerPackPath`, as without a pack in the
+  catalog. List entries without a folder give the warning `No source image for sticker.`
+  and folders the list leaves out add nothing.
+- Observed, nomac stops (B-204): without a role, `--app-icon` alone puts the 1024 × 1024 image in
+  the car with only `MSMessagesExtensionStoreIconName`, and with `--include-sticker-content` the
+  1024 × 768 image and the pack, without PNGs; `--stickers-icon-role host-app` puts the 1024 × 1024
+  image in the car, writes `<set>29x29`, and omits the store icon key; several packs give
+  `warning: Only one sticker pack is supported per extension. Using Abe.` under the first in
+  name order, the only one written; `--app-icon` naming an app icon set with
+  `--include-sticker-content` writes the pack and icons named `<set>1024x1024`; PNGs without
+  `--compress-pngs` differ. `--include-sticker-content` with a pack and without a prefix makes
+  actool crash.
+- A name `--app-icon` gives that nothing has: the usual error says `stickers icon set or app icon
+  set` with `--stickers-icon-role` and `stickers icon set, app icon set, or icon stack` without.
 - `<pack>.stickerpack/` (one output in the report and the dependency info) holds each sticker
   of the pack's `stickers` list, the file its `.sticker` folder names copied as it is under the
   folder's name with the file's extension (wikipedia's `Astronaut animated.sticker` holds

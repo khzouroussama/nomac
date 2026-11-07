@@ -67,7 +67,7 @@ import Testing
             "assets:colorset.idiom=iphone": .verified,
             "assets:colorset.color=reference": .verified,
             "assets:dataset": .verified,
-            "assets:dataset.type=unknown-extension": .unverified,
+            "assets:dataset.type=unknown-extension": .verified,
             "assets:imageset": .verified,
             "assets:imageset.image=universal-1x": .verified,
             "assets:imageset.image=none": .verified,

@@ -182,7 +182,7 @@ struct CatalogScan {
             if color["reference"] != nil || color["platform"] != nil {
                 let platform = color["platform"] as? String
                 let known = (color["reference"] as? String).flatMap { SystemColors.values[$0] }
-                let reproduced = known.map { platform == "ios" || (platform == "universal" && $0.universal) } ?? false
+                let reproduced = ColorSet.systemColorPlatforms.contains(platform) && known.map { platform == "ios" || $0.universal } ?? false
                     && (appearances.isEmpty || appearances == ["luminosity:dark"])
                 use(reproduced ? "assets:colorset.color=reference" : "assets:colorset.color=reference-other", file, name)
                 continue

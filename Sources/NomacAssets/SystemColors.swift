@@ -1,8 +1,9 @@
 /// The system colors a color set can reference (`"reference": "systemBlueColor"`), with the
 /// components actool stores for each, observed on self-written catalogs (`colors`,
 /// system-colors): the same at deployment targets 15.0 and 18.0, for every idiom and display
-/// gamut, and for the `ios` and `universal` platforms. Names marked iOS-only make actool warn
-/// when referenced for `universal`, as do names it does not know, which get a placeholder color.
+/// gamut, and for every platform (`colors`, system-color-platforms). Names marked iOS-only make
+/// actool warn when referenced for another platform, as do names it does not know, which get a
+/// placeholder color.
 enum SystemColors {
     struct Value {
         /// The `COLR` color space number.
@@ -19,6 +20,7 @@ enum SystemColors {
     /// Each name's light and dark values and whether `universal` references it without a warning.
     static let values: [String: (light: Value, dark: Value, universal: Bool)] = [
         "darkTextColor": (.init(6, [0x00000000, 0x3F800000]), .init(6, [0x00000000, 0x3F800000]), false),
+        "groupTableViewBackgroundColor": (.init(4, [0x3F72F1AA, 0x3F72F1AA, 0x3F781062, 0x3F800000]), .init(6, [0x00000000, 0x3F800000]), false),
         "labelColor": (.init(2, [0x00000000, 0x3F800000]), .init(2, [0x3F800000, 0x3F800000]), true),
         "lightTextColor": (.init(6, [0x3F800000, 0x3F19999A]), .init(6, [0x3F800000, 0x3F19999A]), false),
         "linkColor": (.init(4, [0x00000000, 0x3EF4BC6A, 0x3F800000, 0x3F800000]), .init(4, [0x3D0F5C29, 0x3F049BA6, 0x3F800000, 0x3F800000]), false),

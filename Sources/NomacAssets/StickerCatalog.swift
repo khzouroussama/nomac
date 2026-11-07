@@ -4,8 +4,8 @@ import NomacPlist
 
 /// iMessage sticker catalogs (docs/formats/asset-catalog.md, "Sticker packs"; firefox's and
 /// wikipedia's, `stickers`): the stickers icon set `--app-icon` names gives its Messages App Store
-/// image to `Assets.car` and its other sizes as icon PNGs; the sticker pack is a folder of the
-/// stickers' files and a binary `Info.plist`.
+/// image to `Assets.car` and its other sizes as icon PNGs; with `--include-sticker-content`, the
+/// sticker pack is a folder of the stickers' files and a binary `Info.plist`.
 enum StickerCatalog {
     /// The icon set entries actool assigns, and which of them it writes as PNGs.
     static let iconSlots: Set<String> = [
@@ -21,11 +21,11 @@ enum StickerCatalog {
     struct Compiled {
         var storeIcon: ImageSet.Source
         var pngs: [(filename: String, image: PNGImage, path: String)]
-        var pack: (folder: String, files: [(name: String, path: String)], infoPlist: Data)
+        var pack: (folder: String, files: [(name: String, path: String)], infoPlist: Data)?
         var infoPlist: [String: PropertyListValue]
     }
 
-    static func compile(iconSet: AssetCatalog.Asset, pack: AssetCatalog.Asset, identifierPrefix: String) throws -> Compiled {
+    static func compile(iconSet: AssetCatalog.Asset, pack: (asset: AssetCatalog.Asset, identifierPrefix: String)?) throws -> Compiled {
         guard Set(iconSet.contents.keys).isSubset(of: ["images", "info"]) else {
             throw NomacError("stickers icon set properties are not supported yet (BACKLOG B-202)", path: iconSet.path)
         }
@@ -48,13 +48,13 @@ enum StickerCatalog {
             let parts = slot.split(separator: " ")
             return ("\(iconSet.name)\(parts[1])@\(parts[2])x.png", try PNGImage(contentsOf: icons[slot]!.path), icons[slot]!.path)
         }
-        let packFolder = (pack.path as NSString).lastPathComponent
         let files = iconFileSizes.map { PropertyListValue.string(iconSet.name + $0) }
-        let infoPlist: [String: PropertyListValue] = [
+        var infoPlist: [String: PropertyListValue] = [
             "CFBundleIcons": .dictionary(["CFBundlePrimaryIcon": .dictionary(["CFBundleIconFiles": .array(files)])]),
-            "IMStickerPackPath": .string(packFolder), "MSMessagesExtensionStoreIconName": .string(iconSet.name),
+            "MSMessagesExtensionStoreIconName": .string(iconSet.name),
         ]
-        return Compiled(storeIcon: storeIcon, pngs: pngs, pack: try compilePack(pack, identifierPrefix: identifierPrefix), infoPlist: infoPlist)
+        if let pack { infoPlist["IMStickerPackPath"] = .string((pack.asset.path as NSString).lastPathComponent) }
+        return Compiled(storeIcon: storeIcon, pngs: pngs, pack: try pack.map { try compilePack($0.asset, identifierPrefix: $0.identifierPrefix) }, infoPlist: infoPlist)
     }
 
     /// The pack's stickers in its list's order, each file named after its sticker folder with

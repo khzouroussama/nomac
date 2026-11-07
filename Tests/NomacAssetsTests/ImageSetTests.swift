@@ -259,9 +259,11 @@ import Testing
     @Test func visionOSIconStacksAddNothingOnIOS() throws {
         let temporary = try TemporaryDirectory()
         try ImageSetTests.writeIconStack(temporary.path + "/Good.solidimagestack", side: 1024)
-        try SolidImageStack.check(temporary.path + "/Good.solidimagestack")
+        #expect(try SolidImageStack.errors(temporary.path + "/Good.solidimagestack").isEmpty)
         try ImageSetTests.writeIconStack(temporary.path + "/Small.solidimagestack", side: 64)
-        #expect(throws: NomacError.self) { try SolidImageStack.check(temporary.path + "/Small.solidimagestack") }
+        #expect(try SolidImageStack.errors(temporary.path + "/Small.solidimagestack") == [
+            "The last visionOS App Icon Layer with content, “Back”, must exactly fill the image stack. Its current frame is {{0, 0}, {32, 32}} while the visionOS App Icon's size is {512, 512}.",
+        ])
     }
 
     /// Entries of each scale for universal and targeted devices are read, those of devices the

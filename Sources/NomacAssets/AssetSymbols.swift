@@ -45,9 +45,9 @@ struct AssetSymbols {
     // MARK: Reading the catalogs
 
     /// Color, image and symbol sets for which the build has something: an entry for `universal`
-    /// or a target device (colors and symbols also `car` on iPhone) with a color, or naming an
-    /// image file. Data sets, app icon sets, launch images, visionOS icon stacks and Icon
-    /// Composer icons are left out;
+    /// or a target device (also `car` on iPhone) with a color, or naming an
+    /// image file. Data sets, app icon sets, sticker catalogs, launch images, visionOS icon stacks
+    /// and Icon Composer icons are left out;
     /// sprite atlases are read as folders (the `symbols` experiment, swiftfin).
     static func scan(_ catalogs: [String], targetDevices: [String], complication: String?) throws -> [Asset] {
         var assets: [Asset] = []
@@ -74,10 +74,21 @@ struct AssetSymbols {
         }
     }
 
-    /// The idioms of entries actool calls unassigned children on iOS, with a warning.
-    static let unassignedIdioms: [String: Set<String>] = [
-        "colorset": ["ios-marketing"], "imageset": ["car", "watch", "vision", "ios-marketing"], "symbolset": ["ios-marketing"],
+    /// The idioms of color and symbol entries actool calls unassigned children on iOS, with a warning.
+    static let unassignedIdioms: Set<String> = ["ios-marketing"]
+
+    /// The scales of image entries actool calls unassigned children on iOS, with a warning, by
+    /// idiom, for iPhone, iPad and Watch targets alike; an entry without a scale is assigned, every
+    /// `ios-marketing` one is not (`symbols`, image-entry-scales; pocket-casts' `car` entries).
+    static let unassignedImageScales: [String: Set<String>] = [
+        "car": ["1x"], "ipad": ["3x"], "mac": ["3x"], "tv": ["3x"], "vision": ["1x", "3x"], "watch": ["1x", "3x"],
     ]
+
+    static func isUnassigned(_ entry: [String: Any], type: String) -> Bool {
+        let idiom = entry["idiom"] as? String ?? "universal"
+        if type != "imageset" || idiom == "ios-marketing" { return unassignedIdioms.contains(idiom) }
+        return unassignedImageScales[idiom]?.contains(entry["scale"] as? String ?? "") ?? false
+    }
 
     /// The extensions (case-sensitive) of files no entry names that actool warns about; it
     /// ignores the others (a `README.md`, `.gif`, `.PNG`).
@@ -100,12 +111,11 @@ struct AssetSymbols {
             throw warned("a file no entry names, \(extra)")
         }
         if type == "symbolset", let file = files.first(where: { ($0 as NSString).pathExtension != "svg" }) { throw warned("a symbol file \(file)") }
-        // A watch catalog's watch entries are its own (`complications` symbols cases).
-        if let entry = entries.first(where: { unassignedIdioms[type]!.subtracting(targetDevices).contains($0["idiom"] as? String ?? "universal") }) {
+        if let entry = entries.first(where: { isUnassigned($0, type: type) }) {
             throw warned("an entry for \(entry["idiom"] as? String ?? "")")
         }
         var idioms = Set(["universal"] + targetDevices)
-        if type != "imageset" && targetDevices.contains("iphone") { idioms.insert("car") }
+        if targetDevices.contains("iphone") { idioms.insert("car") }
         let content = Set(entries.compactMap { entry -> String? in
             let idiom = entry["idiom"] as? String ?? "universal"
             return idioms.contains(idiom) && (type == "colorset" ? entry["color"] != nil : entry["filename"] != nil) ? idiom : nil
@@ -136,10 +146,12 @@ struct AssetSymbols {
                 let isThinnable = !idioms.contains("universal") && !Set(targetDevices).isSubset(of: idioms)
                 assets.append(Asset(kind: type == "colorset" ? .color : .image, isSymbolSet: type == "symbolset", isThinnable: isThinnable,
                                     namespaces: namespaces, name: base, catalog: catalog, relativePath: relative))
-            case "dataset", "appiconset", "launchimage":
+            case "dataset", "appiconset", "launchimage", "stickersiconset", "stickerpack":
                 continue
             case "solidimagestack":
-                try SolidImageStack.check(path)
+                guard try SolidImageStack.errors(path).isEmpty else {
+                    throw NomacError("asset symbols beside visionOS icon stacks actool reports errors about are not supported yet (BACKLOG B-204)", path: path)
+                }
             case let type?:
                 throw NomacError("asset symbols for '.\(type)' sets are not supported yet (BACKLOG B-204)", path: path)
             }

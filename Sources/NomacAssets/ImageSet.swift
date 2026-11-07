@@ -155,7 +155,7 @@ enum ImageSet {
                 }
                 continue
             }
-            guard let scale = scales[entry["scale"] as? String ?? "1x"], idiomName != "ipad" || scale < 3 else {
+            guard let scale = scales[entry["scale"] as? String ?? "1x"], idiomName != "ipad" || scale < 3, idiomName != "car" || entry["scale"] as? String != "1x" else {
                 throw NomacError("image set entries for \(idiomName) at scale '\(entry["scale"] ?? "")' are not supported yet (BACKLOG B-200)", path: asset.path)
             }
             // watchOS keeps 1x and 2x files (`watchos` experiment).

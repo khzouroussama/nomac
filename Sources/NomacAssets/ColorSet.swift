@@ -74,11 +74,15 @@ enum ColorSet {
         return out.bytes
     }
 
-    /// References for the `ios` and `universal` platforms, light or dark; actool's document
-    /// warnings for unknown names and iOS-only names referenced for `universal`, whose order changes
-    /// from run to run, and the values of other appearances are not reproduced (BACKLOG B-203).
+    /// The platforms a reference may name, none meaning macOS: all give the iOS values, with the
+    /// same names warned about on all but `ios` (`colors`, system-color-platforms).
+    static let systemColorPlatforms: Set<String?> = ["ios", "universal", "osx", "tvos", "watchos", "xros", "visionos", nil]
+
+    /// References for any platform, light or dark; actool's document warnings for unknown names
+    /// and iOS-only names referenced for other platforms, whose order changes from run to run,
+    /// and the values of other appearances are not reproduced (BACKLOG B-203).
     static func systemColor(_ name: String, platform: String?, appearance: RenditionAppearance, asset: AssetCatalog.Asset) throws -> [UInt8] {
-        guard platform == "ios" || platform == "universal", let entry = SystemColors.values[name], platform == "ios" || entry.universal,
+        guard systemColorPlatforms.contains(platform), let entry = SystemColors.values[name], platform == "ios" || entry.universal,
               appearance == .any || appearance == .dark else {
             throw NomacError("the system color \(name) for platform \(platform ?? "(none)") is not supported yet (BACKLOG B-203)", path: asset.path)
         }
@@ -143,13 +147,17 @@ enum Idiom {
     /// Idioms of other platforms that actool leaves out of an iOS catalog.
     static let ignoredOnIOS: Set<String> = ["mac", "tv", "watch"]
 
-    /// Device idioms, left out unless `--target-device` names them.
-    static let devices: Set<String> = ["iphone", "ipad"]
+    /// Device idioms, left out unless `--target-device` names them; `car` goes with iPhone
+    /// (`images` and `colors`, car-entries).
+    static let devices: Set<String> = ["iphone", "ipad", "car"]
 
     /// The idioms an iOS catalog keeps for `--target-device` values.
     static func iOS(targetDevices: [String]) -> [String: UInt16] {
         var idioms = ["universal": universal]
-        if targetDevices.contains("iphone") { idioms["iphone"] = phone }
+        if targetDevices.contains("iphone") {
+            idioms["iphone"] = phone
+            idioms["car"] = car
+        }
         if targetDevices.contains("ipad") { idioms["ipad"] = pad }
         return idioms
     }

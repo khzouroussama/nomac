@@ -171,9 +171,22 @@ public struct Actool {
             throw NomacError("actool: --standalone-icon-behavior \(behavior) is not supported yet (BACKLOG B-202)")
         }
         let catalog = try AssetCatalog.load(catalogPaths.filter { !iconPaths.contains($0) }, complication: options.complication)
+        // A compiled Icon Composer icon takes the place of the app icon set of its name, whichever
+        // input comes first; actool still warns about the set (`alternate-app-icons` same-name
+        // cases; firefox, home-assistant), where nomac stops.
+        let replacedSets = catalog.assets.filter { asset in asset.type == "appiconset" && icons.contains { $0.name == asset.name } }
+        for asset in replacedSets {
+            var problems = AppIconSet.Problems()
+            _ = try AppIconSet.icons(asset, watch: platform.watch, problems: &problems)
+            guard problems.entries.isEmpty, problems.unassigned.isEmpty, problems.strayFiles.isEmpty else {
+                throw NomacError("actool: app icon sets with warnings under an Icon Composer icon of their name are not supported yet (BACKLOG B-202)", path: asset.path)
+            }
+        }
         // Alternate icons: Icon Composer icons, or app icon sets with images (`alternate-icons`,
         // `alternate-app-icons` cases); all of them with `--include-all-app-icons`.
-        let iconSetNames = catalog.assets.filter { $0.type == "appiconset" && !(($0.contents["images"] as? [[String: Any]]) ?? []).allSatisfy { $0["filename"] == nil } }.map(\.name)
+        let iconSetNames = catalog.assets.filter { asset in
+            asset.type == "appiconset" && !replacedSets.contains { $0.path == asset.path } && !((asset.contents["images"] as? [[String: Any]]) ?? []).allSatisfy { $0["filename"] == nil }
+        }.map(\.name)
         let alternates = (options.includeAllAppIcons ? iconPaths.map(iconName) + iconSetNames : options.alternateAppIcons).filter { $0 != options.appIcon }
         let iconAlternates = alternates.filter { name in iconPaths.contains { iconName($0) == name } }, setAlternates = alternates.filter(iconSetNames.contains)
         guard iconAlternates.count + setAlternates.count == alternates.count else {
@@ -183,7 +196,8 @@ public struct Actool {
         var appIcons: [AppIconSet.Compiled] = []
         // App icon sets neither `--app-icon` nor an alternate names add nothing (`app-icons`
         // icons-not-named); alternates give renditions only.
-        for asset in catalog.assets where asset.type == "appiconset" && (asset.name == options.appIcon || setAlternates.contains(asset.name)) {
+        for asset in catalog.assets where asset.type == "appiconset" && (asset.name == options.appIcon || setAlternates.contains(asset.name))
+            && !replacedSets.contains(where: { $0.path == asset.path }) {
             var problems = AppIconSet.Problems()
             let icons = try AppIconSet.icons(asset, watch: platform.watch, problems: &problems)
             guard !icons.isEmpty else {
@@ -222,16 +236,24 @@ public struct Actool {
         }
         let iconSets = catalog.assets.filter { $0.type == "stickersiconset" }, packs = catalog.assets.filter { $0.type == "stickerpack" }
         var stickers: StickerCatalog.Compiled?
-        if options.includeStickerContent || !iconSets.isEmpty || !packs.isEmpty {
-            guard options.includeStickerContent, options.stickersIconRole == "extension", let prefix = options.stickerPackIdentifierPrefix,
-                  iconSets.count == 1, packs.count == 1, iconSets[0].name == options.appIcon, options.compressPNGs else {
-                throw NomacError("actool: sticker catalogs other than one stickers icon set named by --app-icon and one sticker pack, compiled with --include-sticker-content, --stickers-icon-role extension and --compress-pngs, are not supported yet (BACKLOG B-204)")
+        // Stickers count only under `--app-icon`: with none, or one naming an app icon set without
+        // `--include-sticker-content`, sets and packs add nothing, beside anything else in the
+        // catalog; other stickers icon sets never do (`sticker-options` cases; bluewallet, rainbow).
+        let stickerIconSet = iconSets.first { $0.name == options.appIcon }
+        let namesOtherIcon = catalog.assets.contains { $0.type == "appiconset" && $0.name == options.appIcon } || icons.contains { $0.name == options.appIcon }
+        if stickerIconSet != nil || options.includeStickerContent && namesOtherIcon {
+            guard let stickerIconSet, options.stickersIconRole == "extension", options.compressPNGs,
+                  !options.includeStickerContent || packs.count <= 1 && options.stickerPackIdentifierPrefix != nil else {
+                throw NomacError("actool: sticker catalogs other than a stickers icon set named by --app-icon, compiled with --stickers-icon-role extension and --compress-pngs, and with --include-sticker-content at most one sticker pack and --sticker-pack-identifier-prefix, are not supported yet (BACKLOG B-204)")
             }
-            stickers = try StickerCatalog.compile(iconSet: iconSets[0], pack: packs[0], identifierPrefix: prefix)
+            let pack = options.includeStickerContent ? packs.first.map { (asset: $0, identifierPrefix: options.stickerPackIdentifierPrefix ?? "") } : nil
+            stickers = try StickerCatalog.compile(iconSet: stickerIconSet, pack: pack)
         }
         if let appIcon = options.appIcon, !catalog.assets.contains(where: { ["appiconset", "stickersiconset"].contains($0.type) && $0.name == appIcon }),
            !icons.contains(where: { $0.name == appIcon }) {
-            errors.append("\(catalogPaths[0]): error: None of the input catalogs contained a matching stickers icon set, app icon set, or icon stack named  \"\(appIcon)\".")
+            // `--stickers-icon-role` leaves icon stacks out of the message (`sticker-options` nosuch cases).
+            let wanted = options.stickersIconRole == nil ? "stickers icon set, app icon set, or icon stack" : "stickers icon set or app icon set"
+            errors.append("\(catalogPaths[0]): error: None of the input catalogs contained a matching \(wanted) named  \"\(appIcon)\".")
         }
         let idioms = platform.idioms(targetDevices: options.targetDevices)
         var renditions: [CARRendition] = []
@@ -242,8 +264,9 @@ public struct Actool {
             default: break
             }
         }
-        for stack in catalog.assets where stack.type == "solidimagestack" {
-            try SolidImageStack.check(stack.path)
+        let stackErrors = try catalog.assets.filter { $0.type == "solidimagestack" }.flatMap { stack -> [String] in
+            let catalogPath = catalogPaths.first { stack.path.hasPrefix($0 + "/") } ?? catalogPaths[0]
+            return try SolidImageStack.errors(stack.path).map { "\(catalogPath):./\(stack.path.dropFirst(catalogPath.count + 1)): error: \($0)" }
         }
         renditions += appIcons.flatMap(\.sizeTables)
         if let member = catalog.assets.first(where: { $0.spriteAtlas != nil && $0.type != "imageset" }) {
@@ -346,6 +369,9 @@ public struct Actool {
         }
         if !notices.isEmpty {
             report += "/* com.apple.actool.notices */\n" + notices.map { $0 + "\n" }.joined()
+        }
+        if !stackErrors.isEmpty {
+            report += "/* com.apple.actool.document.errors */\n" + (stackErrors + stackErrors).map { $0 + "\n" }.joined()
         }
         if !documentWarnings.isEmpty {
             report += "/* com.apple.actool.document.warnings */\n" + documentWarnings.map { $0 + "\n" }.joined()

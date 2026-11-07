@@ -44,6 +44,7 @@ public enum AssetsEnvelope {
         .verified("assets:dataset.idiom=universal", "assets-experiments:data"),
         .verified("assets:dataset.type=explicit", "assets-experiments:data"),
         .verified("assets:dataset.type=from-extension", "assets-experiments:data"),
+        .verified("assets:dataset.type=unknown-extension", "assets-experiments:data"),
         .verified("assets:imageset", "assets-experiments:images", "assets-experiments:packing"),
         .verified("assets:imageset.image=none", "assets-experiments:images"),
         .verified("assets:imageset.image=universal-1x", "assets-experiments:images", "assets-experiments:packing"),
@@ -73,10 +74,9 @@ public enum AssetsEnvelope {
         .unverified("assets:imageset.png=unsupported", "16-bit PNGs and gammas other than 1/2.2 are not read yet", backlog: "B-209"),
         .unverified("assets:imageset.png=color-profile-other", "color profiles other than matrix/TRC ones are not read yet", backlog: "B-213"),
         .unverified("assets:symbolset.template=layer-tree", "template 6's layer trees are not written yet", backlog: "B-202"),
-        .unverified("assets:colorset.color=reference-other", "system colors actool does not know, iOS-only ones for universal, other platforms and appearances", backlog: "B-203"),
+        .unverified("assets:colorset.color=reference-other", "system colors actool does not know, iOS-only ones for other platforms, other appearances", backlog: "B-203"),
         .unverified("assets:colorset.component=hexadecimal-long", "hexadecimal components of more than two digits are not observed", backlog: "B-203"),
         .unverified("assets:colorset.color-space=none", "colors without a color space are not observed", backlog: "B-203"),
-        .unverified("assets:dataset.type=unknown-extension", "dynamic type identifiers are not known", backlog: "B-208"),
         .unverified("assets:names=same-name-several-types", "one observation only", backlog: "B-208"),
     ]
 }
