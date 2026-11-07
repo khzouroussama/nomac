@@ -171,7 +171,7 @@ extension DocumentCompiler {
         try check(reference, attributes: ["key", "image", "catalog", "symbolScale", "renderingMode", "variableValue"], children: ["hierarchicalColors"])
         try value(reference, "key", in: ["image"])
         try value(reference, "catalog", in: ["system"])
-        try value(reference, "renderingMode", in: ["hierarchical"])
+        try value(reference, "renderingMode", in: ["hierarchical", "template", "original"])
         guard references.count == 1, element.attributes["image"] == nil, let name = reference.attributes["image"] else {
             throw unsupported("an image reference without a system symbol's name, or beside an image")
         }
@@ -180,7 +180,7 @@ extension DocumentCompiler {
             configuration = NibSymbolConfiguration(scale: try mapped(scale, NibSymbolConfiguration.scales, "symbolScale"))
         }
         let palettes = reference.children(named: "hierarchicalColors")
-        guard (reference.attributes["renderingMode"] != nil) == (palettes.count == 1) else {
+        guard (reference.attributes["renderingMode"] == "hierarchical") == (palettes.count == 1) else {
             throw unsupported("hierarchical rendering without one set of hierarchical colors")
         }
         for palette in palettes {
@@ -188,9 +188,12 @@ extension DocumentCompiler {
             configuration = configuration ?? NibSymbolConfiguration()
             configuration?.hierarchicalColors = try palette.children.map { try color($0) }
         }
-        // Without a catalog it names an image of the app, as a plain image does (`image-reference-asset*`).
-        let image = NibImage(name: string(name), symbol: reference.attributes["catalog"] != nil, configuration: configuration)
+        // Without a catalog it names an image of the app, as a plain image does, without its scale (`image-reference-asset*`, `symbol-rendering-named-*`).
+        let symbol = reference.attributes["catalog"] != nil
+        let image = NibImage(name: string(name), symbol: symbol, configuration: symbol ? configuration : nil)
         image.variableValue = try reference.attributes["variableValue"].map { try number($0, "variableValue") }
+        // A system symbol's `template` and `original`; an image of the app writes neither (`symbol-rendering-*`).
+        if image.symbol { image.renderingMode = ["original": 1, "template": 2][reference.attributes["renderingMode"] ?? ""] }
         return image
     }
 

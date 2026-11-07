@@ -402,9 +402,10 @@ Next actions:
 2. Refusals, ranked by the projects Xcode 27 accepts: `JOBS=3 TOP=60 python3 tools/rank_survey.py <current nomac> survey-docs
    survey-rank.json`, of 64 such projects with a refused document (`live` in `survey-docs/projects.json`, no `build:*below*`
    feature). Re-rank before starting anything: part A lands the same fixes, and did for bars while this list ran. Done:
-   localized button configurations, navigation bars' frames, shadows, shadow images and background. Next: scenes without one
-   controller (`hostingController`, `avPlayerViewController`, 5 projects), `hasAttributedTitle` (4), font configurations other than
-   a text style's (4), `<view>` in `<tableView>` (3, and 33 of all), `<connections>` in a standalone bar's items.
+   localized button configurations, navigation bars' frames, shadows, shadow images and background, table header and footer views,
+   symbol configurations, hosting and player controllers, date pickers' styles, rendering modes. Next: `hasAttributedTitle` (4), a global tint
+   with a table as a scene's view (3), `destinationCreationSelector` (3), `translatesAutoresizingMaskIntoConstraints` on a scene's view (3),
+   `<date>` in `<datePicker>` (14 documents), a button state's symbol configuration beside a title (9), a hosting controller as a root.
 3. B-291, several recognizers in a scene: the placeholders' numbers are not the sorted connections' first reach;
    `sb-gesture-three`, `-nested`, `-predict` and wikipedia's DescriptionEditViewController fit no walk tried (`gsum.py`).
 

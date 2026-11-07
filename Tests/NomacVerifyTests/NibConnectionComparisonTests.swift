@@ -42,6 +42,21 @@ import Testing
         return archive(objects)
     }
 
+    /// A root with one collection attaching objects of `classes`, in that order.
+    static func destinations(_ classes: [String]) -> Data {
+        archive([("NSObject", [("UINibTopLevelObjectsKey", 2, []), ("UINibConnectionsKey", 1, [])]), ("NSArray", [("UINibEncoderEmptyKey", 3, [])]), ("UIView", []),
+                 ("UIRuntimeOutletCollectionConnection", [("UILabel", 4, []), ("UISource", 2, []), ("UIDestination", 5, [])]),
+                 ("NSString", [("NS.bytes", nil, Array("gestureRecognizers".utf8))]), ("NSMutableArray", [("UINibEncoderEmptyKey", 6, []), ("UINibEncoderEmptyKey", 7, [])]),
+                 (classes[0], []), (classes[1], [])])
+    }
+
+    /// vlc's VideoPlayerControls, three orders in eight runs of ibtool (ADR 0260).
+    @Test func ordersOfACollectionsDestinationsAreOneCanonicalForm() throws {
+        let canonical = try #require(NibConnectionComparison.canonical(Self.destinations(["UITapGestureRecognizer", "UILongPressGestureRecognizer"])))
+        #expect(NibConnectionComparison.canonical(Self.destinations(["UILongPressGestureRecognizer", "UITapGestureRecognizer"])) == canonical)
+        #expect(NibConnectionComparison.canonical(Self.destinations(["UITapGestureRecognizer", "UISwipeGestureRecognizer"])) != canonical)
+    }
+
     @Test func ordersOfCollectionsAreOneCanonicalForm() throws {
         let canonical = try #require(NibConnectionComparison.canonical(Self.connections(["alpha", "zeta"], order: [0, 1])))
         #expect(NibConnectionComparison.canonical(Self.connections(["alpha", "zeta"], order: [1, 0])) == canonical)

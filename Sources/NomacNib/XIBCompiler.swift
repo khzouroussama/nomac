@@ -597,7 +597,7 @@ struct DocumentCompiler {
             : element.name == "navigationBar" ? ["shadowImage", "translucent", "barStyle", "largeTitles"] : element.name == "toolbar" ? ["translucent", "barStyle"]
             : element.name == "searchBar" ? SearchBarContent.attributes
             : element.name == "wkWebView" ? WebViewContent.attributes : element.name == "mapView" ? MapContent.attributes
-            : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate"]
+            : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate", "style"]
             : Self.controlAttributes[element.name] ?? []
         // `cs-verify-*`: both values change nothing.
         if element.attributes["verifyAmbiguity"] != nil { try value(element, "verifyAmbiguity", in: ["off", "ignoreSizes"]) }

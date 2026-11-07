@@ -8985,6 +8985,129 @@ EXPERIMENTS["symbol-size-scale"] = symbol_view(preferred_symbol(' configurationT
 EXPERIMENTS["symbol-font-for-image"] = symbol_view(preferred_symbol(' configurationType="font"', HEADLINE_FONT).replace('key="preferredSymbolConfiguration"', 'key="preferredSymbolConfigurationForImage"'), SYMBOL_IMAGE)
 
 
+# Round 158: controllers without a view of their own, date pickers' styles, template symbols.
+def bare_scene(element, number=1):
+    return (f'        <scene sceneID="sc{number}-aa-aaa">\n            <objects>\n                {element}\n'
+            f'                <placeholder placeholderIdentifier="IBFirstResponder" id="fr{number}-aa-aaa" sceneMemberID="firstResponder"/>\n            </objects>\n            <point key="canvasLocation" x="0" y="0"/>\n        </scene>\n')
+
+
+for name, element in (("plain", '<avPlayerViewController videoGravity="AVLayerVideoGravityResizeAspect" id="vc1-aa-aaa" sceneMemberID="viewController"/>'),
+                      ("identifier", '<avPlayerViewController storyboardIdentifier="Player" title="Video" videoGravity="AVLayerVideoGravityResizeAspect" id="vc1-aa-aaa" sceneMemberID="viewController"/>'),
+                      ("class", '<avPlayerViewController videoGravity="AVLayerVideoGravityResizeAspect" id="vc1-aa-aaa" customClass="Player" customModule="T" customModuleProvider="target" sceneMemberID="viewController"/>'),
+                      ("fill", '<avPlayerViewController videoGravity="AVLayerVideoGravityResizeAspectFill" id="vc1-aa-aaa" sceneMemberID="viewController"/>'),
+                      ("no-gravity", '<avPlayerViewController id="vc1-aa-aaa" sceneMemberID="viewController"/>')):
+    STORYBOARDS[f"sb-avplayer-{name}"] = storyboard(bare_scene(element), initial="vc1-aa-aaa")
+for name, element in (("plain", '<hostingController id="vc1-aa-aaa" sceneMemberID="viewController"/>'),
+                      ("class", '<hostingController id="vc1-aa-aaa" customClass="Host" customModule="T" customModuleProvider="target" sceneMemberID="viewController"/>'),
+                      ("identifier", '<hostingController storyboardIdentifier="Host" id="vc1-aa-aaa" customClass="Host" customModule="T" customModuleProvider="target" sceneMemberID="viewController"/>'),
+                      ("item", '<hostingController id="vc1-aa-aaa" customClass="Host" customModule="T" customModuleProvider="target" sceneMemberID="viewController">\n                    <navigationItem key="navigationItem" title="Title" id="nvi-aa-aaa"/>\n                </hostingController>'),
+                      ("tab-item", '<hostingController id="vc1-aa-aaa" customClass="Host" customModule="T" customModuleProvider="target" sceneMemberID="viewController">\n                    <tabBarItem key="tabBarItem" title="Map" id="tbi-aa-aaa"/>\n                    <navigationItem key="navigationItem" id="nvi-aa-aaa"/>\n                </hostingController>')):
+    STORYBOARDS[f"sb-hosting-{name}"] = storyboard(bare_scene(element), initial="vc1-aa-aaa")
+STORYBOARDS["sb-hosting-root"] = storyboard(navigation_scene("vc1-aa-aaa"), bare_scene('<hostingController id="vc1-aa-aaa" customClass="Host" customModule="T" customModuleProvider="target" sceneMemberID="viewController"/>'), initial="nvc-aa-aaa")
+STORYBOARDS["sb-avplayer-segue"] = storyboard(controller_scene(9, connections='                        <segue destination="vc1-aa-aaa" kind="presentation" identifier="P" id="sgp-aa-aaa"/>\n'), bare_scene('<avPlayerViewController videoGravity="AVLayerVideoGravityResizeAspect" id="vc1-aa-aaa" sceneMemberID="viewController"/>'), initial="vc9-aa-aaa")
+DATE_ATTRIBUTES = ' contentHorizontalAlignment="center" contentVerticalAlignment="center" datePickerMode="dateAndTime" minuteInterval="1"'
+for name in ("wheels", "compact", "inline", "automatic"):
+    EXPERIMENTS[f"date-picker-style-{name}"] = constrained(subview("dpk-aa-aa1", (0, 0, 350, 216), "datePicker", DATE_ATTRIBUTES + f' style="{name}"'), "")
+EXPERIMENTS["date-picker-style-wheels-time"] = constrained(subview("dpk-aa-aa1", (0, 0, 350, 216), "datePicker", DATE_ATTRIBUTES.replace("dateAndTime", "time").replace('"1"', '"5"') + ' style="wheels"'), "")
+EXPERIMENTS["date-picker-style-compact-date"] = constrained(subview("dpk-aa-aa1", (0, 0, 350, 216), "datePicker", DATE_ATTRIBUTES.replace("dateAndTime", "date") + ' style="compact"'), "")
+for name, frame, alignment in (("wheels-200", (0, 0, 200, 216), "center"), ("wheels-320", (10, 20, 320, 216), "center"), ("wheels-500", (0, 0, 500, 300), "center"), ("wheels-50", (5, 6, 50, 40), "center"),
+                               ("compact-leading", (0, 0, 350, 216), "leading"), ("compact-trailing", (0, 0, 350, 216), "trailing"), ("compact-fill", (0, 0, 350, 216), "fill"), ("compact-left", (0, 0, 350, 216), "left"), ("compact-right", (0, 0, 350, 216), "right"),
+                               ("inline-leading", (0, 0, 350, 216), "leading")):
+    style = name.split("-")[0]
+    EXPERIMENTS[f"date-picker-frame-{name}"] = constrained(subview("dpk-aa-aa1", frame, "datePicker", DATE_ATTRIBUTES.replace('contentHorizontalAlignment="center"', f'contentHorizontalAlignment="{alignment}"') + f' style="{style}"'), "")
+    EXPERIMENTS[f"date-picker-noautolayout-{name}"] = EXPERIMENTS[f"date-picker-frame-{name}"].replace(' translatesAutoresizingMaskIntoConstraints="NO"', "")
+for name, attributes in (("none-leading", DATE_ATTRIBUTES.replace('contentHorizontalAlignment="center"', 'contentHorizontalAlignment="leading"')), ("automatic-leading", DATE_ATTRIBUTES.replace('contentHorizontalAlignment="center"', 'contentHorizontalAlignment="leading"') + ' style="automatic"'),
+                         ("date", DATE_ATTRIBUTES.replace("dateAndTime", "date")), ("time-5", DATE_ATTRIBUTES.replace("dateAndTime", "time").replace('"1"', '"5"')), ("count-down-wheels", DATE_ATTRIBUTES.replace("dateAndTime", "countDownTimer") + ' style="wheels"'),
+                         ("count-down-5", DATE_ATTRIBUTES.replace("dateAndTime", "countDownTimer").replace('"1"', '"5"')), ("wheels-no-current", DATE_ATTRIBUTES + ' useCurrentDate="NO" style="wheels"')):
+    EXPERIMENTS[f"date-picker-shape-{name}"] = constrained(subview("dpk-aa-aa1", (0, 0, 350, 216), "datePicker", attributes), "")
+for name, attributes in (("template", ' renderingMode="template"'), ("original", ' renderingMode="original"'), ("template-large", ' symbolScale="large" renderingMode="template"')):
+    EXPERIMENTS[f"symbol-rendering-{name}"] = symbol_view(f'<imageReference key="image" image="plus" catalog="system"{attributes}/>\n', "")
+    EXPERIMENTS[f"symbol-rendering-named-{name}"] = symbol_view(f'<imageReference key="image" image="Logo"{attributes}/>\n', "")
+    EXPERIMENTS[f"symbol-rendering-button-{name}"] = constrained(button(children=f'<state key="normal">\n    <imageReference key="image" image="plus" catalog="system"{attributes}/>\n</state>\n'), "")
+
+
+# Round 159: attaching collections of several destinations: the order of their sources.
+def collection_counts(counts, tag="view", property_name="gestureRecognizers"):
+    subviews = ""
+    recognizers = ""
+    number = 0
+    for index, count in enumerate(counts):
+        entries = ""
+        for _ in range(count):
+            number += 1
+            entries += f'<outletCollection property="{property_name}" destination="tap-aa-a{number:02d}" appends="YES" id="occ-aa-a{number:02d}"/>\n'
+            recognizers += f'        <tapGestureRecognizer id="tap-aa-a{number:02d}"/>\n'
+        connections = f'<connections>\n{entries}</connections>\n' if entries else ""
+        subviews += subview(f"src-aa-a{index}", (10 * index, 20, 10, 10), tag).replace(f"                </{tag}>", connections + f"                </{tag}>")
+    return constrained(subviews, "").replace("    </objects>\n", recognizers + "    </objects>\n")
+
+
+def empty_recognizers(document, identifier):
+    return document.replace(f'id="{identifier}">\n', f'id="{identifier}">\n                    <gestureRecognizers/>\n', 1)
+
+
+for name, identifiers in (("middle", ["src-aa-a1"]), ("last", ["src-aa-a2"]), ("first-last", ["src-aa-a0", "src-aa-a2"])):
+    document = collection_counts((1, 1, 1))
+    for identifier in identifiers:
+        document = empty_recognizers(document, identifier)
+    EXPERIMENTS[f"gesture-empty-{name}"] = document
+    document = collection_counts((1, 2, 1))
+    for identifier in identifiers:
+        document = empty_recognizers(document, identifier)
+    EXPERIMENTS[f"gesture-empty-two-{name}"] = document
+def nested_collections(groups, constrained_source=None):
+    subviews = ""
+    recognizers = ""
+    number = 0
+    source = 0
+    for group_index, group in enumerate(groups):
+        inner = ""
+        for count in group:
+            entries = ""
+            for _ in range(count):
+                number += 1
+                entries += f'<outletCollection property="gestureRecognizers" destination="tap-aa-a{number:02d}" appends="YES" id="occ-aa-a{number:02d}"/>\n'
+                recognizers += f'        <tapGestureRecognizer id="tap-aa-a{number:02d}"/>\n'
+            own = '<constraints>\n<constraint firstAttribute="height" constant="44" id="own-aa-aaa"/>\n</constraints>\n' if source == constrained_source else ""
+            inner += f'<view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="src-aa-a{source}">\n<rect key="frame" x="{10 * source}" y="0" width="10" height="10"/>\n{own}<connections>\n{entries}</connections>\n</view>\n'
+            source += 1
+        subviews += f'<view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="grp-aa-a{group_index}">\n<rect key="frame" x="{50 * group_index}" y="20" width="40" height="40"/>\n<subviews>\n{inner}</subviews>\n</view>\n'
+    return constrained(subviews, "").replace("    </objects>\n", recognizers + "    </objects>\n")
+
+
+for name, groups, own in (("flat-pair", [[1, 1], [1, 1]], None), ("second-two", [[1, 1], [2, 1]], None), ("first-two", [[2, 1], [1, 1]], None), ("constrained", [[1, 1], [1, 1]], 2), ("constrained-two", [[1, 1], [2, 1]], 2),
+                          ("constrained-first", [[1, 1], [1, 1]], 0), ("three-groups", [[1, 1], [1, 2], [1]], None), ("three-groups-own", [[1, 1], [1, 2], [1]], 3)):
+    EXPERIMENTS[f"gesture-nested-{name}"] = nested_collections(groups, own)
+def kinds_collections(sources):
+    subviews = ""
+    recognizers = ""
+    number = 0
+    for index, kinds in enumerate(sources):
+        entries = ""
+        for kind in kinds:
+            number += 1
+            entries += f'<outletCollection property="gestureRecognizers" destination="tap-aa-a{number:02d}" appends="YES" id="occ-aa-a{number:02d}"/>\n'
+            recognizers += f'        <{kind} id="tap-aa-a{number:02d}"' + (' minimumPressDuration="0.5"' if kind == "pongPressGestureRecognizer" else '') + '/>\n'
+        subviews += subview(f"src-aa-a{index}", (10 * index, 20, 10, 10)).replace("                </view>", f'<connections>\n{entries}</connections>\n' + "                </view>")
+    return constrained(subviews, "").replace("    </objects>\n", recognizers + "    </objects>\n")
+
+
+TAP, SWIPE, PRESS = "tapGestureRecognizer", "swipeGestureRecognizer", "pongPressGestureRecognizer"
+for name, sources in (("press-middle", [[TAP], [PRESS], [TAP]]), ("press-last", [[TAP], [TAP], [PRESS]]), ("tap-press-middle", [[TAP], [TAP, PRESS], [TAP]]), ("press-tap-middle", [[TAP], [PRESS, TAP], [TAP]]), ("swipe-middle", [[TAP], [SWIPE], [TAP]]),
+                      ("press-tap-last", [[TAP], [TAP], [PRESS, TAP]]), ("swipe-tap", [[SWIPE], [TAP]]), ("tap-swipe", [[TAP], [SWIPE]])):
+    EXPERIMENTS[f"gesture-kinds-{name}"] = kinds_collections(sources)
+PINCH = "pinchGestureRecognizer"
+for name, sources in (("press-swipe", [[PRESS], [SWIPE]]), ("swipe-press", [[SWIPE], [PRESS]]), ("tap-swipe-press", [[TAP], [SWIPE], [PRESS]]), ("swipe-tap-press", [[SWIPE], [TAP], [PRESS]]), ("pinch-press", [[PINCH], [PRESS]]), ("press-pinch", [[PRESS], [PINCH]]),
+                      ("tap-swipe-swipe-press", [[TAP], [SWIPE, PRESS], [TAP]]), ("swipe-then-press-tap", [[SWIPE], [PRESS, TAP]]), ("press-tap-then-swipe", [[PRESS, TAP], [SWIPE]])):
+    EXPERIMENTS[f"gesture-kinds-{name}"] = kinds_collections(sources)
+for name, ids in (("ab", ("cbo-F2-Mgg", "8pg-tx-G4U")), ("ba", ("8pg-tx-G4U", "cbo-F2-Mgg")), ("aa", ("aaa-aa-aa1", "aaa-aa-aa2")), ("za", ("zzz-aa-aaa", "aaa-aa-aaa"))):
+    document = kinds_collections([[TAP, PRESS]])
+    document = document.replace("tap-aa-a01", ids[0]).replace("tap-aa-a02", ids[1])
+    EXPERIMENTS[f"gesture-ids-{name}"] = document
+for counts in ((1, 1, 1), (1, 2, 1), (2, 1, 1), (1, 1, 2), (1, 2, 3), (3, 1, 2), (2, 2, 1), (1, 2, 2), (2, 1, 2), (0, 2, 1), (1, 3, 1, 2)):
+    EXPERIMENTS["gesture-counts-" + "-".join(map(str, counts))] = collection_counts(counts)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

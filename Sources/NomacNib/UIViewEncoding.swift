@@ -9,6 +9,15 @@ protocol NibObjectChildren {
     var childObjects: [NibArchivable] { get }
 }
 
+/// What a `<datePicker>` writes after a view's keys.
+struct DatePickerContent {
+    let alignment: Int
+    let style: Int?
+    let mode: Int
+    let minuteInterval: Int
+    let usesCurrentDate: Bool
+}
+
 final class NibView: NibArchivable, NibObjectChildren {
     /// What a `_UILayoutGuide` writes after a view's keys.
     struct LayoutGuide {
@@ -77,7 +86,7 @@ final class NibView: NibArchivable, NibObjectChildren {
         /// `UINavigationBar` among subviews: its items, a mutable array (`nav-bar-sub-*`).
         case navigationBar(items: NibArray, appearance: BarAppearance)
         /// `UIDatePicker` of date and time or a count-down timer (`date-picker-*`).
-        case datePicker(countDown: Bool, usesCurrentDate: Bool)
+        case datePicker(DatePickerContent)
         case pickerView
         case refreshControl(enabled: Bool)
         case searchBar(SearchBarContent)
@@ -353,12 +362,13 @@ final class NibView: NibArchivable, NibObjectChildren {
             if let tint = appearance.tint { try encoder.encode(tint, forKey: "UIBarTintColor") }
             if !items.elements.isEmpty { try encoder.encode(items, forKey: "UIItems") }
             try appearance.encodeTrailing(position: 2, to: encoder)
-        case .datePicker(let countDown, let usesCurrentDate):
-            if countDown {
-                encoder.encode(.integer(3), forKey: "UIDatePickerMode")
-                encoder.encode(.float(60), forKey: "UICountDownDuration")
-            }
-            if !usesCurrentDate { encoder.encode(.boolean(false), forKey: "UIDatePickerUseCurrentDateDuringDecoding") }
+        case .datePicker(let picker):
+            if picker.alignment != 0 { encoder.encode(.integer(picker.alignment), forKey: "UIContentHorizontalAlignment") }
+            if let style = picker.style { encoder.encode(.integer(style), forKey: "UIPickerStyle") }
+            if picker.mode != 2 { encoder.encode(.integer(picker.mode), forKey: "UIDatePickerMode") }
+            if picker.mode == 3 { encoder.encode(.float(60), forKey: "UICountDownDuration") }
+            if picker.minuteInterval != 1 { encoder.encode(.integer(picker.minuteInterval), forKey: "UIMinuteInterval") }
+            if !picker.usesCurrentDate { encoder.encode(.boolean(false), forKey: "UIDatePickerUseCurrentDateDuringDecoding") }
         case .pickerView:
             encoder.encode(.boolean(true), forKey: "UIAllowSelectingCells")
         case .refreshControl(let enabled):
@@ -406,6 +416,7 @@ final class NibImage: NibArchivable {
     /// `symbol-view-variable-*`).
     let configuration: NibSymbolConfiguration?
     var variableValue: Double?
+    var renderingMode: Int?
 
     init(name: NibString, symbol: Bool = false, configuration: NibSymbolConfiguration? = nil) {
         self.name = name
@@ -420,6 +431,7 @@ final class NibImage: NibArchivable {
         encoder.encode(.float(symbol ? 0 : 1), forKey: "UIImageHeight")
         try encoder.encode(name, forKey: "UIResourceName")
         try encoder.encode(symbol ? name : nil, forKey: "UISystemSymbolResourceName")
+        if let renderingMode { encoder.encode(.integer(renderingMode), forKey: "UIRenderingMode") }
         if let variableValue { encoder.encode(.double(variableValue), forKey: "UIImageVariableValue") }
         try encoder.encode(configuration, forKey: "UISymbolImageConfiguration")
         try encoder.encode(nil, forKey: "UIResourceCatalogName")

@@ -29,12 +29,16 @@ EditLinkViewController and EditSaveViewController have such collections. Each co
 different property of its source, so the order in which UIKit connects them does not change the
 objects a nib decodes to.
 
+Attaching gesture recognizers shows the same: the holdout's vlc VideoPlayerControls, whose Play button attaches a tap and a long
+press, came out in three orders in eight runs of Xcode 27.0's ibtool, with the sources in another order and that button's two destinations
+swapped (2026-11-07). In small documents the sources go by the first class among what they attach (`gesture-kinds-*`), the order nomac writes.
+
 ## Decision
 
 1. `nomac verify` compares an ibtool output that differs from Xcode's, after the sets of ADR
    0252, by a canonical form: the archive's objects walked from the root and numbered where the
    walk first reaches them, the root's outlet collection connections sorted by label, byte by
-   byte, then by their sources' place in the walk (`NomacVerify.NibConnectionComparison`). The
+   byte, then by their sources' place in the walk, and each one's destinations by class (`NomacVerify.NibConnectionComparison`). The
    file is *equivalent* when both forms are equal, with this ADR as the reason; any other
    difference, of a value, a class, a reference or another array's order, is reported as before.
    `.github/scripts/nib_compare.py` applies the same rule.

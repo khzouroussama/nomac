@@ -95,8 +95,8 @@ def sorting_sets(data):
 
 def canonical_connections(data):
     """The NIBArchive as a text walking its objects from the root, each object numbered where the walk
-    first reaches it, the root's outlet collection connections sorted by label and source
-    (NibConnectionComparison.swift, ADR 0260), or None when it is not one."""
+    first reaches it, the root's outlet collection connections sorted by label and source and their
+    destinations by class (NibConnectionComparison.swift, ADR 0260), or None when it is not one."""
     sizes = {0: 1, 1: 2, 2: 4, 3: 8, 4: 0, 5: 0, 6: 4, 7: 8, 9: 0, 10: 4}
     try:
         if data[:10] != b"NIBArchive":
@@ -147,7 +147,7 @@ def canonical_connections(data):
         return None
     root_values = {key: value for key, kind, value in objects[0][1] if kind == 10}
     connections = root_values.get("UINibConnectionsKey")
-    numbering, lines = {}, []
+    numbering, lines, destinations = {}, [], set()
 
     def text_of(index):
         return next((value for key, kind, value in objects[index][1] if key == "NS.bytes"), b"")
@@ -172,7 +172,12 @@ def canonical_connections(data):
                     fields = {key: value for key, kind, value in objects[reference][1] if kind == 10}
                     order[reference] = (text_of(fields.get("UILabel", 0)), numbering.get(fields.get("UISource"), -1))
                 run.sort(key=order.get)
+                for reference in run:
+                    destinations.update(value for key, kind, value in objects[reference][1] if key == "UIDestination" and kind == 10)
                 references = run + [r for r in references if objects[r][0] != "UIRuntimeOutletCollectionConnection"]
+                items = [(key, kind, value) for key, kind, value in items if kind != 10] + [("", 10, r) for r in references]
+            elif index in destinations:
+                references.sort(key=lambda reference: objects[reference][0])
                 items = [(key, kind, value) for key, kind, value in items if kind != 10] + [("", 10, r) for r in references]
             lines.append((index, name, items))
             stack.extend(reversed([value for key, kind, value in items if kind == 10]))

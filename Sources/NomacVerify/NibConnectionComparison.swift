@@ -3,7 +3,7 @@ import Foundation
 /// Compares ibtool's nibs with nomac's where ibtool's own order changes from run to run: outlet
 /// collections of several sources (ADR 0260; docs/formats/nib.md "Connections"). The canonical form
 /// walks the archive's objects from the root, numbering each where the walk first reaches it, the
-/// root's outlet collection connections sorted by label and source; two nibs of one canonical form
+/// root's outlet collection connections sorted by label and source, their destinations by class; two nibs of one canonical form
 /// decode to the same objects and connections.
 enum NibConnectionComparison {
     private struct Value {
@@ -94,6 +94,10 @@ enum NibConnectionComparison {
         }
         var numbering: [Int: Int] = [:]
         var lines: [(index: Int, name: String, values: [Value])] = []
+        var destinations: Set<Int> = []
+        func references(_ list: [Int]) -> [Value] {
+            list.map { reference in Value(key: "", type: 10, payload: (0..<4).map { UInt8(truncatingIfNeeded: reference >> (8 * $0)) }) }
+        }
         func walk(_ start: Int) {
             var stack = [start]
             while let index = stack.popLast() {
@@ -101,8 +105,8 @@ enum NibConnectionComparison {
                 numbering[index] = numbering.count
                 var items = objects[index].values
                 if index == connections {
-                    let references = items.compactMap(\.reference)
-                    var run = references.filter { objects[$0].name == collection }
+                    let listed = items.compactMap(\.reference)
+                    var run = listed.filter { objects[$0].name == collection }
                     for reference in run {
                         if let source = objects[reference].values.first(where: { $0.key == "UISource" })?.reference { walk(source) }
                     }
@@ -112,10 +116,17 @@ enum NibConnectionComparison {
                                 fields.first { $0.key == "UISource" }?.reference.flatMap { numbering[$0] } ?? -1)
                     }
                     run.sort { key($0).0 == key($1).0 ? key($0).1 < key($1).1 : key($0).0.lexicographicallyPrecedes(key($1).0) }
-                    let ordered = run + references.filter { objects[$0].name != collection }
-                    items = items.filter { $0.reference == nil } + ordered.map { reference in
-                        Value(key: "", type: 10, payload: (0..<4).map { UInt8(truncatingIfNeeded: reference >> (8 * $0)) })
+                    for reference in run {
+                        destinations.formUnion(objects[reference].values.filter { $0.key == "UIDestination" }.compactMap(\.reference))
                     }
+                    let ordered = run + listed.filter { objects[$0].name != collection }
+                    items = items.filter { $0.reference == nil } + references(ordered)
+                } else if destinations.contains(index) {
+                    let ordered = items.compactMap(\.reference).enumerated().sorted { left, right in
+                        objects[left.element].name == objects[right.element].name ? left.offset < right.offset
+                            : Array(objects[left.element].name.utf8).lexicographicallyPrecedes(Array(objects[right.element].name.utf8))
+                    }.map(\.element)
+                    items = items.filter { $0.reference == nil } + references(ordered)
                 }
                 lines.append((index, objects[index].name, items))
                 stack += items.compactMap(\.reference).reversed()

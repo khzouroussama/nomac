@@ -250,7 +250,8 @@ image (`image-view-symbol-reference*`, `image-view-symbol-preferred-*`, `image-p
 `UISymbolScale`, `UIPointSize`, `UISymbolWeight` (ultraLight 1 to black 9) and `UITextStyle`: `configurationType="font"` of a text style
 takes that style and its weight (Headline 6, the others 4) unless the configuration names one, of a system font its size and
 weight, and a font without the type changes nothing (`symbol-weight-*`, `symbol-font-*`, `symbol-size-*`, round 157). A `variableValue` is the
-placeholder's `UIImageVariableValue` (double) after `UISystemSymbolResourceName`; `renderingMode="hierarchical"`
+placeholder's `UIImageVariableValue` (double) after `UISystemSymbolResourceName`; `renderingMode="template"` and `original` write `UIRenderingMode` 2 and 1 after `UISystemSymbolResourceName` on a system symbol, on an image of the
+app nothing, nor does its `symbolScale` (`symbol-rendering-*`); `renderingMode="hierarchical"`
 with its `<hierarchicalColors>` puts `UIHierarchicalColors` (an array of the colors) in the symbol
 configuration, after any scale, then `UIDerivativeHierarchicalColors` false,
 `UISpecifiedPrefersMulticolor` true, `UIPrefersMulticolor` false, `UISpecifiedPrefersMonochrome` true and
@@ -1119,12 +1120,13 @@ map's, but false for imagery), `ShowsHiking` and `ShowsTopographicFeatures` fals
 
 ## Date pickers and picker views
 
-A `<datePicker>` (round 65, `date-picker-*`) is a `UIDatePicker`: a view's keys, then, for
-`datePickerMode="dateAndTime"` (IB's default, with `minuteInterval="1"`) nothing, for `countDownTimer`
-`UIDatePickerMode` 3, `UICountDownDuration` 60 (float) and, for `useCurrentDate="NO"`,
-`UIDatePickerUseCurrentDateDuringDecoding` false. A `<pickerView>` (`picker-view*`) is a `UIPickerView`: a
-view's keys, `UIViewContentHuggingPriority` `{250, 250}` included, then `UIAllowSelectingCells` true. Other
-date picker modes, intervals and dates are refused. IB's `<attributedString key="userComments">` on a view
+A `<datePicker>` (rounds 65 and 158, `date-picker-*`) is a `UIDatePicker`: a view's keys, then `UIContentHorizontalAlignment` when
+not centered (left 1, right 2, fill 3, leading 4, trailing 5; a centered `compact` one writes 5), `UIPickerStyle` (wheels 1, compact 2, inline 3,
+automatic none; a `wheels` one is 320 x 216 at its frame's origin), `UIDatePickerMode` (time 0, date 1, count-down 3; `dateAndTime` none),
+`UICountDownDuration` 60 (float) for a count-down timer, `UIMinuteInterval` when not 1, 0 without the attribute, and, for `useCurrentDate="NO"`,
+`UIDatePickerUseCurrentDateDuringDecoding` false. A count-down timer of a style or another interval, whose duration and hugging change, is refused. A `<pickerView>` (`picker-view*`) is a `UIPickerView`: a
+view's keys, `UIViewContentHuggingPriority` `{250, 250}` included, then `UIAllowSelectingCells` true. Date
+pickers' `<date>`s are refused. IB's `<attributedString key="userComments">` on a view
 changes nothing (`user-comments-label`).
 
 ## Collection view cells
@@ -1281,7 +1283,7 @@ constraints, gesture recognizers and a navigation bar's item and bar button item
 (`outlet-nav-bar-*`). A prototype cell's outlet to an object of its controller's nib is not
 compiled yet (`sb-outlet-bar-tvc-from-cell`), and nomac's refusal of a destination names its
 element. The corpus's 483 nibs with plain outlets all follow this. Outlet collections of one
-name from several sources follow the same order (`oc-class-collections`, `oc-names-two-sources`,
+name from several sources, by the first class among the recognizers they attach when they attach some (`gesture-kinds-*`, ADR 0260), follow the same order (`oc-class-collections`, `oc-names-two-sources`,
 the corpus's wikipedia WMFImageGalleryDetailOverlayView). Collections of several names from one
 source keep the order of their names' first connections in the document, whatever the names or
 ids (`oc-names`, `oc-names-seven`, `oc-names-root-seven`, five runs alike; the corpus's wikipedia
@@ -1577,6 +1579,10 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   warn (221 and 2,088 of them).
 - The views beside a scene's controller keep their user-defined runtime attributes in the
   controller's nib (the corpus's wikipedia Saved storyboard).
+- A `<hostingController>` is a view controller without a view, its nib `UIHostingController-<id>`, its class `UIViewController` unless a custom one
+  (`sb-hosting-*`; as a navigation controller's root refused). An `<avPlayerViewController>` too, its nib `AVPlayerViewController-<id>`, first among the top-level
+  objects, writing `AVShowsPlaybackControls` true and `AVVideoLayerGravity` (`AVLayerVideoGravityResizeAspect` without one) before its class names (`sb-avplayer-*`).
+  A navigation or tab bar item of theirs is written as a scene's (round 158).
 - A view controller without a view (round 90, `sb-vc-no-view*`; nextcloud's action extension) is one
   nib: File's Owner, First Responder, the storyboard placeholder and the controller, without
   `UIExternalObjectsTableForViewLoading` or `UINibName`; no view nib. `<value

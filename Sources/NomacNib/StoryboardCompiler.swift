@@ -533,7 +533,7 @@ extension DocumentCompiler {
     private func sceneController(_ scene: XIBElement, initial: String?) throws -> SceneController {
         let objects = scene.children(named: "objects").first?.children ?? []
         let controllers = objects.filter { ["viewController", "navigationController", "tableViewController", "collectionViewController", "tabBarController",
-                                                 "splitViewController", "pageViewController", "viewControllerPlaceholder"].contains($0.name) }
+                                                 "splitViewController", "pageViewController", "viewControllerPlaceholder", "hostingController", "avPlayerViewController"].contains($0.name) }
         guard controllers.count == 1, let controller = controllers.first, let id = controller.attributes["id"] else {
             throw unsupportedScene("a scene without one view controller")
         }
@@ -637,7 +637,8 @@ extension DocumentCompiler {
         }
         let base = ["navigationController": "UINavigationController", "tableViewController": "UITableViewController",
                     "collectionViewController": "UICollectionViewController", "tabBarController": "UITabBarController",
-                    "splitViewController": "UISplitViewController", "pageViewController": "UIPageViewController"][controller.name] ?? "UIViewController"
+                    "splitViewController": "UISplitViewController", "pageViewController": "UIPageViewController",
+                    "hostingController": "UIHostingController", "avPlayerViewController": "AVPlayerViewController"][controller.name] ?? "UIViewController"
         let childOrder = (relationships ?? []).flatMap { relationship in children.filter { $0.relationship == relationship } }
         return SceneController(id: id, identifier: identifier, nibName: identifier ?? "\(base)-\(id)", segues: segues,
                                isEntryPoint: id == initial || identifier != nil, root: root, children: children.map(\.id), childOrder: childOrder.map(\.id))
@@ -668,9 +669,9 @@ extension DocumentCompiler {
     /// A scene: its view controller, with its segues' templates, and its First Responder.
     private mutating func compileScene(_ scene: XIBElement, controller sceneController: SceneController, templates: [NibSegueTemplate]) throws -> [String: Data] {
         let objectNames = Set(scene.children(named: "objects").first?.children.map(\.name) ?? [])
-        let kind = ["tableViewController", "collectionViewController"].first { objectNames.contains($0) } ?? "viewController"
+        let kind = ["tableViewController", "collectionViewController", "hostingController", "avPlayerViewController"].first { objectNames.contains($0) } ?? "viewController"
         let (controller, objects) = try sceneObjects(scene, controller: kind, recognizers: kind == "viewController")
-        if kind == "viewController", controller.children(named: "view").isEmpty {
+        if ["viewController", "hostingController", "avPlayerViewController"].contains(kind), controller.children(named: "view").isEmpty {
             return try compileViewlessScene(controller, objects: objects, controller: sceneController)
         }
         try check(controller, attributes: ["id", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "sceneMemberID",
@@ -744,10 +745,13 @@ extension DocumentCompiler {
 
     /// A scene of a view controller without a view, which loads its own: one nib of File's Owner,
     /// First Responder, the storyboard placeholder and the controller, no view nib (`sb-vc-no-view*`;
-    /// nextcloud's action extension). Its segues and navigation item are not observed.
+    /// nextcloud's action extension). A hosting controller is one, and writes only a nib name of its own
+    /// (`sb-hosting-*`); a player view controller comes first in the nib, with its playback controls and gravity
+    /// (`sb-avplayer-*`). Their segues are not observed.
     private mutating func compileViewlessScene(_ controller: XIBElement, objects: XIBElement, controller sceneController: SceneController) throws -> [String: Data] {
+        let isPlayer = controller.name == "avPlayerViewController"
         try check(controller, attributes: ["id", "customClass", "customModule", "customModuleProvider", "storyboardIdentifier", "sceneMemberID", "userLabel"]
-                  + ControllerSettings.attributes, children: ["freeformSimulatedSizeMetrics", "size", "nil", "extendedEdge", "value"])
+                  + ControllerSettings.attributes + (isPlayer ? ["videoGravity"] : []), children: ["freeformSimulatedSizeMetrics", "size", "nil", "extendedEdge", "value", "navigationItem", "tabBarItem"])
         guard sceneController.segues.isEmpty, objects.children(named: "view").isEmpty else {
             throw unsupportedScene("segues or views beside a view controller without a view")
         }
@@ -755,18 +759,25 @@ extension DocumentCompiler {
             try check(size, attributes: ["key", "width", "height"], children: [])
             try value(size, "key", in: ["freeformSize"])
         }
-        let customClass = try customClass(controller, original: "UIViewController")
+        let original = isPlayer ? "AVPlayerViewController" : "UIViewController"
+        let customClass = try customClass(controller, original: original)
         let viewController = NibViewController(viewNibName: nil, storyboardIdentifier: sceneController.identifier.map { string($0) },
-                                               className: customClass ?? (string("UIViewController"), string("UIViewController")),
+                                               className: customClass ?? (string(original), string(original)),
                                                swapsClass: customClass != nil || sceneController.isEntryPoint)
         viewController.settings = try controllerSettings(controller, storyboardIdentifier: viewController.storyboardIdentifier)
+        if isPlayer { viewController.videoGravity = string(controller.attributes["videoGravity"] ?? "AVLayerVideoGravityResizeAspect") }
+        let empty = NibArray([])
+        let item = NibNavigationItem()
+        if try navigationItem(controller, into: item, empty: empty).declared { viewController.navigationItem = item }
+        viewController.tabItem = try declaredTabItem(controller)
         let owner = NibProxy(identifier: "IBFilesOwner")
         let placeholder = NibProxy(identifier: "UIStoryboardPlaceholder")
-        let topLevel: [NibArchivable] = [owner, NibProxy(identifier: "IBFirstResponder"), placeholder, viewController]
+        let proxies: [NibArchivable] = [owner, NibProxy(identifier: "IBFirstResponder"), placeholder]
+        let topLevel: [NibArchivable] = isPlayer ? [viewController] + proxies : proxies + [viewController]
         let connections: [NibArchivable] = [NibOutletConnection(label: NibString("storyboard"), source: viewController, destination: placeholder),
                                             NibOutletConnection(label: NibString("sceneViewController"), source: owner, destination: viewController)]
         return ["\(sceneController.nibName).nib": try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: Self.allObjects(topLevel),
-                                                                                 connections: connections))]
+                                                                                 connections: connections, empty: empty))]
     }
 
     /// A scene's controller of the given element name and its objects, its placeholders checked.

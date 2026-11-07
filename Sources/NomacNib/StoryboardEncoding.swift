@@ -150,6 +150,8 @@ final class NibViewController: NibArchivable, NibObjectChildren {
     var definesPresentationContext = false
     var keptAlive: [NibArchivable] = []
     var settings = ControllerSettings()
+    /// A player view controller's `videoGravity`, after its identifier (`sb-avplayer-*`).
+    var videoGravity: NibString?
     /// A table or collection view controller's `clearsSelectionOnViewWillAppear="NO"`, after its
     /// segue templates (`sb-cvc-keeps-selection*`, `sb-tvc-keeps-selection`).
     var keepsSelection = false
@@ -186,6 +188,10 @@ final class NibViewController: NibArchivable, NibObjectChildren {
         if keepsSelection { encoder.encode(.boolean(false), forKey: "UIClearsSelectionOnViewWillAppear") }
         if !keptAlive.isEmpty { try encoder.encode(NibArray(keptAlive), forKey: "UITopLevelObjectsToKeepAliveFromStoryboard") }
         if definesPresentationContext { encoder.encode(.boolean(true), forKey: "UIDefinesPresentationContext") }
+        if let videoGravity {
+            encoder.encode(.boolean(true), forKey: "AVShowsPlaybackControls")
+            try encoder.encode(videoGravity, forKey: "AVVideoLayerGravity")
+        }
         settings.encodePresentation(to: encoder)
         if swapsClass {
             try encoder.encode(controllerClass.name, forKey: "UIClassName")

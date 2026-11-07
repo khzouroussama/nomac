@@ -73,7 +73,13 @@ extension DocumentCompiler {
         let oneSource = collections.allSatisfy { $0.source === collections.first?.source }
         let sortedCollections = severalNames && oneSource ? collections : collections.sorted {
             let (left, right) = (Array($0.label.value.utf8), Array($1.label.value.utf8))
-            return left == right || !severalNames ? precedes($0.source, $1.source) : left.lexicographicallyPrecedes(right)
+            guard left == right || !severalNames else { return left.lexicographicallyPrecedes(right) }
+            // Sources of one class go by the first class among what they attach, for recognizers (`gesture-kinds-*`; vlc's VideoPlayerControls).
+            let (leftKind, rightKind) = (Self.recognizerClass($0), Self.recognizerClass($1))
+            if Self.originalClass($0.source) == Self.originalClass($1.source), let leftKind, let rightKind, leftKind != rightKind {
+                return leftKind.lexicographicallyPrecedes(rightKind)
+            }
+            return precedes($0.source, $1.source)
         }
         let sorted = outlets.sorted {
             let (left, right) = (Array($0.label.value.utf8), Array($1.label.value.utf8))
@@ -130,6 +136,11 @@ extension DocumentCompiler {
             order[ObjectIdentifier(object)] = order.count
         }
         return order
+    }
+
+    /// The first class, byte by byte, among the gesture recognizers a collection attaches.
+    static func recognizerClass(_ collection: NibOutletCollectionConnection) -> [UInt8]? {
+        collection.destinations.filter { $0 is NibGestureRecognizer }.map { Array(originalClass($0).utf8) }.min { $0.lexicographicallyPrecedes($1) }
     }
 
     /// A connection's source's class: a custom class's original (`oc-class-custom`).
