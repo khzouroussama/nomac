@@ -171,6 +171,9 @@ struct DocumentCompiler {
     /// A scroll view's content and frame layout guides, by id, and the guides constraints name.
     var scrollGuides: [String: (owner: String, content: Bool)] = [:]
     var scrollGuideObjects: [String: NibScrollLayoutGuide] = [:]
+    /// Keyboard layout guides' owners by id, and the guides constraints name.
+    var keyboardGuides: [String: String] = [:]
+    var keyboardGuideObjects: [String: NibKeyboardLayoutGuide] = [:]
     var pendingConstraints: [PendingConstraints] = []
     /// The document's placeholders and constraints by id, and the outlets left to compile once every
     /// object is read.
@@ -549,19 +552,22 @@ struct DocumentCompiler {
         let kindAttributes = imageView ? ["image", "catalog", "adjustsImageSizeForAccessibilityContentSizeCategory"] : isLabel ? Self.labelAttributes : isButton ? ControlContent.attributes + ButtonContent.attributes
             : isStack ? StackContent.attributes : isTable ? TableContent.attributes : isScroll ? ScrollContent.attributes
             : isCollection ? CollectionContent.attributes
-            : element.name == "navigationBar" ? ["translucent"] : element.name == "searchBar" ? SearchBarContent.attributes
+            : element.name == "navigationBar" ? ["translucent", "barStyle", "largeTitles"] : element.name == "toolbar" ? ["translucent", "barStyle"]
+            : element.name == "searchBar" ? SearchBarContent.attributes
             : element.name == "wkWebView" ? WebViewContent.attributes : element.name == "mapView" ? MapContent.attributes
             : element.name == "datePicker" ? ["contentHorizontalAlignment", "contentVerticalAlignment", "datePickerMode", "minuteInterval", "useCurrentDate"]
             : Self.controlAttributes[element.name] ?? []
+        // `cs-verify-*`: both values change nothing.
+        if element.attributes["verifyAmbiguity"] != nil { try value(element, "verifyAmbiguity", in: ["off", "ignoreSizes"]) }
         try check(element, attributes: Self.viewAttributes + kindAttributes + ["customClass", "customModule", "customModuleProvider"],
                   children: Set(["rect", "autoresizingMask", "subviews", "point", "color", "constraints", "connections",
-                                 "freeformSimulatedSizeMetrics", "nil", "edgeInsets", "directionalEdgeInsets", "viewLayoutGuide",
+                                 "freeformSimulatedSizeMetrics", "nil", "edgeInsets", "directionalEdgeInsets", "viewLayoutGuide", "keyboardLayoutGuide", "simulatedNavigationBarMetrics",
                                  "userDefinedRuntimeAttributes", "accessibility", "gestureRecognizers", "attributedString"]
                                 + (isLabel ? ["fontDescription", "string", "variation", "attributedString", "size"] : [])
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
                                 + (element.name == "toolbar" ? ["items"] : []) + (element.name == "wkWebView" ? ["wkWebViewConfiguration"] : [])
                                 + (element.name == "mapView" ? ["standardMapConfiguration"] : [])
-                                + (element.name == "navigationBar" ? ["items"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
+                                + (element.name == "navigationBar" ? ["items", "textAttributes"] : []) + (isTable ? ["prototypes", "sections", "inset", "refreshControl"] : [])
                                 + (isButton ? ["fontDescription", "state", "inset", "buttonConfiguration", "size"] : []) + (element.name == "segmentedControl" ? ["segments"] : [])
                                 + (isEffect ? ["view", "blurEffect", "vibrancyEffect"] : []) + (element.name == "textField" ? ["fontDescription", "textInputTraits", "string"] : [])
                                 + (element.name == "textView" ? ["fontDescription", "textInputTraits", "string", "dataDetectorType"] : [])
@@ -626,6 +632,7 @@ struct DocumentCompiler {
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
                  ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel, ("size", "titleShadowOffset") where isButton,
                  ("color", "separatorColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
+                 ("keyboardLayoutGuide", "keyboard"),
                  ("variation", _), ("prototypes", nil), ("sections", nil), ("color", "tintColor"), ("state", _), ("inset", _), ("buttonConfiguration", "configuration"),
                  ("edgeInsets", "layoutMargins"), ("directionalEdgeInsets", "directionalLayoutMargins"), ("viewLayoutGuide", "contentLayoutGuide"),
                  ("viewLayoutGuide", "frameLayoutGuide"), ("segments", nil), ("view", "contentView"), ("blurEffect", nil), ("vibrancyEffect", nil), ("collectionViewFlowLayout", "collectionViewLayout"),
@@ -633,6 +640,7 @@ struct DocumentCompiler {
                  ("userDefinedRuntimeAttributes", nil), ("accessibility", "accessibilityConfiguration"), ("textInputTraits", "textInputTraits"),
                  ("dataDetectorType", "dataDetectorTypes"), ("imageReference", "image"),
                  ("preferredSymbolConfiguration", "preferredSymbolConfiguration"), ("items", nil), ("refreshControl", "refreshControl"),
+                 ("color", "barTintColor") where element.name == "toolbar" || element.name == "navigationBar", ("textAttributes", _) where element.name == "navigationBar",
                  ("wkWebViewConfiguration", "configuration"), ("standardMapConfiguration", "preferredConfiguration"):
                 continue
             case ("color", _) where Self.controlAttributes[element.name] != nil:
@@ -739,9 +747,8 @@ struct DocumentCompiler {
         }
         if isLabel {
             var label = try self.label(element)
-            let fonts = try element.children(named: "variation").map { variation in
-                try check(variation, attributes: ["key"], children: ["fontDescription"])
-                return (try sizeClasses(variation), try font(variation))
+            let fonts = try element.children(named: "variation").filter { !$0.children(named: "fontDescription").isEmpty }.map { variation in
+                (try sizeClasses(variation), try font(variation))
             }
             let variations = fonts.map { ($0.0, $0.1.font) }
             if !variations.isEmpty {
@@ -807,10 +814,9 @@ struct DocumentCompiler {
             requires(11, 0)
             safeAreaGuides[guideID] = id
         }
+        try keyboardGuide(element, view: view, id: id)
         documentViews[id] = DocumentView(view: view, frame: frame, parent: parent, translates: translates, hasMask: hasMask)
-        if !isLabel {
-            try masks(element, owner: id)
-        }
+        try masks(element, owner: id)
         if isStack {
             var content = try stackContent(element, id: id, subviews: subviews)
             try stackVariations(element, view: view, content: &content)
@@ -835,7 +841,7 @@ struct DocumentCompiler {
                                  "semanticContentAttribute", "clearsContextBeforeDrawing", "horizontalHuggingPriority", "verticalHuggingPriority",
                                  "horizontalCompressionResistancePriority", "verticalCompressionResistancePriority",
                                  "insetsLayoutMarginsFromSafeArea", "preservesSuperviewLayoutMargins", "layoutMarginsFollowReadableWidth", "restorationIdentifier", "fixedFrame", "ambiguous", "misplaced", "userLabel", "placeholderIntrinsicWidth",
-                                 "placeholderIntrinsicHeight", "simulatedAppContext"]
+                                 "placeholderIntrinsicHeight", "simulatedAppContext", "verifyAmbiguity"]
     /// The class a view with a custom class names as its original (`view-custom-class`,
     /// `label-custom-class*`, `image-view-custom-class-module`, `button-custom-class*`, `stack-custom-class`; text fields and
     /// switches: the corpus's pocket-casts FilterDownloadCell and wikipedia ReadingListDetailHeaderView).
@@ -1066,7 +1072,7 @@ struct DocumentCompiler {
     }
 
     /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`).
-    static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker", "refreshControl"]
+    static let actionHolders: Set = Set(["textField", "switch", "button", "segmentedControl", "slider", "pageControl", "datePicker", "refreshControl", "barButtonItem"]
                                         + NibGestureRecognizer.elements)
 
     /// Records an object's `<connections>` for `outletConnections`.
@@ -1115,7 +1121,7 @@ struct DocumentCompiler {
     /// by ibtool with color management and are not compiled yet (BACKLOG B-260).
     mutating func color(_ element: XIBElement) throws -> NibColor {
         try check(element, attributes: ["key", "white", "red", "green", "blue", "alpha", "colorSpace", "customColorSpace", "systemColor",
-                                        "cocoaTouchSystemColor", "xcode11CocoaTouchSystemColor", "name"], children: [])
+                                        "cocoaTouchSystemColor", "xcode11CocoaTouchSystemColor", "name", "catalog"], children: [])
         let attributes = element.attributes
         var components: NibColor.Components
         var name: NibColor.Name?
@@ -1123,16 +1129,17 @@ struct DocumentCompiler {
             components = try unmatchedComponents(element)
         } else if let system = attributes["xcode11CocoaTouchSystemColor"]
                     ?? attributes["systemColor"].flatMap({ attributes["cocoaTouchSystemColor"] == nil ? nil : $0 }) {
+            // The first name is the color, the `cocoaTouchSystemColor` beside it changes nothing
+            // (`x11-system-background`, `color-system-and-cocoa-touch`, `mx-x11-*`, `mx-pair-*`).
             guard Set(attributes.keys).subtracting(["xcode11CocoaTouchSystemColor", "systemColor"]).isSubset(of: ["key", "cocoaTouchSystemColor"]),
                   attributes["xcode11CocoaTouchSystemColor"] == nil || attributes["systemColor"] == nil,
-                  NibColor.xcode11SystemColors[system] == attributes["cocoaTouchSystemColor"], let values = NibColor.systemColors[system] else {
+                  attributes["cocoaTouchSystemColor"].map(NibColor.cocoaTouchSystemColors.contains) == true, let values = NibColor.systemColors[system] else {
                 throw unsupported("the Xcode 11 system color \(system)")
             }
             components = values
             name = .system(system)
         } else if let system = attributes["cocoaTouchSystemColor"] ?? attributes["systemColor"] {
-            let names = attributes["cocoaTouchSystemColor"] != nil ? NibColor.cocoaTouchSystemColors : NibColor.observedSystemColorNames
-            guard names.contains(system), let values = NibColor.systemColors[system] else {
+            guard attributes["cocoaTouchSystemColor"].map(NibColor.cocoaTouchSystemColors.contains) ?? true, let values = NibColor.systemColors[system] else {
                 throw unsupported("the system color \(system)")
             }
             // Components beside a `systemColor` change nothing (`system-components-*`).
@@ -1148,13 +1155,11 @@ struct DocumentCompiler {
             components = values
             name = .system(system)
         } else if let catalogName = attributes["name"] {
-            guard let definition = namedColors[catalogName], definition.attributes["name"] == nil,
-                  attributes.keys.allSatisfy({ ["key", "name"].contains($0) }) else {
-                throw unsupported("the named color \(catalogName)")
+            components = try namedComponents(element, name: catalogName)
+            if attributes["catalog"] == nil {
+                name = .catalog(catalogName)
+                requires(13, 0)
             }
-            components = try documentComponents(definition)
-            name = .catalog(catalogName)
-            requires(13, 0)
         } else {
             components = try documentComponents(element)
             let space = attributes["customColorSpace"] ?? attributes["colorSpace"] ?? ""
@@ -1177,6 +1182,23 @@ struct DocumentCompiler {
         let color = NibColor(components: components, name: named)
         colors[identity] = color
         return color
+    }
+
+    /// The components of a `<color name=...>`: AppKit's with `catalog="System"`, the definition in
+    /// the document's resources, or ibtool's stand-in without one.
+    func namedComponents(_ element: XIBElement, name: String) throws -> NibColor.Components {
+        let attributes = element.attributes
+        if attributes["catalog"] != nil {
+            guard attributes["catalog"] == "System", attributes["colorSpace"] == "catalog",
+                  attributes.keys.allSatisfy({ ["key", "name", "catalog", "colorSpace"].contains($0) }), let values = NibColor.catalogColors[name] else {
+                throw unsupported("the catalog color \(name)")
+            }
+            return values
+        }
+        guard attributes.keys.allSatisfy({ ["key", "name"].contains($0) }), namedColors[name]?.attributes["name"] == nil else {
+            throw unsupported("the named color \(name)")
+        }
+        return try namedColors[name].map { try documentComponents($0) } ?? NibColor.undefinedNamedColor
     }
 
     /// A color of a document without `colorMatched="YES"`, converted to Generic RGB and written as
@@ -1374,10 +1396,11 @@ extension DocumentCompiler {
         guard deploymentTarget.major < 17, !views.isEmpty else { return }
         let size: (width: Double, height: Double)
         if let device = Self.sizingDevice(of: document) {
-            guard let id = device.attributes["id"], !["retina3_5", "retina6_72"].contains(id), let portrait = StoryboardCompiler.deviceSizes[id] else {
+            guard let id = device.attributes["id"], let portrait = StoryboardCompiler.deviceSizes[id] else {
                 throw unsupported("top-level views without freeform metrics on the device \(device.attributes["id"] ?? "") for iOS before 17")
             }
-            size = device.attributes["orientation"] == "landscape" ? (portrait.height, portrait.width) : portrait
+            // `retina3_5` and `retina6_72` give 393 x 852 in either orientation, as in a storyboard (`mx-tl-*`).
+            size = device.attributes["orientation"] == "landscape" && !["retina3_5", "retina6_72"].contains(id) ? (portrait.height, portrait.width) : portrait
         } else {
             size = Self.sizeWithoutDevice(document)
         }

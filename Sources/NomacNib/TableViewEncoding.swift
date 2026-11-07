@@ -124,10 +124,12 @@ final class NibStaticDataSource: NibArchivable, NibObjectChildren {
 final class NibTableSection: NibArchivable, NibObjectChildren {
     let headerTitle: NibArchivable?
     let cells: [NibView]
+    let rowHeights: [Float]
 
-    init(headerTitle: NibArchivable?, cells: [NibView]) {
+    init(headerTitle: NibArchivable?, cells: [NibView], rowHeights: [Float]) {
         self.headerTitle = headerTitle
         self.cells = cells
+        self.rowHeights = rowHeights
     }
 
     var className: String { "UITableViewSection" }
@@ -135,22 +137,25 @@ final class NibTableSection: NibArchivable, NibObjectChildren {
 
     func encode(to encoder: NibEncoder) throws {
         if let headerTitle { try encoder.encode(headerTitle, forKey: "UITableSectionHeaderTitle") }
-        try encoder.encode(NibArray(cells.map(NibTableRow.init)), forKey: "UITableSectionRows")
+        try encoder.encode(NibArray(zip(cells, rowHeights).map(NibTableRow.init)), forKey: "UITableSectionRows")
     }
 }
 
+/// A static cell's row: its cell and height, -1 without a `rowHeight` (`cm-sb-static-row-*`).
 final class NibTableRow: NibArchivable {
     let cell: NibView
+    let height: Float
 
-    init(_ cell: NibView) {
+    init(_ cell: NibView, height: Float) {
         self.cell = cell
+        self.height = height
     }
 
     var className: String { "UITableViewRow" }
 
     func encode(to encoder: NibEncoder) throws {
         try encoder.encode(cell, forKey: "UITableRowCell")
-        encoder.encode(.float(-1), forKey: "UITableRowHeight")
+        encoder.encode(.float(height), forKey: "UITableRowHeight")
     }
 }
 
@@ -205,15 +210,17 @@ extension DocumentCompiler {
             for section in container.children {
                 try check(section, attributes: ["headerTitle", "id"], children: ["cells"])
                 var cells: [NibView] = []
+                var rowHeights: [Float] = []
                 for cellContainer in section.children {
                     try check(cellContainer, attributes: [], children: ["tableViewCell"])
                     for cell in cellContainer.children {
-                        guard cell.attributes["rowHeight"] == nil else { throw unsupported("the rowHeight attribute of a static cell") }
+                        guard cell.children(named: "frame").isEmpty else { throw unsupported("<frame> in a static <tableViewCell>") }
+                        rowHeights.append(Float(try number(cell.attributes["rowHeight"] ?? "-1", "rowHeight")))
                         cells.append(try tableViewCell(cell))
                     }
                 }
                 sections.append(NibTableSection(headerTitle: section.attributes["headerTitle"].map { text($0, id: section.attributes["id"], property: "headerTitle") },
-                                                cells: cells))
+                                                cells: cells, rowHeights: rowHeights))
             }
         }
         if !sections.isEmpty {
@@ -225,8 +232,12 @@ extension DocumentCompiler {
         for container in element.children(named: "prototypes") {
             try check(container, attributes: [], children: ["tableViewCell"])
             for cell in container.children {
-                guard let reuseIdentifier = cell.attributes["reuseIdentifier"] else {
-                    throw unsupported("a prototype cell without a reuse identifier (ibtool warns)")
+                // ibtool warns of a prototype cell without a reuse identifier, or an empty one, and
+                // leaves it out (`cm-sb-proto-no-reuse-*`, `cm-sb-proto-empty-reuse`).
+                guard let reuseIdentifier = cell.attributes["reuseIdentifier"], !reuseIdentifier.isEmpty else {
+                    guard cell.children(named: "connections").isEmpty else { throw unsupported("a prototype cell without a reuse identifier (ibtool warns)") }
+                    warnings.append((cell.attributes["id"] ?? "", "Prototype table cells must have reuse identifiers [9]"))
+                    continue
                 }
                 let segues = cellSeguePlaceholders[cell.attributes["id"] ?? ""] ?? []
                 let keys = try segues.indices.map { index -> NibString in
@@ -261,6 +272,8 @@ extension DocumentCompiler {
         nested.safeAreaGuides = [:]
         nested.scrollGuides = [:]
         nested.scrollGuideObjects = [:]
+        nested.keyboardGuides = [:]
+        nested.keyboardGuideObjects = [:]
         nested.pendingConstraints = []
         nested.pendingOutlets = []
         nested.placeholders = [:]

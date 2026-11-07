@@ -526,8 +526,9 @@ The order of a view's constraints depends on their content, not on their ids or 
   margins of its own are refused. A margin constraint sorts in one order of all attributes: centerX's margin, centerX,
   centerY's margin, centerY, right and left margins, right, left, trailing and leading margins,
   trailing, leading, width, top and bottom margins, bottom, top, height (`margin-order-*`,
-  `norm-all*`, `sub-first-all`; kickstarter's Friends storyboard). nomac refuses margins with a multiplier, a variation, a symbolic
-  constant or the safe area.
+  `norm-all*`, `sub-first-all`; kickstarter's Friends storyboard). A multiplier scales neither margin in the legacy
+  `NSConstant`, and a symbolic constant and a size-class variation of the constant write as without margins, the legacy
+  `NSConstant` adding the margin (`cs-margin-*`). nomac refuses margins with the safe area or an anchor's symbol type.
 - A view's constraints may name views deeper than its subviews, through plain views, cells'
   content views and stack views (`deep-through-stack`); their groups sort by their frames moved by
   their ancestors' origins (`deep-*`), one inside another listed item right after it even when
@@ -546,9 +547,19 @@ The order of a view's constraints depends on their content, not on their ids or 
   comes with that view's constraints, but one between two of that view's subviews listed by a
   cell comes after the cell's own constraints, in its new view's order (`moved-cell-labels`,
   `moved-cell-mixed`); listed by another view that case is refused (B-265).
-- `firstBaseline` (12) between two subviews sorts after `top` in the safe area's attribute order
-  (`baseline-firstBaseline-*`); elsewhere it is refused, and so is `lastBaseline`, which ibtool
-  warns about on plain views. A constraint's `userLabel` changes nothing (`constraint-user-label`).
+- `firstBaseline` (12) and `baseline` (11) sort after `top` and before `height` and `width`, the first
+  baseline first, in every attribute order, as either attribute, with the view, the safe area or
+  a sibling (`baseline-firstBaseline-*`, `cs-baseline-*`, `cs-first-baseline-*`, `cs-pairs-*`).
+  `lastBaseline` stays refused: ibtool warns about it on plain views. A constraint's `userLabel`
+  changes nothing (`constraint-user-label`).
+- `symbolType="layoutAnchor"` writes `NSSymbolicConstant` `NSLayoutAnchorConstraintSpace` and no
+  constant, whatever constant the document gives (`cs-symbol-anchor*`). A `customClass` makes the
+  constraint a `UIClassSwapper` with its keys, then `UIClassName` and `UIOriginalClassName`
+  `NSLayoutConstraint` (`cs-custom-*`). A view's `verifyAmbiguity`, `off` or `ignoreSizes`, changes nothing
+  (`cs-verify-*`).
+- An older collection view cell's safe area moves to its content view with its constraints; a
+  constraint from a subview to it comes before that subview's constraints to the content view
+  (`cs-cvsafe-*`).
 - A constraint between two subviews is in its first item's group as written (not normalized),
   after that group's constraints with the view and the safe area, in the safe area's attribute
   order (`sib-pair-*`: every pair of attributes, `sib-mix-*`, `sib-with-*`).
@@ -582,6 +593,12 @@ The order of a view's constraints depends on their content, not on their ids or 
   (`order-sibling`) and are refused (B-265).
 
 ## Variations
+
+A variation's own `<rect key="frame">` and its `misplaced`, `ambiguous` and `fixedFrame` attributes change
+nothing, on a device of its size class too (`cm-var-*`, `cm-sb-var-fixed-*`). A label's `<mask>` of its own
+constraints compiles as any view's, in the same variation as a font or beside one (`cm-label-mask-*`), and a
+size-class mask inside a cell's content view as anywhere else (`cm-cell-sub-mask-*`, `cm-cell-deep-mask-sc`).
+`hidden` in a variation is an attribute storage (`cm-var-hidden-*`): refused for now.
 
 A `<variation key>` gives a label's font (`<fontDescription>`), a constraint's constant
 (`constant`) or a stack view's `axis`, `distribution` and `spacing` for a size class (rounds 19,
@@ -724,6 +741,14 @@ the document's, one object with an equal title or restoration identifier (`sb-cv
 
 ## Table view cells
 
+`IBUITableViewCellStyleValue2` is `UITableViewCellStyle` 2 with the two labels of value1 (`cm-value2`).
+`colorLabel` changes nothing (`cm-color-label*`). A static cell's `rowHeight` is its row's `UITableRowHeight`,
+-1 without one (`cm-sb-static-row-*`). A prototype's `<frame key="frameInset">` of a top, a width and a height
+is that frame at x 0 (`cm-sb-proto-frame-inset`). ibtool warns of a prototype cell without a reuse identifier
+or with an empty one, and leaves it out (`cm-sb-proto-no-reuse-*`, `cm-sb-proto-empty-reuse`). Refused for
+now, their nibs differ: a style's `imageView` (`cm-image-*`, the all-objects order), a guide in a content view
+(`cm-content-guide-*`), a static cell's frame inset (`cm-sb-static-frame-inset`).
+
 A xib's top-level `<tableViewCell>` (`cell-*`) is a `UITableViewCell` (a `UIClassSwapper` with
 `UIOriginalClassName` `UITableViewCell` for a custom class): a view's keys, among them `tag` (0 writes
 nothing), `userInteractionEnabled`, `hidden`, `alpha`, `insetsLayoutMarginsFromSafeArea` and `contentMode`
@@ -780,6 +805,11 @@ nothing.
   content view, its subviews, the next cell's, then each content view's constraints).
 
 ## Text fields, switches and actions
+
+`background` and `disabledBackground` are image placeholders, `UITextFieldBackground` and
+`UITextFieldDisabledBackground` after `UITextColor` and before `UIBorderStyle`; a `background` also writes
+`UIRoundedRectBackgroundCornerRadius` 0 (`cm-tf-background`, `cm-tf-disabled`, `cm-tf-both`, `cm-tf-same`,
+`cm-tf-disabled-rounded`).
 
 A `<textField>` (`tf-*`) is a `UITextField`: a view's keys, then `UIContentVerticalAlignment` and
 `UIContentVerticalAlignment2` unless centered (bottom 2: `tf-valign-bottom`), `UIContentHorizontalAlignment`
@@ -977,8 +1007,37 @@ attributes dictionary and paragraph style, whatever their texts (round 106, `tex
 A `<toolbar>` among subviews (round 61, `toolbar-*`, `sb-toolbar`) is a `UIToolbar`: a view's keys,
 `UIViewContentHuggingPriority` `{250, 250}` included, then `UIItems` (the nib's one empty array,
 which the root's empty lists share, for `<items/>` or no `<items>`), `UIBarPosition` 1 and
-`UIBarTranslucence` 1. Items (`<barButtonItem>`: `toolbar-flexible-item`) are refused; a navigation
-controller's `<toolbar key="toolbar">` is in "Navigation controllers".
+`UIBarTranslucence` 1. A navigation controller's `<toolbar key="toolbar">` is in "Navigation
+controllers".
+
+Bars (`bars-tb-*`, `bars-nb-*`, `bars-sbn-*`). `barStyle` writes `UIBarStyle` (`black` and
+`blackOpaque` 1, `blackTranslucent` 2), `translucent="NO"` makes `UIBarTranslucence` 2, and a
+navigation controller's bar then also writes `UIOpaque`. The keys of a bar, in order: `UIBarStyle`,
+`UIBarPrefersLargeTitles`, `UIBarLargeTitleTextAttributes`, `UIIsLocked` (a controller's bar),
+`UIBarTintColor`, `UIItems`, `UIDelegate` (a controller's bar), `UITitleTextAttributes`,
+`UIBarPosition`, `UIBarTranslucence`, then a custom class's names. `<textAttributes>` is a dictionary
+of `NSColor`, then `NSFont`; shadows and empty `<textAttributes>` are refused.
+
+Bar button items (`bars-tb-*`, `bars-ni-*`). The keys, in order: `UIEnabled` unless disabled,
+`UIIsSystemItem` and `UISystemItem`, `UIStyle`, `UITag`, `UIHidesSharedBG` (the two spaces),
+`UITitle`, `UIWidth` (a float; a flexible space writes none), `UIImage`, `UITintColor`, a custom
+class's `UIClassName` and `UIOriginalClassName`. `UIStyle` is 1 without a `style`, 2 for `done`, and
+absent for `style="plain"`. `userLabel` changes nothing. System items: `flexibleSpace` 5,
+`fixedSpace` 6, `pause` 18, `rewind` 19, `fastForward` 20, `undo` 21, `redo` 22, `pageCurl` 23,
+`close` 0, the others in `NibBarButtonItem.systemItems`. Items in `<items>` are listed in all objects
+after the toolbar, in order; actions have no event mask and sort as other actions do. ibtool warns
+"Plain Style unsupported in a Navigation Item" for `style="plain"` in a navigation item, which nomac
+does not print yet (`bars-ni-plain-*`, `bars-ni-item-empty`: the nibs are identical).
+
+Navigation items (`bars-ni-*`). The keys, in order: `UITitle`, `UIAttributedTitle`, `UIPrompt`,
+`UILeftItemsSupplementBackButton`, `UILeftBarButtonItem`, `UIRightBarButtonItem`,
+`UILeftBarButtonItems`, `UICenterItemGroups`, `UIRightBarButtonItems`, `UILargeTitleDisplayMode`
+(`always` 1, `never` 2), `UINavigationBar`. With `<leftBarButtonItems>` or `<rightBarButtonItems>`, the
+single item is the first of the list. `userLabel` and `<nil key="title">` change nothing. Refused for
+now: a back item beside a left or right one, a prompt or `leftItemsSupplementBackButton`
+(`bars-ni-back-*`), several items on one side with actions of one selector (`bars-ni-right-two-same`),
+and `<barButtonItem>` in `<toolbarItems>` (`bars-vc-*`: `UIToolbarItems` after
+`UIParentViewController`).
 
 ## Web views
 
@@ -1124,6 +1183,11 @@ configuration writes its object alone (`a11y-empty`). In an `.lproj` folder the 
 are `NSLocalizableString`s keyed `<id>.accessibilityLabel` and `<id>.accessibilityHint`, the
 identifier a string (`a11y-lproj`). In a storyboard a scene's configurations are in its view's
 nib (`sb-a11y`).
+
+
+Traits by bit: playsSound 16, keyboardKey 32, updatesFrequently 512, searchField 1024,
+startsMediaSession 2048, allowsDirectInteraction 8192, causesPageTurn 16384 (`mx-trait-*`).
+`<string key="label">` and `<string key="hint">` are the attributes' values (`mx-a11y-string-*`).
 
 ## Gesture recognizers
 
@@ -1322,6 +1386,19 @@ Only `Base.lproj` makes a document's texts localizable; in `en.lproj`, `fr.lproj
 none in a document of `toolsVersion` under 11019 (bisected), and 1000 x 1000 from it (`no-rect-tools-*`,
 `sb-no-rect-tools-*`, `view-no-rect-*`, whatever its constraints). A slider of no `value` or of 0 writes no
 `UIValue` (`slider-value-*`).
+
+
+A color `name` with `catalog="System" colorSpace="catalog"` is AppKit's color as this Mac's default
+appearance and accent give it: an unnamed RGB color, by name (`mx-catalog-*`, `mx-sb-catalog-*`).
+A `name` the document's resources do not define gets ibtool's stand-in, float 0.329, 0.324, 0.478,
+0.33, keeping `UIDynamicCatalogName` (`mx-named-undefined`, `mx-named-system-name`,
+`mx-sb-named-undefined`, `mx-sb-tint-undefined`). Beside `cocoaTouchSystemColor`, an
+`xcode11CocoaTouchSystemColor` or `systemColor` name is the color, whatever the pairing
+(`mx-x11-*`, `mx-pair-*`). `cocoaTouchSystemColor` also takes the names in `mx-cocoa-*`; added
+system colors: `systemWhiteColor` (RGB 1, 1, 1), `tableCellGroupedBackgroundColor`,
+`underPageBackgroundColor` (`mx-system-*`). Without `colorMatched="YES"` named and catalog colors
+lose their name and are converted by a route not matched yet (`mx-catalog-unmatched-*`,
+`mx-named-*-unmatched`): refused.
 
 ## Storyboards
 

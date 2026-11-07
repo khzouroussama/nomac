@@ -71,11 +71,11 @@ final class NibView: NibArchivable, NibObjectChildren {
         case collection(CollectionContent)
         case textView(TextViewContent)
         /// `UIToolbar` of no items: the nib's empty array (`toolbar-*`).
-        case toolbar(items: NibArray)
+        case toolbar(items: NibArray, appearance: BarAppearance)
         case webView(WebViewContent)
         case map(MapContent)
         /// `UINavigationBar` among subviews: its items, a mutable array (`nav-bar-sub-*`).
-        case navigationBar(items: NibArray, translucent: Bool)
+        case navigationBar(items: NibArray, appearance: BarAppearance)
         /// `UIDatePicker` of date and time or a count-down timer (`date-picker-*`).
         case datePicker(countDown: Bool, usesCurrentDate: Bool)
         case pickerView
@@ -141,7 +141,7 @@ final class NibView: NibArchivable, NibObjectChildren {
     var safeAreaPlaceholder: NibSafeAreaGuide?
     /// A scroll view's content and frame layout guides, listed like the safe area's
     /// (`scroll-guides-constraints`).
-    var layoutGuidePlaceholders: [NibSafeAreaGuide] = []
+    var layoutGuidePlaceholders: [NibArchivable] = []
     var layoutGuides: [NibViewLayoutGuide] = []
 
     init(frame: (x: Double, y: Double, width: Double, height: Double)?, autoresizingMask: Int, flags: Flags, subviews: [NibView],
@@ -219,8 +219,8 @@ final class NibView: NibArchivable, NibObjectChildren {
         case .effectContentView: return constraints
         case .collection(let collection): return (safeAreaPlaceholder.map { [$0] } ?? []) + [collection.layout] + constraints + subviews
         case .segment: return []
-        case .navigationBar(let items, _): return constraints + items.elements
-        case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .toolbar, .webView, .map, .datePicker,
+        case .navigationBar(let items, _), .toolbar(let items, _): return constraints + items.elements
+        case .view, .button, .stack, .scroll, .reusableView, .activity, .progress, .page, .slider, .cellLabel, .textField, .switch, .textView, .webView, .map, .datePicker,
              .pickerView, .searchBar, .refreshControl: break
         }
         let guides = subviews.filter { $0.layoutGuide != nil }
@@ -339,17 +339,19 @@ final class NibView: NibArchivable, NibObjectChildren {
             if let thumbTint { try encoder.encode(thumbTint, forKey: "UISwitchThumbTintColor") }
         case .collection(let collection): try collection.encode(to: encoder)
         case .textView(let textView): try textView.encode(to: encoder)
-        case .toolbar(let items):
+        case .toolbar(let items, let appearance):
+            try appearance.encodeLeading(to: encoder)
+            if let tint = appearance.tint { try encoder.encode(tint, forKey: "UIBarTintColor") }
             try encoder.encode(items, forKey: "UIItems")
-            encoder.encode(.integer(1), forKey: "UIBarPosition")
-            encoder.encode(.integer(1), forKey: "UIBarTranslucence")
+            try appearance.encodeTrailing(position: 1, to: encoder)
         case .webView(let webView): try webView.encode(to: encoder)
         case .map(let map): try map.encode(to: encoder)
         case .searchBar(let searchBar): try searchBar.encode(to: encoder)
-        case .navigationBar(let items, let translucent):
+        case .navigationBar(let items, let appearance):
+            try appearance.encodeLeading(to: encoder)
+            if let tint = appearance.tint { try encoder.encode(tint, forKey: "UIBarTintColor") }
             if !items.elements.isEmpty { try encoder.encode(items, forKey: "UIItems") }
-            encoder.encode(.integer(2), forKey: "UIBarPosition")
-            encoder.encode(.integer(translucent ? 1 : 2), forKey: "UIBarTranslucence")
+            try appearance.encodeTrailing(position: 2, to: encoder)
         case .datePicker(let countDown, let usesCurrentDate):
             if countDown {
                 encoder.encode(.integer(3), forKey: "UIDatePickerMode")

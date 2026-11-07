@@ -6,7 +6,7 @@ import Foundation
 /// then UIKit's highlight attributes and number pad popover.
 struct TextViewContent {
     /// `UIDataDetectorTypes` bits of the types observed (`text-view-detectors*`, `text-view-all-flags`).
-    static let dataDetectorTypes = ["phoneNumber": 1, "link": 2, "address": 4, "calendarEvent": 8]
+    static let dataDetectorTypes = ["phoneNumber": 1, "link": 2, "address": 4, "calendarEvent": 8, "shipmentTrackingNumber": 16, "flightNumber": 32, "lookupSuggestion": 64]
     /// The `<textInputTraits>` observed, as their `UITextInputTraits` values, in the order ibtool
     /// writes them (`text-view-traits-*`); `autocapitalizationType` is apart, IB's sentences being
     /// UIKit's default.

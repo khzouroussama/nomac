@@ -26,9 +26,10 @@ final class NibAccessibilityConfiguration: NibArchivable {
         if let isElement { try encoder.encode(isElement, forKey: "UIIsAccessibilityElement") }
     }
 
-    /// `UIAccessibilityTraits` bits by the names documents use (`a11y-traits-*`).
-    static let traits = ["none": 0, "button": 1, "link": 2, "image": 4, "selected": 8, "staticText": 64, "summaryElement": 128,
-                         "notEnabled": 256, "adjustable": 4096, "header": 65536]
+    /// `UIAccessibilityTraits` bits by the names documents use (`a11y-traits-*`, `mx-trait-*`).
+    static let traits = ["none": 0, "button": 1, "link": 2, "image": 4, "selected": 8, "playsSound": 16, "keyboardKey": 32, "staticText": 64,
+                         "summaryElement": 128, "notEnabled": 256, "updatesFrequently": 512, "searchField": 1024, "startsMediaSession": 2048,
+                         "adjustable": 4096, "allowsDirectInteraction": 8192, "causesPageTurn": 16384, "header": 65536]
 }
 
 extension DocumentCompiler {
@@ -36,7 +37,7 @@ extension DocumentCompiler {
     /// localizable, keyed `<id>.accessibilityLabel` and `<id>.accessibilityHint` (`a11y-lproj`).
     mutating func accessibility(of element: XIBElement, object: NibArchivable) throws {
         for accessibility in element.children(named: "accessibility") {
-            try check(accessibility, attributes: ["key", "label", "hint", "identifier"], children: ["bool", "accessibilityTraits"])
+            try check(accessibility, attributes: ["key", "label", "hint", "identifier"], children: ["bool", "accessibilityTraits", "string"])
             try value(accessibility, "key", in: ["accessibilityConfiguration"])
             let configuration = NibAccessibilityConfiguration(object: object)
             let id = element.attributes["id"] ?? ""
@@ -45,6 +46,12 @@ extension DocumentCompiler {
             configuration.label = accessibility.attributes["label"].map { localizableText($0, key: "\(id).accessibilityLabel") }
             for child in accessibility.children {
                 switch (child.name, child.attributes["key"]) {
+                case ("string", "label"):
+                    guard accessibility.attributes["label"] == nil else { throw unsupported("a label in <accessibility> as an attribute and an element") }
+                    configuration.label = localizableText(child.text, key: "\(id).accessibilityLabel")
+                case ("string", "hint"):
+                    guard accessibility.attributes["hint"] == nil else { throw unsupported("a hint in <accessibility> as an attribute and an element") }
+                    configuration.hint = localizableText(child.text, key: "\(id).accessibilityHint")
                 case ("bool", "isElement"):
                     try check(child, attributes: ["key", "value"], children: [])
                     configuration.isElement = NibNumber(integer: try bool(child, "value", default: false) ? 1 : 0)

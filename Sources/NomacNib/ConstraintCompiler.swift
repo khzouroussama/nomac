@@ -20,16 +20,18 @@ struct PendingConstraints {
 extension DocumentCompiler {
     /// `NSLayoutAttribute` by the names documents use.
     static let layoutAttributes = ["left": 1, "right": 2, "top": 3, "bottom": 4, "leading": 5, "trailing": 6, "width": 7, "height": 8,
-                                   "centerX": 9, "centerY": 10, "firstBaseline": 12]
+                                   "centerX": 9, "centerY": 10, "baseline": 11, "firstBaseline": 12]
     /// The order of a view's constraints by attribute, between views, and when the safe area takes
-    /// part (nib-experiments `order-*`: total orders from all ten attributes and every pair).
-    static let viewAttributeOrder = ["centerX", "centerY", "right", "left", "trailing", "leading", "width", "bottom", "top", "height"]
+    /// part (nib-experiments `order-*`: total orders from all ten attributes and every pair; the
+    /// baselines from `cs-pairs-*`).
+    static let viewAttributeOrder = ["centerX", "centerY", "right", "left", "trailing", "leading", "width", "bottom", "top", "firstBaseline", "baseline", "height"]
     /// The same with margins (`~`), each pair's margins before its plain attributes, top margin
     /// before bottom margin (`norm-all*`, `sub-first-all`, `margin-order-*`).
     static let viewMarginOrder = ["centerX~", "centerX", "centerY~", "centerY", "right~", "left~", "right", "left", "trailing~", "leading~", "trailing",
-                                  "leading", "width", "top~", "bottom~", "bottom", "top", "height"]
-    /// A first baseline between subviews sorts after their top (`baseline-firstBaseline-*`).
-    static let guideAttributeOrder = ["centerX", "right", "left", "trailing", "leading", "centerY", "bottom", "top", "firstBaseline", "width", "height"]
+                                  "leading", "width", "top~", "bottom~", "bottom", "top", "firstBaseline", "baseline", "height"]
+    /// A first baseline sorts after a top, a baseline after that (`baseline-firstBaseline-*`,
+    /// `cs-baseline-*`, `cs-pairs-*-safe`).
+    static let guideAttributeOrder = ["centerX", "right", "left", "trailing", "leading", "centerY", "bottom", "top", "firstBaseline", "baseline", "width", "height"]
     static let relations = ["lessThanOrEqual": -1, "greaterThanOrEqual": 1]
 
     /// Every pending view's constraints, in the order ibtool writes them (docs/formats/nib.md
@@ -50,6 +52,7 @@ extension DocumentCompiler {
         for pending in pendingConstraints {
             guard let owner = documentViews[pending.owner] else { continue }
             let guides = Set(safeAreaGuides.filter { $0.value == pending.owner }.keys).union(scrollGuides.filter { $0.value.owner == pending.owner }.keys)
+                .union(keyboardGuides.filter { $0.value == pending.owner }.keys)
             var groups: [String: [(key: [Int], normalized: Bool, constraint: NibLayoutConstraint)]] = [:]
             for element in pending.elements {
                 guard let (item, key, normalized, constraint) = try constraint(element, owner: pending.owner, guides: guides) else { continue }
@@ -87,9 +90,12 @@ extension DocumentCompiler {
     /// NCShareUserCell, wikipedia's PageHistoryCountsView).
     mutating func masks(_ element: XIBElement, owner: String) throws {
         for variation in element.children(named: "variation") {
-            try check(variation, attributes: ["key"] + (element.name == "stackView" ? StackContent.variedAttributes.map(\.attribute) : []), children: ["mask"])
+            // A variation's own frame and the flags IB keeps on it change nothing (`cm-var-*`); a
+            // label's font variation sits beside its mask (`cm-label-mask-font*`).
+            try check(variation, attributes: ["key", "misplaced", "ambiguous", "fixedFrame"] + (element.name == "stackView" ? StackContent.variedAttributes.map(\.attribute) : []),
+                      children: Set(["mask", "rect"] + (element.name == "label" ? ["fontDescription"] : [])))
             let sizeClasses = variation.attributes["key"] == "default" ? SizeClasses() : try self.sizeClasses(variation)
-            for mask in variation.children {
+            for mask in variation.children(named: "mask") {
                 try check(mask, attributes: ["key"], children: ["include", "exclude"])
                 try value(mask, "key", in: ["constraints", "subviews"])
                 // An empty mask changes nothing (`mask-empty-*`, `cvmask-old-empty`).
@@ -111,8 +117,7 @@ extension DocumentCompiler {
     /// reverse of the attribute records' order (`sc-mask-order-all*`), each its own trait collection
     /// but the default's (the corpus's wikipedia WelcomeContainerViewController); the objects the
     /// default excludes not installed, nor in a storyboard those the device's size classes exclude.
-    /// A size-class mask inside a cell's content view is refused (not observed). An excluded subview
-    /// that constraints name is refused: ibtool warns and drops them too
+    /// An excluded subview that constraints name is refused: ibtool warns and drops them too
     /// (`mask-subviews-root-constrained`). A record's added and removed objects are `NSSet`s, which
     /// ibtool writes in the order of their memory addresses (`sc-mask-set-probe-*`): nomac writes
     /// the candidates' order, equivalent (ADR 0252).
@@ -178,15 +183,6 @@ extension DocumentCompiler {
                 .map { item -> NibArchivable in (item as? NibViewLayoutGuide)?.owningView.safeAreaPlaceholder ?? item }
             storage = NibRelationshipTraitStorage(owner: storageOwner, keyPath: string("traitStorageConstraints"), candidates: candidates,
                                                   records: records.map { $0.ordered(as: candidates) }, descendants: descendants)
-            var ancestor = owner.parent
-            var insideContentView = false
-            while let id = ancestor, let view = documentViews[id] {
-                if case .cellContentView = view.view.kind { insideContentView = true }
-                ancestor = view.parent
-            }
-            guard !insideContentView || records.allSatisfy({ $0.sizeClasses == SizeClasses() }) else {
-                throw unsupported("a size-class mask inside a cell's content view")
-            }
             relationshipStorages.append(storage)
         }
         pendingMasks = []
@@ -202,7 +198,8 @@ extension DocumentCompiler {
     private mutating func constraint(_ element: XIBElement, owner: String, guides: Set<String>) throws
         -> (String, [Int], Bool, NibLayoutConstraint)? {
         try check(element, attributes: ["id", "firstItem", "firstAttribute", "secondItem", "secondAttribute", "relation", "constant",
-                                        "multiplier", "priority", "identifier", "placeholder", "symbolic", "userLabel"], children: ["variation"])
+                                        "multiplier", "priority", "identifier", "placeholder", "symbolic", "symbolType", "userLabel",
+                                        "customClass", "customModule", "customModuleProvider"], children: ["variation"])
         let attributes = element.attributes
         let first = attributes["firstItem"] ?? owner
         let second = attributes["secondItem"]
@@ -236,9 +233,15 @@ extension DocumentCompiler {
             return priority
         } ?? 1000
         let symbolic = try bool(element, "symbolic", default: false)
+        if attributes["symbolType"] != nil {
+            try value(element, "symbolType", in: ["layoutAnchor"])
+            guard !symbolic else { throw unsupportedConstraints("a constraint both symbolic and with a symbol type") }
+        }
+        let anchored = attributes["symbolType"] != nil
         let written = try attributes["constant"].map { try number($0, "constant") } ?? 0
-        // A symbolic constraint's constant, IB's standard spacing, is not written (`symbolic-*`).
-        let constant = symbolic ? 0 : written
+        // A symbolic constraint's constant, IB's standard spacing, is not written (`symbolic-*`), nor
+        // is an anchor's (`cs-symbol-anchor*`).
+        let constant = symbolic || anchored ? 0 : written
         let nibConstraint = NibLayoutConstraint(try item(first, owner: owner), firstAttribute.number,
                                                 try second.map { (try item($0, owner: owner), secondAttribute!.number) })
         nibConstraint.relation = relation
@@ -246,19 +249,19 @@ extension DocumentCompiler {
         nibConstraint.constant = constant
         nibConstraint.priority = priority
         nibConstraint.identifier = attributes["identifier"].map { string($0) }
-        nibConstraint.symbolicConstant = symbolic ? string("NSSpace") : nil
+        nibConstraint.symbolicConstant = symbolic ? string("NSSpace") : anchored ? string("NSLayoutAnchorConstraintSpace") : nil
+        nibConstraint.customClass = try customClass(element, original: "NSLayoutConstraint")
         let margins = firstAttribute.plain != nil || secondAttribute?.plain != nil
         if margins {
-            guard nibConstraint.multiplier == 1, !symbolic, element.children(named: "variation").isEmpty,
-                  !guides.contains(first), !(second.map(guides.contains) ?? false) else {
-                throw unsupportedConstraints("a constraint to layout margins with a multiplier, a variation, a symbolic constant or the safe area")
+            guard !anchored, !guides.contains(first), !(second.map(guides.contains) ?? false) else {
+                throw unsupportedConstraints("a constraint to layout margins with an anchor's symbol type or the safe area")
             }
             nibConstraint.legacyAttributes = (firstAttribute.plain, secondAttribute?.plain)
             nibConstraint.marginOffset = try (secondAttribute.map { try marginOffset($0, of: second) } ?? 0) - marginOffset(firstAttribute, of: first)
         }
         let variations = try element.children(named: "variation").map { variation in
             try check(variation, attributes: ["key", "constant"], children: [])
-            guard let text = variation.attributes["constant"], !symbolic else { throw unsupported("this variation of a constraint") }
+            guard let text = variation.attributes["constant"], !symbolic, !anchored else { throw unsupported("this variation of a constraint") }
             return (try sizeClasses(variation), try number(text, "constant"))
         }
         if !variations.isEmpty {
@@ -272,12 +275,11 @@ extension DocumentCompiler {
         for id in [first, second].compactMap({ $0 }) where !guides.contains(id) {
             try constrained(id)
         }
-        if [attributes["firstAttribute"], attributes["secondAttribute"]].contains("firstBaseline"), !sibling {
-            throw unsupportedConstraints("a first baseline other than between two subviews")
-        }
         // A view deeper than the subviews has its constraints to a guide before those to the view
-        // (`deep-safe-*`; pocket-casts' FilterSettingsOverlayController).
-        let deepToGuide = second.map(guides.contains) == true && depth(of: first, in: owner) > 1
+        // (`deep-safe-*`; pocket-casts' FilterSettingsOverlayController), and so has a subview of a
+        // cell's older content view, the cell's safe area being the guide (`cs-cvsafe-*`).
+        let olderContent = documentViews[owner]?.parent.map { owner == "\($0).contentView" } ?? false
+        let deepToGuide = second.map(guides.contains) == true && (olderContent || depth(of: first, in: owner) > 1)
         let guide = sibling ? 2 : guides.contains(first) || deepToGuide ? 0 : second.map(guides.contains) == true ? 2 : 1
         let order = guide == 1 ? Self.viewAttributeOrder : Self.guideAttributeOrder
         var names = (firstAttribute.name, secondAttribute?.name)
@@ -322,6 +324,12 @@ extension DocumentCompiler {
             let object = NibScrollLayoutGuide(owningView: scroll, content: guide.content, identifier: string(name),
                                               constraintIdentifiers: (guide.content ? ["minX", "minY"] : ["minX", "minY", "width", "height"]).map { string("\(name)-\($0)") })
             scrollGuideObjects[id] = object
+            return object
+        }
+        if let guideOwner = keyboardGuides[id], let view = documentViews[guideOwner]?.view {
+            if let object = keyboardGuideObjects[id] { return object }
+            let object = NibKeyboardLayoutGuide(owningView: view, identifier: string("UIViewKeyboardLayoutGuide"))
+            keyboardGuideObjects[id] = object
             return object
         }
         let view = documentViews[owner]!.view
@@ -398,7 +406,7 @@ extension DocumentCompiler {
     /// by element, the views that listed the moved constraints that do not name their new view.
     private mutating func installWhereIbtoolDoes(_ pending: inout [PendingConstraints]) throws -> [(element: XIBElement, listing: String, target: String)] {
         func ancestors(_ id: String) -> [String] {
-            var chain = [safeAreaGuides[id] ?? scrollGuides[id]?.owner ?? id]
+            var chain = [safeAreaGuides[id] ?? scrollGuides[id]?.owner ?? keyboardGuides[id] ?? id]
             while let parent = documentViews[chain.last!]?.parent { chain.append(parent) }
             return chain
         }

@@ -8,6 +8,7 @@ struct CellContent {
     static let accessoryTypes = ["disclosureIndicator": 1, "checkmark": 3, "detailButton": 4]
     /// `UITableViewCell.CellStyle` of the styles observed, and their labels (`cell-style-*`).
     static let styles = ["IBUITableViewCellStyleDefault": (0, ["textLabel"]), "IBUITableViewCellStyleValue1": (1, ["textLabel", "detailTextLabel"]),
+                         "IBUITableViewCellStyleValue2": (2, ["textLabel", "detailTextLabel"]),
                          "IBUITableViewCellStyleSubtitle": (3, ["textLabel", "detailTextLabel"])]
     /// `UITableViewCell.SelectionStyle` of a cell that does not use the default style, and the system
     /// background view such a cell writes (`cell-selection-*`).
@@ -102,17 +103,17 @@ extension DocumentCompiler {
     mutating func tableViewCell(_ element: XIBElement) throws -> NibView {
         try check(element, attributes: ["id", "contentMode", "selectionStyle", "indentationWidth", "indentationLevel", "reuseIdentifier", "rowHeight",
                                         "hidden", "tag", "userInteractionEnabled", "alpha", "insetsLayoutMarginsFromSafeArea", "focusStyle",
-                                        "accessoryType", "editingAccessoryType", "showsReorderControl", "style", "textLabel", "detailTextLabel", "clipsSubviews", "preservesSuperviewLayoutMargins", "restorationIdentifier", "opaque", "hidesAccessoryWhenEditing",
+                                        "accessoryType", "editingAccessoryType", "showsReorderControl", "style", "textLabel", "detailTextLabel", "colorLabel", "clipsSubviews", "preservesSuperviewLayoutMargins", "restorationIdentifier", "opaque", "hidesAccessoryWhenEditing",
                                         "clearsContextBeforeDrawing", "layoutMarginsFollowReadableWidth",
                                         "customClass", "customModule", "customModuleProvider", "userLabel"],
-                  children: ["rect", "autoresizingMask", "tableViewCellContentView", "viewLayoutGuide", "point", "connections", "color",
+                  children: ["rect", "frame", "autoresizingMask", "tableViewCellContentView", "viewLayoutGuide", "point", "connections", "color",
                              "edgeInsets", "directionalEdgeInsets", "inset", "constraints", "userDefinedRuntimeAttributes",
                              "accessibility"])
         let selectionStyles = ["none": 0, "blue": 1, "gray": 2, "default": 3]
         guard let selectionStyle = selectionStyles[element.attributes["selectionStyle"] ?? "default"] else {
             throw unsupported("selectionStyle=\"\(element.attributes["selectionStyle"] ?? "")\"")
         }
-        guard let id = element.attributes["id"], let rect = element.child("rect", key: "frame"),
+        guard let id = element.attributes["id"], let rect = try element.child("rect", key: "frame") ?? cellFrameInset(element),
               element.children(named: "rect").allSatisfy({ ["frame", "contentStretch"].contains($0.attributes["key"] ?? "") }) else {
             throw unsupported("a table view cell without an id or a frame, or with another rectangle")
         }
@@ -235,6 +236,16 @@ extension DocumentCompiler {
                                                         destination: segue.placeholder))
         }
         return cell
+    }
+
+    /// Xcode 8's `<frame key="frameInset">` of a top, a width and a height is the frame at that top
+    /// (`cm-sb-proto-frame-inset`).
+    private func cellFrameInset(_ element: XIBElement) throws -> XIBElement? {
+        guard let inset = element.children(named: "frame").first else { return nil }
+        try check(inset, attributes: ["key", "minY", "width", "height"], children: [])
+        try value(inset, "key", in: ["frameInset"])
+        guard let width = inset.attributes["width"], let height = inset.attributes["height"] else { return nil }
+        return XIBElement(name: "rect", attributes: ["key": "frame", "x": "0.0", "y": inset.attributes["minY"] ?? "0.0", "width": width, "height": height])
     }
 
     /// A cell's `<inset key="separatorInset">` as top, left, bottom, right; IB's separator view then

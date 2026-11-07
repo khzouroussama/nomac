@@ -110,13 +110,19 @@ import Testing
     @Test(arguments: [
         (storyboard(navigation().replacingOccurrences(of: "vc1-aa-aaa", with: "tab-aa-aaa"), ContainerControllerTests.tab(), SceneTests.scene(1), SceneTests.scene(2)),
          "a navigation controller's root that is no plain view controller or that other controllers reach"),
-        (storyboard(initial: "vc1-aa-aaa", SceneTests.scene(1, afterView: item(items: barItem("rightBarButtonItem", "pause", 1)))),
-         "a bar button item of a system item not observed yet"),
-        (storyboard(navigation(), SceneTests.scene(1, afterView: item(items: barItem("rightBarButtonItem", "pause", 1)))),
-         "a bar button item of a system item not observed yet"),
     ])
     func refusesWhatIsNotObservedYet(document: String, what: String) {
         #expect(throws: NomacError("nomac does not compile \(what) yet (BACKLOG B-261)", path: "/tmp/Main.storyboard")) {
+            try StoryboardCompiler.compile(Data(document.utf8), path: "/tmp/Main.storyboard", options: StoryboardCompilerTests.options)
+        }
+    }
+
+    @Test(arguments: [
+        storyboard(initial: "vc1-aa-aaa", SceneTests.scene(1, afterView: item(items: barItem("rightBarButtonItem", "notAnItem", 1)))),
+        storyboard(navigation(), SceneTests.scene(1, afterView: item(items: barItem("rightBarButtonItem", "notAnItem", 1)))),
+    ])
+    func refusesASystemItemNotObserved(document: String) {
+        #expect(throws: NomacError("nomac does not compile a bar button item of a system item not observed yet (BACKLOG B-260)", path: "/tmp/Main.storyboard")) {
             try StoryboardCompiler.compile(Data(document.utf8), path: "/tmp/Main.storyboard", options: StoryboardCompilerTests.options)
         }
     }

@@ -87,6 +87,8 @@ final class NibLayoutConstraint: NibArchivable {
     /// `symbolic="YES"`: the standard spacing, `NSSpace`, whatever constant IB wrote alongside
     /// (`constraint-symbolic`, `symbolic-constant*`).
     var symbolicConstant: NibString?
+    /// A custom class makes the constraint a `UIClassSwapper` (`cs-custom-*`).
+    var customClass: (name: NibString, original: NibString)?
     let supportPriority: Int?
 
     init(_ first: NibArchivable, _ firstAttribute: Int, _ second: (item: NibArchivable, attribute: Int)? = nil, supportPriority: Int? = nil) {
@@ -96,7 +98,7 @@ final class NibLayoutConstraint: NibArchivable {
         self.supportPriority = supportPriority
     }
 
-    var className: String { supportPriority == nil ? "NSLayoutConstraint" : "_UILayoutSupportConstraint" }
+    var className: String { customClass != nil ? "UIClassSwapper" : supportPriority == nil ? "NSLayoutConstraint" : "_UILayoutSupportConstraint" }
     var fallbackClassNames: [String] { supportPriority == nil ? [] : ["NSLayoutConstraint"] }
 
     func encode(to encoder: NibEncoder) throws {
@@ -120,6 +122,10 @@ final class NibLayoutConstraint: NibArchivable {
             try encoder.encode(identifier, forKey: "NSLayoutIdentifier")
         }
         if constant + marginOffset != 0 { encoder.encode(.double(constant + marginOffset), forKey: "NSConstant") }
+        if let customClass {
+            try encoder.encode(customClass.name, forKey: "UIClassName")
+            try encoder.encode(customClass.original, forKey: "UIOriginalClassName")
+        }
     }
 
     static let left = 1, right = 2, top = 3, bottom = 4, leading = 5, width = 7, height = 8

@@ -123,13 +123,17 @@ final class NibRootViewController: NibArchivable, NibObjectChildren {
     }
 }
 
-/// `UINavigationItem`: a declared item's title (with an attributed copy), bar button items and
-/// the nib's empty array as center item groups; its large-title mode; its bar, conditionally.
+/// `UINavigationItem`: a declared item's title (with an attributed copy), prompt, bar button items
+/// and the nib's empty array as center item groups; its large-title mode; its bar, conditionally.
+/// `UILeftBarButtonItem` and `UIRightBarButtonItem` are the first of its several items
+/// (`bars-ni-right-*`, `bars-ni-left-two`, `bars-ni-both-two`, `bars-ni-order`).
 final class NibNavigationItem: NibArchivable, NibObjectChildren {
     var title: NibArchivable?
-    var left: NibBarButtonItem?
-    var right: NibBarButtonItem?
-    /// Its back item, after its attributed title (`sb-bar-back-title`).
+    var prompt: NibArchivable?
+    var leftItemsSupplementBackButton = false
+    var leftItems: [NibBarButtonItem] = []
+    var rightItems: [NibBarButtonItem] = []
+    /// Its back item, after its attributed title (`sb-bar-back-title`, `bars-ni-back-*`).
     var back: NibBarButtonItem?
     var largeTitleDisplayMode = 0
     var centerItemGroups: NibArray?
@@ -138,20 +142,24 @@ final class NibNavigationItem: NibArchivable, NibObjectChildren {
     /// Its navigation controller's bar, or the navigation bar among subviews holding it (`nav-bar-sub-*`).
     weak var bar: NibArchivable?
 
+    var left: NibBarButtonItem? { leftItems.first }
+    var right: NibBarButtonItem? { rightItems.first }
     var className: String { "UINavigationItem" }
-    var childObjects: [NibArchivable] { [left, right, back].compactMap { $0 } }
+    var childObjects: [NibArchivable] { leftItems + rightItems + (back.map { [$0] } ?? []) }
 
     func encode(to encoder: NibEncoder) throws {
         if let title {
             try encoder.encode(title, forKey: "UITitle")
             try encoder.encode(NibAttributedString(title, attributes: titleAttributes), forKey: "UIAttributedTitle")
         }
+        if let prompt { try encoder.encode(prompt, forKey: "UIPrompt") }
+        if leftItemsSupplementBackButton { encoder.encode(.boolean(true), forKey: "UILeftItemsSupplementBackButton") }
         if let back { try encoder.encode(back, forKey: "UIBackBarButtonItem") }
         if let left { try encoder.encode(left, forKey: "UILeftBarButtonItem") }
         if let right { try encoder.encode(right, forKey: "UIRightBarButtonItem") }
-        if let left { try encoder.encode(NibArray([left]), forKey: "UILeftBarButtonItems") }
+        if !leftItems.isEmpty { try encoder.encode(NibArray(leftItems), forKey: "UILeftBarButtonItems") }
         if let centerItemGroups { try encoder.encode(centerItemGroups, forKey: "UICenterItemGroups") }
-        if let right { try encoder.encode(NibArray([right]), forKey: "UIRightBarButtonItems") }
+        if !rightItems.isEmpty { try encoder.encode(NibArray(rightItems), forKey: "UIRightBarButtonItems") }
         encoder.encode(.integer(largeTitleDisplayMode), forKey: "UILargeTitleDisplayMode")
         if let bar { encoder.encodeConditional(bar, forKey: "UINavigationBar") }
     }
@@ -179,7 +187,6 @@ final class NibAttributedString: NibArchivable {
 /// document frame's origin plus 27 points down (`sb-nav-bar-*`).
 final class NibNavigationBar: NibArchivable {
     let center: (x: Double, y: Double)
-    let prefersLargeTitles: Bool
     let hugging: NibString
     /// `multipleTouchEnabled`, `clipsSubviews` and `insetsLayoutMarginsFromSafeArea="NO"`, as a
     /// view's (`sb-nav-bar-flags`, `sb-nav-bar-insets-no`); `opaque` changes nothing.
@@ -189,22 +196,29 @@ final class NibNavigationBar: NibArchivable {
     var tintColor: NibArchivable?
     var items: [NibNavigationItem] = []
     weak var delegate: NibNavigationController?
+    /// `clearsContextBeforeDrawing="NO"`, after its autoresizing mask (`bars-sbn-clears`).
+    var clearsContextBeforeDrawing = true
+    /// Its style, tint, title attributes and translucence, with `UIOpaque` when `translucent="NO"` (`bars-sbn-*`).
+    var appearance = BarAppearance()
+    /// A custom class's names, last (`bars-sbn-class*`).
+    var customClass: (name: NibString, original: NibString)?
 
-    init(center: (x: Double, y: Double), prefersLargeTitles: Bool, hugging: NibString) {
+    init(center: (x: Double, y: Double), hugging: NibString) {
         self.center = center
-        self.prefersLargeTitles = prefersLargeTitles
         self.hugging = hugging
     }
 
-    var className: String { "UINavigationBar" }
+    var className: String { customClass == nil ? "UINavigationBar" : "UIClassSwapper" }
 
     func encode(to encoder: NibEncoder) throws {
         encoder.encode(.data(NibView.doubles([0, 0, 0, 54])), forKey: "UIBounds")
         encoder.encode(.data(NibView.doubles([center.x, center.y])), forKey: "UICenter")
         encoder.encode(.boolean(true), forKey: "UIDeepDrawRect")
+        if !appearance.translucent { encoder.encode(.boolean(true), forKey: "UIOpaque") }
         if multipleTouchEnabled { encoder.encode(.boolean(true), forKey: "UIMultipleTouchEnabled") }
         encoder.encode(.boolean(true), forKey: "UIAutoresizeSubviews")
         encoder.encode(.integer(2), forKey: "UIAutoresizingMask")
+        if !clearsContextBeforeDrawing { encoder.encode(.boolean(false), forKey: "UIClearsContextBeforeDrawing") }
         if clipsToBounds { encoder.encode(.boolean(true), forKey: "UIClipsToBounds") }
         if let tintColor { try encoder.encode(tintColor, forKey: "UITintColor") }
         try encoder.encode(hugging, forKey: "UIViewContentHuggingPriority")
@@ -213,40 +227,52 @@ final class NibNavigationBar: NibArchivable {
         if !insetsLayoutMarginsFromSafeArea { encoder.encode(.integer(0), forKey: "UIViewInsetsLayoutMarginsFromSafeArea") }
         encoder.encode(.integer(0), forKey: "UIViewSemanticContentAttribute")
         encoder.encode(.null, forKey: "UIViewLargeContentStoredProperties")
-        if prefersLargeTitles {
-            encoder.encode(.boolean(true), forKey: "UIBarPrefersLargeTitles")
-        }
+        try appearance.encodeLeading(to: encoder)
         encoder.encode(.boolean(true), forKey: "UIIsLocked")
+        if let tint = appearance.tint { try encoder.encode(tint, forKey: "UIBarTintColor") }
         // A navigation controller without a root has no items (`sb-shape-nav-no-root`).
         if !items.isEmpty { try encoder.encode(NibArray(items, mutable: true), forKey: "UIItems") }
         try encoder.encode(delegate, forKey: "UIDelegate")
-        encoder.encode(.integer(2), forKey: "UIBarPosition")
-        encoder.encode(.integer(1), forKey: "UIBarTranslucence")
+        try appearance.encodeTrailing(position: 2, to: encoder)
+        if let customClass {
+            try encoder.encode(customClass.name, forKey: "UIClassName")
+            try encoder.encode(customClass.original, forKey: "UIOriginalClassName")
+        }
     }
 }
 
-/// `UIBarButtonItem` of a system item (`sb-bar-*`): `UIEnabled` unless disabled, the system item's
-/// number, style 1.
+/// `UIBarButtonItem` (`sb-bar-*`, `bars-tb-*`, `bars-ni-*`): `UIEnabled` unless disabled, a system
+/// item's number, its style, the spaces' hidden shared background, its tag, title, image, width and
+/// tint; a `UIClassSwapper` of a custom class.
 final class NibBarButtonItem: NibArchivable {
-    /// `UIBarButtonSystemItem` of the system items observed.
-    /// (`sb-bar-system-*`).
-    static let systemItems = ["done": 0, "cancel": 1, "edit": 2, "save": 3, "add": 4, "compose": 7, "reply": 8, "action": 9, "organize": 10,
-                              "bookmarks": 11, "search": 12, "refresh": 13, "stop": 14, "camera": 15, "trash": 16, "play": 17]
+    /// `UIBarButtonSystemItem` of the system items observed; `close` writes 0 (`sb-bar-system-*`,
+    /// `bars-tb-sys-*`).
+    static let systemItems = ["done": 0, "close": 0, "cancel": 1, "edit": 2, "save": 3, "add": 4, "flexibleSpace": 5, "fixedSpace": 6, "compose": 7, "reply": 8,
+                              "action": 9, "organize": 10, "bookmarks": 11, "search": 12, "refresh": 13, "stop": 14, "camera": 15, "trash": 16, "play": 17,
+                              "pause": 18, "rewind": 19, "fastForward": 20, "undo": 21, "redo": 22, "pageCurl": 23]
+    /// The spaces write `UIHidesSharedBG` (`bars-tb-flex`, `bars-tb-fixed-width`).
+    private static let spaces: Set = [5, 6]
     let systemItem: Int?
     let enabled: Bool
-    /// `UIBarButtonItem.Style`: plain 1, done 2 (`nav-bar-sub-done`).
-    var style = 1
+    /// `UIStyle`: 1 without a style, 2 for `done`; `style="plain"` writes none (`bars-tb-title-plain`,
+    /// `bars-ni-plain-*`).
+    var style: Int? = 1
+    var tag: Int?
     /// A titled item's title, localizable as `<id>.title` (`sb-unwind-bar-item`, `sb-bar-title-lproj`).
     var title: NibArchivable?
-    /// A titled item's image, after its title (`sb-bar-image`).
+    /// Its image, after its title and width (`sb-bar-image`, `bars-tb-image*`, `bars-tb-combo`).
     var image: NibImage?
+    /// A flexible space writes no width (`bars-tb-flex-width`).
+    var width: Double?
+    var tintColor: NibArchivable?
+    var customClass: (name: NibString, original: NibString)?
 
     init(systemItem: Int?, enabled: Bool) {
         self.systemItem = systemItem
         self.enabled = enabled
     }
 
-    var className: String { "UIBarButtonItem" }
+    var className: String { customClass == nil ? "UIBarButtonItem" : "UIClassSwapper" }
 
     func encode(to encoder: NibEncoder) throws {
         if enabled {
@@ -256,9 +282,17 @@ final class NibBarButtonItem: NibArchivable {
             encoder.encode(.boolean(true), forKey: "UIIsSystemItem")
             encoder.encode(.integer(systemItem), forKey: "UISystemItem")
         }
-        encoder.encode(.integer(style), forKey: "UIStyle")
+        if let style { encoder.encode(.integer(style), forKey: "UIStyle") }
+        if let tag { encoder.encode(.integer(tag), forKey: "UITag") }
+        if let systemItem, Self.spaces.contains(systemItem) { encoder.encode(.boolean(true), forKey: "UIHidesSharedBG") }
         if let title { try encoder.encode(title, forKey: "UITitle") }
+        if let width { encoder.encode(.float(Float(width)), forKey: "UIWidth") }
         if let image { try encoder.encode(image, forKey: "UIImage") }
+        if let tintColor { try encoder.encode(tintColor, forKey: "UITintColor") }
+        if let customClass {
+            try encoder.encode(customClass.name, forKey: "UIClassName")
+            try encoder.encode(customClass.original, forKey: "UIOriginalClassName")
+        }
     }
 }
 

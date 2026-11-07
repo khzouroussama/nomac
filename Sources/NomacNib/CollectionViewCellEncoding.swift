@@ -82,7 +82,7 @@ extension DocumentCompiler {
         cellElement.children = element.children.filter { !["view", "collectionViewCellContentView", "size", "constraints", "variation"].contains($0.name) } + [subviews]
         let cell = try view(cellElement, topLevel: true, originalClassName: "UICollectionViewCell")
         if legacy {
-            safeAreaGuides = safeAreaGuides.filter { $0.value != id }
+            safeAreaGuides = safeAreaGuides.mapValues { $0 == id ? contentID : $0 }
         }
         guard let contentView = cell.subviews.first else { throw unsupported("a collection view cell without a content view") }
         // Subviews the cell's default mask excludes do not count (`cvmask-old-subviews`).

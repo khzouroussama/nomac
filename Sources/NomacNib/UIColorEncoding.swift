@@ -1,7 +1,7 @@
 import Foundation
 
 /// A `UIColor` as ibtool archives it (docs/formats/nib.md "UIColor"; nib-experiments `gray-*`,
-/// `rgb-*`, `systemColor-*`, `cocoaTouchSystemColor-*`, `named-color`).
+/// `rgb-*`, `systemColor-*`, `cocoaTouchSystemColor-*`, `named-color`, `mx-*`).
 final class NibColor: NibArchivable {
     enum Components: Equatable, Hashable {
         case gray(white: Double, alpha: Double)
@@ -110,6 +110,7 @@ final class NibColor: NibArchivable {
         "lightTextColor": .gray(white: 1, alpha: 0.6),
         "secondarySystemGroupedBackgroundColor": .gray(white: 1, alpha: 1),
         "systemBackgroundColor": .gray(white: 1, alpha: 1),
+        "tableCellGroupedBackgroundColor": .gray(white: 1, alpha: 1),
         "tertiarySystemBackgroundColor": .gray(white: 1, alpha: 1),
         "whiteColor": .gray(white: 1, alpha: 1),
         "groupTableViewBackgroundColor": .rgb(red: 0.9490196078, green: 0.9490196078, blue: 0.968627451, alpha: 1),
@@ -142,26 +143,55 @@ final class NibColor: NibArchivable {
         "systemPurpleColor": .rgb(red: 0.7960784314, green: 0.1882352941, blue: 0.8784313725, alpha: 1),
         "systemRedColor": .rgb(red: 1, green: 0.2196078431, blue: 0.2352941176, alpha: 1),
         "systemTealColor": .rgb(red: 0, green: 0.7647058824, blue: 0.8156862745, alpha: 1),
+        "systemWhiteColor": .rgb(red: 1, green: 1, blue: 1, alpha: 1),
         "systemYellowColor": .rgb(red: 1, green: 0.8, blue: 0, alpha: 1),
         "tertiaryLabelColor": .rgb(red: 0.2352941176, green: 0.2352941176, blue: 0.262745098, alpha: 0.2980392157),
         "tertiarySystemFillColor": .rgb(red: 0.462745098, green: 0.462745098, blue: 0.5019607843, alpha: 0.12),
         "tertiarySystemGroupedBackgroundColor": .rgb(red: 0.9490196078, green: 0.9490196078, blue: 0.968627451, alpha: 1),
         "tintColor": .rgb(red: 0, green: 0.5333333333, blue: 1, alpha: 1),
+        "underPageBackgroundColor": .rgb(red: 0.7098039216, green: 0.7176470588, blue: 0.7411764706, alpha: 1),
         "viewFlipsideBackgroundColor": .rgb(red: 0.1215686275, green: 0.1294117647, blue: 0.1411764706, alpha: 1),
     ]
 
 
-    /// `xcode11CocoaTouchSystemColor` or `systemColor` names, with the `cocoaTouchSystemColor` written
-    /// beside them, observed: the first name is the color (`x11-system-background`,
-    /// `color-system-and-cocoa-touch`, React Native's launch screen).
-    static let xcode11SystemColors = ["systemBackgroundColor": "whiteColor"]
-
-    /// The names observed as `systemColor` (`viewFlipsideBackgroundColor` only as
-    /// `cocoaTouchSystemColor`).
-    static let observedSystemColorNames = Set(systemColors.keys).subtracting(["viewFlipsideBackgroundColor"])
-
     /// The names `cocoaTouchSystemColor` takes (others, such as `grayColor`, make ibtool fail).
     static let cocoaTouchSystemColors: Set<String> = ["whiteColor", "darkTextColor", "groupTableViewBackgroundColor", "lightTextColor",
                                                       "clearColor", "scrollViewTexturedBackgroundColor", "viewFlipsideBackgroundColor",
-                                                      "blackColor"]
+                                                      "blackColor", "labelColor", "systemBackgroundColor", "systemBlueColor", "systemGreenColor", "systemIndigoColor",
+                                                      "systemOrangeColor", "systemPurpleColor", "systemRedColor", "systemYellowColor",
+                                                      "tableCellGroupedBackgroundColor", "underPageBackgroundColor"]
+
+    /// What ibtool writes for `name="<color>" catalog="System" colorSpace="catalog"`, AppKit's colors
+    /// as a Mac with the default appearance and accent gives them: unnamed RGB colors
+    /// (`mx-catalog-*`, `mx-sb-catalog-*`).
+    static let catalogColors: [String: Components] = {
+        let white = Components.rgb(red: 0.9999999403953552, green: 1.0000001192092896, blue: 1.0000001192092896, alpha: 1)
+        func black(_ alpha: Double) -> Components { .rgb(red: 0, green: 0, blue: 0, alpha: alpha) }
+        return [
+            "controlAccentColor": .rgb(red: -7.629575407008815e-07, green: 0.4784313440322876, blue: 1.0000001192092896, alpha: 1),
+            "controlBackgroundColor": white,
+            "controlDarkShadowColor": black(1),
+            "controlHighlightColor": white,
+            "controlLightHighlightColor": white,
+            "controlShadowColor": black(0.26666666666666666),
+            "controlTextColor": black(0.8470588235294118),
+            "disabledControlTextColor": black(0.24705882352941178),
+            "highlightColor": white,
+            "keyboardFocusIndicatorColor": .rgb(red: -7.990610697561351e-07, green: 0.40392160415649414, blue: 0.95686274766922, alpha: 0.49803921580314636),
+            "labelColor": black(0.8470588235294118),
+            "quaternaryLabelColor": black(0.09803921568627451),
+            "secondaryLabelColor": black(0.4980392156862745),
+            "secondarySelectedControlColor": .rgb(red: 0.8627451062202454, green: 0.8627451062202454, blue: 0.8627451062202454, alpha: 1),
+            "selectedContentBackgroundColor": .rgb(red: -5.842077825946035e-07, green: 0.3921568989753723, blue: 0.882352888584137, alpha: 1),
+            "selectedMenuItemTextColor": white,
+            "tertiaryLabelColor": black(0.25882352941176473),
+            "textColor": black(1),
+            "windowBackgroundColor": white,
+            "windowFrameColor": .rgb(red: 0.6666666865348816, green: 0.6666666865348816, blue: 0.6666666865348816, alpha: 1),
+        ]
+    }()
+
+    /// A named color the document's resources do not define, whatever its name: ibtool's stand-in,
+    /// float components (`mx-named-undefined`, `mx-named-system-name`, `mx-sb-named-undefined`).
+    static let undefinedNamedColor = Components.rgb(red: Double(Float(0.329)), green: Double(Float(0.324)), blue: Double(Float(0.478)), alpha: Double(Float(0.33)))
 }

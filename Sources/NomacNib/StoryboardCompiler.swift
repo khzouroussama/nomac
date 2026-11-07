@@ -853,62 +853,85 @@ extension DocumentCompiler {
         -> (declared: Bool, barItems: [String: NibArchivable], actions: [(selector: String, item: NibBarButtonItem, segue: String?)]) {
         let itemElements = controller.children(named: "navigationItem")
         guard let itemElement = itemElements.first else { return (false, [:], []) }
-        try check(itemElement, attributes: ["key", "title", "largeTitleDisplayMode", "id"], children: ["barButtonItem"])
+        // `userLabel` and `<nil>` change nothing (`bars-ni-label`, `bars-ni-nil*`).
+        try check(itemElement, attributes: ["key", "title", "largeTitleDisplayMode", "id", "userLabel", "prompt", "leftItemsSupplementBackButton"],
+                  children: ["barButtonItem", "leftBarButtonItems", "rightBarButtonItems", "nil"])
         guard itemElements.count == 1 else { throw unsupportedScene("a view controller of two navigation items") }
         item.title = itemElement.attributes["title"].map { text($0, id: itemElement.attributes["id"], property: "title") }
+        item.prompt = itemElement.attributes["prompt"].map { text($0, id: itemElement.attributes["id"], property: "prompt") }
+        item.leftItemsSupplementBackButton = try bool(itemElement, "leftItemsSupplementBackButton", default: false)
         item.centerItemGroups = empty
         let mode = itemElement.attributes["largeTitleDisplayMode"] ?? "automatic"
-        guard let largeTitleDisplayMode = ["automatic": 0, "never": 2][mode] else { throw unsupported("largeTitleDisplayMode=\"\(mode)\"") }
+        guard let largeTitleDisplayMode = ["automatic": 0, "always": 1, "never": 2][mode] else { throw unsupported("largeTitleDisplayMode=\"\(mode)\"") }
         item.largeTitleDisplayMode = largeTitleDisplayMode
         var barItems: [String: NibArchivable] = [:]
         if let id = itemElement.attributes["id"] { barItems[id] = item }
         var actions: [(selector: String, item: NibBarButtonItem, segue: String?)] = []
-        for element in itemElement.children {
-            try check(element, attributes: ["key", "systemItem", "title", "enabled", "style", "image", "catalog", "id"],
-                      children: ["connections", "userDefinedRuntimeAttributes"])
-            let system = try element.attributes["systemItem"].map { name in
-                guard let system = NibBarButtonItem.systemItems[name] else { throw unsupportedScene("a bar button item of a system item not observed yet") }
-                return system
+        for child in itemElement.children {
+            let elements: [XIBElement]
+            switch child.name {
+            case "nil":
+                try check(child, attributes: ["key"], children: [])
+                try value(child, "key", in: ["title"])
+                continue
+            case "barButtonItem":
+                elements = [child]
+            default:
+                try check(child, attributes: [], children: ["barButtonItem"])
+                elements = child.children
             }
-            guard let id = element.attributes["id"], (system == nil) != (element.attributes["title"] == nil) else {
-                throw unsupportedScene("a bar button item without one system item or title")
-            }
-            let barItem = NibBarButtonItem(systemItem: system, enabled: try bool(element, "enabled", default: true))
-            barItem.title = element.attributes["title"].map { text($0, id: id, property: "title") }
-            barItem.style = try mapped(element.attributes["style"] ?? "plain", ["plain": 1, "done": 2], "style")
-            barItem.image = try element.attributes["image"].map { name in
-                guard barItem.title != nil else { throw unsupportedScene("an image bar button item without a title") }
-                return try image(name, catalog: element.attributes["catalog"])
-            }
-            switch element.attributes["key"] {
-            case "leftBarButtonItem" where item.left == nil: item.left = barItem
-            case "rightBarButtonItem" where item.right == nil: item.right = barItem
-            case "backBarButtonItem" where item.back == nil && system == nil && element.children.isEmpty: item.back = barItem
-            default: throw unsupportedScene("a bar button item other than one left and one right")
-            }
-            barItems[id] = barItem
-            try navigationRuntimeAttributes(of: element, object: barItem)
-            for container in element.children(named: "connections") {
-                try check(container, attributes: [], children: ["action", "segue"])
-                for action in container.children {
-                    if action.name == "segue" {
-                        actions.append(("perform:", barItem, action.attributes["id"]))
-                        continue
-                    }
-                    try check(action, attributes: ["selector", "destination", "id"], children: [])
-                    guard let selector = action.attributes["selector"], action.attributes["destination"] == controller.attributes["id"] else {
-                        throw unsupportedScene("an action of a bar button item to another object than its controller")
-                    }
-                    actions.append((selector, barItem, nil))
+            for element in elements {
+                guard let id = element.attributes["id"] else { throw unsupportedScene("a bar button item without an id") }
+                let barItem = try barButtonItem(element)
+                // `bars-ni-plain-*`, `bars-ni-item-empty`.
+                if element.attributes["style"] == "plain" { warnings.append((id, "Plain Style unsupported in a Navigation Item [9]")) }
+                switch (child.name, element.attributes["key"]) {
+                case ("barButtonItem", "leftBarButtonItem") where item.left == nil, ("leftBarButtonItems", nil): item.leftItems.append(barItem)
+                case ("barButtonItem", "rightBarButtonItem") where item.right == nil, ("rightBarButtonItems", nil): item.rightItems.append(barItem)
+                case ("barButtonItem", "backBarButtonItem") where item.back == nil && barItem.systemItem == nil && element.children.isEmpty: item.back = barItem
+                default: throw unsupportedScene("a bar button item other than left, right and back ones")
                 }
+                barItems[id] = barItem
+                try barItemConnections(of: element, barItem, controller: controller, into: &actions)
             }
         }
-        guard item.back == nil || item.left == nil && item.right == nil else {
-            throw unsupportedScene("a back bar button item beside a left or right one")
+        guard item.back == nil || item.left == nil && item.right == nil && item.prompt == nil && !item.leftItemsSupplementBackButton else {
+            throw unsupportedScene("a back bar button item beside a left or right one, a prompt or a supplementing back button")
+        }
+        guard max(item.leftItems.count, item.rightItems.count) <= 1 || Set(actions.map(\.selector)).count == actions.count else {
+            throw unsupportedScene("several bar button items on one side with actions of one selector")
+        }
+        guard itemElement.children(named: "barButtonItem").filter({ $0.attributes["key"] == "leftBarButtonItem" }).isEmpty || itemElement.children(named: "leftBarButtonItems").isEmpty,
+              itemElement.children(named: "barButtonItem").filter({ $0.attributes["key"] == "rightBarButtonItem" }).isEmpty || itemElement.children(named: "rightBarButtonItems").isEmpty else {
+            throw unsupportedScene("a bar button item beside a list of them on one side")
         }
         // Of one selector, the right item's action comes first (`sb-bar-same-selector*`).
         actions = actions.filter { $0.item === item.right } + actions.filter { $0.item !== item.right }
         return (true, barItems, actions)
+    }
+
+    /// A bar button item's runtime attributes and connections: actions, which must target its
+    /// controller, and segues, by segue id (`sb-nav-item-*`, `sb-bar-*`).
+    private mutating func barItemConnections(of element: XIBElement, _ barItem: NibBarButtonItem, controller: XIBElement,
+                                             into actions: inout [(selector: String, item: NibBarButtonItem, segue: String?)]) throws {
+        try navigationRuntimeAttributes(of: element, object: barItem)
+        for container in element.children(named: "connections") {
+            try check(container, attributes: [], children: ["action", "segue"])
+            guard barItem.customClass == nil || container.children.isEmpty else {
+                throw unsupportedScene("connections of a bar button item of a custom class")
+            }
+            for action in container.children {
+                if action.name == "segue" {
+                    actions.append(("perform:", barItem, action.attributes["id"]))
+                    continue
+                }
+                try check(action, attributes: ["selector", "destination", "id"], children: [])
+                guard let selector = action.attributes["selector"], action.attributes["destination"] == controller.attributes["id"] else {
+                    throw unsupportedScene("an action of a bar button item to another object than its controller")
+                }
+                actions.append((selector, barItem, nil))
+            }
+        }
     }
 
     /// A navigation controller with its root, as its own nib and a container's nib archive them: the
@@ -1171,15 +1194,22 @@ extension DocumentCompiler {
         guard bars.count == 1, let barElement = bars.first, let rect = barElement.child("rect", key: "frame") else {
             throw unsupportedScene("a navigation controller without one navigation bar of a frame")
         }
-        try check(barElement, attributes: ["key", "contentMode", "largeTitles", "id", "insetsLayoutMarginsFromSafeArea", "opaque", "clipsSubviews",
-                                           "multipleTouchEnabled"], children: ["rect", "autoresizingMask", "userDefinedRuntimeAttributes"])
+        // `misplaced` changes nothing (`bars-sbn-misplaced`).
+        try check(barElement, attributes: ["key", "contentMode", "largeTitles", "id", "insetsLayoutMarginsFromSafeArea", "opaque", "clipsSubviews", "multipleTouchEnabled",
+                                           "translucent", "barStyle", "misplaced", "clearsContextBeforeDrawing", "customClass", "customModule", "customModuleProvider"],
+                  children: ["rect", "autoresizingMask", "userDefinedRuntimeAttributes", "color", "textAttributes"])
         try value(barElement, "contentMode", in: ["scaleToFill"])
         try check(rect, attributes: ["key", "x", "y", "width", "height"], children: [])
         for mask in barElement.children(named: "autoresizingMask") {
             try check(mask, attributes: ["key"], children: [])
         }
-        let bar = NibNavigationBar(center: (try number(rect.attributes["x"] ?? "0", "x"), try number(rect.attributes["y"] ?? "0", "y") + 27),
-                                   prefersLargeTitles: try bool(barElement, "largeTitles", default: false), hugging: string("{250, 250}"))
+        let bar = NibNavigationBar(center: (try number(rect.attributes["x"] ?? "0", "x"), try number(rect.attributes["y"] ?? "0", "y") + 27), hugging: string("{250, 250}"))
+        bar.appearance = try barAppearance(barElement)
+        bar.clearsContextBeforeDrawing = try bool(barElement, "clearsContextBeforeDrawing", default: true)
+        bar.customClass = try customClass(barElement, original: "UINavigationBar")
+        for color in barElement.children(named: "color") {
+            try value(color, "key", in: ["barTintColor", "tintColor"])
+        }
         bar.multipleTouchEnabled = try bool(barElement, "multipleTouchEnabled", default: false)
         bar.clipsToBounds = try bool(barElement, "clipsSubviews", default: false)
         bar.insetsLayoutMarginsFromSafeArea = try bool(barElement, "insetsLayoutMarginsFromSafeArea", default: true)
@@ -1187,7 +1217,7 @@ extension DocumentCompiler {
         try navigationRuntimeAttributes(of: barElement, object: bar)
         // A storyboard's global tint is its navigation bars' too, in tab bar controllers as well
         // (`sb-tint-nav`, `sb-tint-tab-nav`).
-        bar.tintColor = try globalTint.map { try color($0) }
+        bar.tintColor = try (barElement.child("color", key: "tintColor") ?? globalTint).map { try color($0) }
         return bar
     }
 

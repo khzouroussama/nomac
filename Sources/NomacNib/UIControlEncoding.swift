@@ -53,6 +53,10 @@ struct TextFieldContent {
     var smartTraits: [(key: String, value: Int)] = []
     /// Secure entry also writes the inline prediction type 1 (`tf-secure`).
     var secure = false
+    /// `background` and `disabledBackground` images; a background also writes the rounded rectangle's
+    /// corner radius (`cm-tf-*`).
+    var background: NibImage?
+    var disabledBackground: NibImage?
 
     func encode(to encoder: NibEncoder) throws {
         if !enabled { encoder.encode(.boolean(true), forKey: "UIDisabled") }
@@ -67,6 +71,8 @@ struct TextFieldContent {
         encoder.encode(.integer(textAlignment), forKey: "UITextAlignment")
         if let text { try encoder.encode(text, forKey: "UIText") }
         try encoder.encode(textColor, forKey: "UITextColor")
+        if let background { try encoder.encode(background, forKey: "UITextFieldBackground") }
+        if let disabledBackground { try encoder.encode(disabledBackground, forKey: "UITextFieldDisabledBackground") }
         if borderStyle != 0 { encoder.encode(.integer(borderStyle), forKey: "UIBorderStyle") }
         if clearsOnBeginEditing { encoder.encode(.boolean(true), forKey: "UIClearsOnBeginEditing") }
         if adjustsFontSizeToFit { encoder.encode(.boolean(true), forKey: "UIAdjustsFontSizeToFit") }
@@ -82,7 +88,7 @@ struct TextFieldContent {
         }
         if secure { encoder.encode(.integer(1), forKey: "UITextInlinePredictionType") }
         encoder.encode(.boolean(true), forKey: "UIDisableTextColorUpdateOnTraitCollectionChange")
-        if borderStyle == 3 { encoder.encode(.double(0), forKey: "UIRoundedRectBackgroundCornerRadius") }
+        if borderStyle == 3 || background != nil { encoder.encode(.double(0), forKey: "UIRoundedRectBackgroundCornerRadius") }
     }
 }
 
@@ -103,7 +109,7 @@ final class NibRectValue: NibArchivable {
 }
 
 extension DocumentCompiler {
-    static let textFieldAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "text", "placeholder", "textAlignment",
+    static let textFieldAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "text", "placeholder", "textAlignment", "background", "disabledBackground",
                                       "minimumFontSize", "borderStyle", "adjustsFontForContentSizeCategory", "clearButtonMode",
                                       "clearsOnBeginEditing", "adjustsFontSizeToFit", "enabled"]
     static let switchAttributes = ["contentHorizontalAlignment", "contentVerticalAlignment", "on"]
@@ -177,6 +183,8 @@ extension DocumentCompiler {
                                 textColor: try textColor ?? color(XIBElement(name: "color", attributes: ["systemColor": "labelColor"])),
                                 borderStyle: try mapped(attributes["borderStyle"] ?? "none", TextFieldContent.borderStyles, "borderStyle"),
                                 minimumFontSize: Float(try number(minimum, "minimumFontSize")), traits: traits)
+        content.background = try attributes["background"].map { try image($0, catalog: nil) }
+        content.disabledBackground = try attributes["disabledBackground"].map { try image($0, catalog: nil) }
         content.clearButtonMode = try mapped(attributes["clearButtonMode"] ?? "never", TextFieldContent.clearButtonModes, "clearButtonMode")
         content.clearsOnBeginEditing = try bool(element, "clearsOnBeginEditing", default: false)
         content.adjustsFontSizeToFit = try bool(element, "adjustsFontSizeToFit", default: true)
