@@ -93,7 +93,7 @@ extension DocumentCompiler {
     /// subviews in order and then goes on from the last taken, as a stack (`sb-act-same-*`,
     /// `sb-outlet-same-tree-*`; the corpus's uncloudnotes DogDoodies, wikipedia
     /// WMFTwoFactorPasswordViewController and DescriptionEditViewController).
-    private func connectionWalk(_ allObjects: [NibArchivable]) -> [ObjectIdentifier: Int] {
+    func connectionWalk(_ allObjects: [NibArchivable]) -> [ObjectIdentifier: Int] {
         func children(_ view: NibView) -> [NibView] {
             switch view.kind {
             case .effect(let effect): [effect.contentView] + view.subviews

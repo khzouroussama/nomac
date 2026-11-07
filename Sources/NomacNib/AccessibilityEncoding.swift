@@ -63,22 +63,26 @@ extension DocumentCompiler {
         }
     }
 
-    /// A text, localizable in a document of an `.lproj` folder unless empty (`label-empty-lproj`,
+    /// A text, localizable in a document of `Base.lproj` unless empty (`label-empty-lproj`,
     /// `button-empty-title-lproj`).
     mutating func localizableText(_ text: String, key: String) -> NibArchivable {
         localizable && !text.isEmpty ? NibLocalizableString(value: text, key: string(key), development: string(text)) : string(text)
     }
 
-    /// The nib's accessibility configurations, emptied for the next nib.
-    mutating func takeAccessibilityConfigurations() -> [NibAccessibilityConfiguration] {
+    /// The nib's accessibility configurations, emptied for the next nib, by the walk connections of one
+    /// name go by, those of one object in the document's order (`a11y-walk-*`, `sb-a11y-walk-*`; the
+    /// corpus's pocket-casts MiniPlayerViewController, 67 nibs of the corpus, holdout and survey).
+    mutating func takeAccessibilityConfigurations(allObjects: [NibArchivable]) -> [NibAccessibilityConfiguration] {
         defer { accessibilityConfigurations = [] }
-        return accessibilityConfigurations
+        let order = connectionWalk(allObjects)
+        return accessibilityConfigurations.enumerated().sorted { left, right in
+            let (a, b) = (order[ObjectIdentifier(left.element.object)] ?? Int.max, order[ObjectIdentifier(right.element.object)] ?? Int.max)
+            return a == b ? left.offset < right.offset : a < b
+        }.map(\.element)
     }
 }
 
-/// The root's accessibility configurations: an `NSArray` in the order of their objects' numbers in the
-/// archive, which follows all objects in self-written views but not always (the corpus's pocket-casts
-/// MiniPlayerViewController), those of one object in the document's order.
+/// The root's accessibility configurations, an `NSArray` in `takeAccessibilityConfigurations`'s order.
 final class NibAccessibilityConfigurations: NibArchivable {
     let configurations: [NibAccessibilityConfiguration]
 
@@ -89,7 +93,6 @@ final class NibAccessibilityConfigurations: NibArchivable {
     var className: String { "NSArray" }
 
     func encode(to encoder: NibEncoder) throws {
-        let numbered = try configurations.enumerated().map { (number: try encoder.number(of: $0.element.object), offset: $0.offset, configuration: $0.element) }
-        try NibArray(numbered.sorted { ($0.number, $0.offset) < ($1.number, $1.offset) }.map(\.configuration)).encode(to: encoder)
+        try NibArray(configurations).encode(to: encoder)
     }
 }

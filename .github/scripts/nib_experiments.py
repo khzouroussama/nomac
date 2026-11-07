@@ -243,7 +243,7 @@ def files_under(directory):
 
 
 def storyboard_experiment(work, document, name):
-    source = work / ("Base.lproj/Main.storyboard" if name in LPROJ_STORYBOARDS else "Main.storyboard")
+    source = work / (f"{OTHER_LPROJ[name]}.lproj/Main.storyboard" if name in OTHER_LPROJ else "Base.lproj/Main.storyboard" if name in LPROJ_STORYBOARDS else "Main.storyboard")
     source.parent.mkdir(parents=True)
     source.write_text(document)
     module, deployment, devices = options(name)
@@ -7505,6 +7505,58 @@ EXPERIMENTS["warn-adjusts-text-view"] = constrained(text_view(TV_ATTRIBUTES + AD
 EXPERIMENTS["warn-adjusts-button"] = constrained(button(attributes=BUTTON_ATTRIBUTES + ADJUSTING), "")
 
 
+# Round 131: what the survey's documents showed wrong: localizable documents by folder, sliders without
+# a value, cells' content views without frames, accessibility configurations' order by the walk.
+OTHER_LPROJ = {}
+for folder in ("en", "fr", "zh-Hans", "English", "Base"):
+    OTHER_LPROJ[f"lproj-folder-{folder}-label"] = folder
+    EXPERIMENTS[f"lproj-folder-{folder}-label"] = constrained(label(), "")
+    OTHER_LPROJ[f"lproj-folder-{folder}-button"] = folder
+    EXPERIMENTS[f"lproj-folder-{folder}-button"] = constrained(button(), "")
+    OTHER_LPROJ[f"sb-lproj-folder-{folder}-label"] = folder
+    STORYBOARDS[f"sb-lproj-folder-{folder}-label"] = same_scene(label())
+for name, attributes in {"no-value": ' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" minValue="0.0" maxValue="1"',
+                         "zero": CONTROL_TAGS["slider"].replace('value="0.5"', 'value="0.0"'), "half": CONTROL_TAGS["slider"], "no-value-range": ' opaque="NO" contentHorizontalAlignment="center" contentVerticalAlignment="center" minValue="2" maxValue="4"',
+                         "no-attributes": ' opaque="NO"'}.items():
+    EXPERIMENTS[f"slider-value-{name}"] = constrained(subview("sll-ll-ll1", (10, 20, 100, 30), tag="slider", attributes=attributes), "")
+CONTENT_RECT = '                <rect key="frame" x="0.0" y="0.0" width="320" height="44"/>\n'
+EXPERIMENTS["cell-content-no-rect"] = cell_xib().replace(CONTENT_RECT, "")
+EXPERIMENTS["cell-content-no-rect-subview"] = cell_xib(content='                <subviews>\n' + cell_label() + '                </subviews>\n').replace(CONTENT_RECT, "")
+EXPERIMENTS["cell-content-no-rect-no-safe"] = cell_xib(safe=False).replace(CONTENT_RECT, "")
+EXPERIMENTS["cell-content-no-rect-no-mask"] = cell_xib(safe=False).replace(CONTENT_RECT, "").replace('                <autoresizingMask key="autoresizingMask"/>\n', "")
+A11Y_CONFIGURATION = '<accessibility key="accessibilityConfiguration" label="Tap"/>'
+def accessible_tree(tree):
+    return re.sub(r'<connections>\s*<action [^>]*/>\s*</connections>', A11Y_CONFIGURATION, same_tree(tree))
+for name, tree in TREES.items():
+    EXPERIMENTS[f"a11y-walk-{name}"] = constrained(accessible_tree(tree), "")
+    STORYBOARDS[f"sb-a11y-walk-{name}"] = same_scene(accessible_tree(tree))
+
+
+# Round 132: views without frames beside constraints.
+NO_RECT = {
+    "own-constraint": constrained(subview("sss-ss-ss1", rect=False, constraints=constraint(1, None, "width", extra=' constant="100"', indent=24)), ""),
+    "own-constraint-translates": constrained(subview("sss-ss-ss1", rect=False, constraints=constraint(1, None, "width", extra=' constant="100"', indent=24)).replace(' translatesAutoresizingMaskIntoConstraints="NO"', ""), ""),
+    "named-by-parent": constrained(subview("sss-ss-ss1", rect=False), constraint(1, "sss-ss-ss1", "top", ROOT, "top", ' constant="10"')),
+    "named-by-parent-translates": constrained(subview("sss-ss-ss1", rect=False).replace(' translatesAutoresizingMaskIntoConstraints="NO"', ""), constraint(1, "sss-ss-ss1", "top", ROOT, "top", ' constant="10"')),
+    "named-second": constrained(subview("sss-ss-ss1", rect=False), constraint(1, ROOT, "top", "sss-ss-ss1", "top", ' constant="10"')),
+    "not-named": constrained(subview("sss-ss-ss1", rect=False) + subview("ttt-tt-tt1"), constraint(1, "ttt-tt-tt1", "top", ROOT, "top", ' constant="10"')),
+    "not-named-translates": constrained(subview("sss-ss-ss1", rect=False).replace(' translatesAutoresizingMaskIntoConstraints="NO"', "") + subview("ttt-tt-tt1"), constraint(1, "ttt-tt-tt1", "top", ROOT, "top", ' constant="10"')),
+    "two-named-sibling": constrained(subview("sss-ss-ss1", rect=False) + subview("ttt-tt-tt1"), constraint(1, "ttt-tt-tt1", "top", "sss-ss-ss1", "bottom", ' constant="10"')),
+}
+for name, document in NO_RECT.items():
+    EXPERIMENTS[f"view-no-rect-{name}"] = document
+CELL_CONSTRAINTS = '                <constraints>\n                    <constraint firstItem="lbl-aa-aa1" firstAttribute="top" secondItem="H2p-sc-9uM" secondAttribute="top" constant="11" id="c01-aa-aaa"/>\n                </constraints>\n'
+EXPERIMENTS["cell-content-no-rect-constraint"] = cell_xib(content='                <subviews>\n' + cell_label() + '                </subviews>\n' + CELL_CONSTRAINTS).replace(CONTENT_RECT, "")
+EXPERIMENTS["cell-content-no-rect-own-width"] = cell_xib(content='                <constraints>\n                    <constraint firstAttribute="height" constant="44" id="c01-aa-aaa"/>\n                </constraints>\n').replace(CONTENT_RECT, "")
+
+
+# Round 133: frameless views by the document's tools version.
+for version in (6185, 6250, 6751, 7531, 7706, 8191, 9059, 9531, 10116, 10117, 11201, 11762, 12118, 13142, 14460, 15705, 17701):
+    EXPERIMENTS[f"no-rect-tools-{version}-cell"] = cell_xib().replace(CONTENT_RECT, "").replace('toolsVersion="23504"', f'toolsVersion="{version}"')
+    EXPERIMENTS[f"no-rect-tools-{version}-view"] = constrained(subview("sss-ss-ss1", rect=False), "").replace('toolsVersion="23504"', f'toolsVersion="{version}"')
+    STORYBOARDS[f"sb-no-rect-tools-{version}-view"] = same_scene(subview("sss-ss-ss1", rect=False)).replace('toolsVersion="23504"', f'toolsVersion="{version}"')
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]
@@ -7537,7 +7589,7 @@ def main():
                 observations[name] = build_experiment(work / name)
             print(f"[{name}] {json.dumps(observations[name])[:300]}", flush=True)
             continue
-        source = work / name / ("Base.lproj/View.xib" if name in LPROJ_XIBS else "View.xib")
+        source = work / name / (f"{OTHER_LPROJ[name]}.lproj/View.xib" if name in OTHER_LPROJ else "Base.lproj/View.xib" if name in LPROJ_XIBS else "View.xib")
         source.parent.mkdir(parents=True)
         source.write_text(EXPERIMENTS[name])
         observations[name] = compile_xib(source, work / name / "out", name)

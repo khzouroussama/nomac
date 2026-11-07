@@ -391,7 +391,8 @@ def files_under(directory):
 
 
 def compare_storyboard(name, observed, nomac, work, identical, equivalent, different, refused, failed):
-    source = work / ("Base.lproj/Main.storyboard" if name in experiments.LPROJ_STORYBOARDS else "Main.storyboard")
+    source = work / (f"{experiments.OTHER_LPROJ[name]}.lproj/Main.storyboard" if name in experiments.OTHER_LPROJ
+                     else "Base.lproj/Main.storyboard" if name in experiments.LPROJ_STORYBOARDS else "Main.storyboard")
     source.parent.mkdir(parents=True)
     source.write_text(experiments.STORYBOARDS[name])
     module, deployment, devices = experiments.options(name)
@@ -475,7 +476,8 @@ def main():
             if name in experiments.STORYBOARDS:
                 compare_storyboard(name, observations[name], nomac, work / name, identical, equivalent, different, refused, failed)
                 continue
-            source = work / name / ("Base.lproj/View.xib" if name in experiments.LPROJ_XIBS else "View.xib")
+            source = work / name / (f"{experiments.OTHER_LPROJ[name]}.lproj/View.xib" if name in experiments.OTHER_LPROJ
+                                    else "Base.lproj/View.xib" if name in experiments.LPROJ_XIBS else "View.xib")
             source.parent.mkdir(parents=True)
             source.write_text(experiments.EXPERIMENTS[name])
             out = work / name / "out"

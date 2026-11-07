@@ -136,14 +136,18 @@ struct DocumentCompiler {
     /// Whether the document has `colorMatched="YES"`; without it ibtool converts colors otherwise
     /// (nib-experiments `unmatched-*`).
     var colorMatched = true
-    /// Whether the document is in an `.lproj` folder, whose texts are localizable (`label-lproj`).
-    var localizable: Bool { (path as NSString).deletingLastPathComponent.hasSuffix(".lproj") }
+    /// Whether the document is in `Base.lproj`, whose texts are localizable; in a language's `.lproj`
+    /// folder they are not (`label-lproj`, `lproj-folder-*`, `sb-lproj-folder-*`).
+    var localizable: Bool { ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent == "Base.lproj" }
     /// Whether a storyboard's scenes' views get layout guides: not with a development version before
     /// Xcode 5 (`sb-header-development-4200` to `-4800`) or without Auto Layout (`sb-noauto*`).
     var addsSceneLayoutGuides = true
     /// The autoresizing mask of a view without one: flexible right and bottom, without Auto Layout
     /// flexible top and bottom, whatever the view (`auto-*-unmasked`, `noauto-*`, `sb-noauto-unmasked`).
     var defaultAutoresizingMask = NibView.defaultAutoresizingMask
+    /// Whether a view without a frame writes none: in a document of `toolsVersion` under 11019; from
+    /// it the view has 1000 x 1000 (`no-rect-tools-*`, `sb-no-rect-tools-*`, bisected).
+    var framelessViewsHaveNoFrame = false
     /// Whether the document is a storyboard, whose sRGB and gray colors' components keep 10
     /// significant digits, but for named colors (nib-experiments `sb-precise-*` against `precise-*`,
     /// `sb-cw-*`; the corpus's catalog colors), and which walks its connections otherwise.
@@ -265,7 +269,7 @@ struct DocumentCompiler {
         try checkRequiredVersion()
         let all = Self.allObjects(topLevel)
         return try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: all, connections: try outletConnections(allObjects: all),
-                                              accessibilityConfigurations: takeAccessibilityConfigurations(),
+                                              accessibilityConfigurations: takeAccessibilityConfigurations(allObjects: all),
                                               traitStorageLists: try traitStorageLists(topLevel), keyValuePairs: try takeKeyValuePairs(allObjects: all),
                                               empty: emptyArray))
     }
@@ -381,6 +385,7 @@ struct DocumentCompiler {
         guard document.name == "document" else { throw unsupported("<\(document.name)> as a document") }
         colorMatched = document.attributes["colorMatched"] == "YES"
         if document.attributes["useAutolayout"] != "YES" { defaultAutoresizingMask = 40 }
+        framelessViewsHaveNoFrame = (document.attributes["toolsVersion"]?.prefix { $0.isNumber }).flatMap { Int($0) }.map { $0 < 11019 } ?? false
         for (name, value) in document.attributes {
             guard let values = allowed[name] else { throw unsupported("the \(name) attribute of <document>") }
             if let values, !values.contains(value) { throw unsupported("\(name)=\"\(value)\"") }
@@ -666,7 +671,7 @@ struct DocumentCompiler {
             }
         }
         let background = try element.child("color", key: "backgroundColor").map { try color($0) }
-        let view = NibView(frame: frame, autoresizingMask: mask, flags: flags, subviews: subviews, backgroundColor: background,
+        let view = NibView(frame: framelessViewsHaveNoFrame && element.child("rect", key: "frame") == nil ? nil : frame, autoresizingMask: mask, flags: flags, subviews: subviews, backgroundColor: background,
                            customClass: try customClass(element, original: originalClassName ?? Self.originalClassNames[element.name] ?? "UIView"))
         view.isImageView = imageView
         view.adjustsImageSizeForAccessibility = try imageView && bool(element, "adjustsImageSizeForAccessibilityContentSizeCategory", default: false)

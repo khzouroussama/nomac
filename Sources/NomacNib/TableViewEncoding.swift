@@ -288,7 +288,7 @@ extension DocumentCompiler {
         let all = Self.allObjects(topLevel)
         let nib = try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: all,
                                                  connections: try nested.outletConnections(allObjects: all, extra: nested.cellSegueOutlets),
-                                                 accessibilityConfigurations: nested.takeAccessibilityConfigurations(),
+                                                 accessibilityConfigurations: nested.takeAccessibilityConfigurations(allObjects: all),
                                                  traitStorageLists: try nested.traitStorageLists(topLevel), keyValuePairs: nested.takeKeyValuePairs(allObjects: all),
                                                  empty: nested.emptyArray))
         warnings = nested.warnings

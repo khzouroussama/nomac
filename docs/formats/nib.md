@@ -267,7 +267,7 @@ A `<label>` is a `UILabel` (`label-*`): a view's keys (with `UIViewContentCompre
 `{h, v}` after the hugging priority when either is not 750, and `UIViewInsetsLayoutMarginsFromSafeArea`
 0 for `insetsLayoutMarginsFromSafeArea="NO"`; `fixedFrame`, `ambiguous`, `userLabel`,
 `highlighted` and placeholder sizes change nothing), then, each only as noted: `UIText` (the
-`text` attribute or a `<string key="text">`, nil without; in a document of an `.lproj` folder an
+`text` attribute or a `<string key="text">`, nil without; in a document of `Base.lproj` an
 `NSLocalizableString`: `NS.bytes` the text, `NSKey` the string `<id>.text`, `NSDev` the text:
 `label-lproj`, `sb-label`; an empty text, a button's title too, stays a string: `label-empty-lproj`,
 `button-empty-title-lproj`), `UIAdjustsFontForContentSizeCategory`
@@ -397,7 +397,7 @@ one object per value in the nib: normal 0, highlighted 1, disabled 2, selected 4
 `UIButtonContent`, in the order of the states whatever the document's order
 (`button-states-*`); a state of no content is left out, and a button without content writes no
 dictionary (`button-no-state`, `button-no-title`). `UIButtonContent`: `UITitle` (a string, or in
-an `.lproj` folder an `NSLocalizableString` keyed `<id>.<state>Title`: `button-lproj`),
+`Base.lproj` an `NSLocalizableString` keyed `<id>.<state>Title`: `button-lproj`),
 `UIImage`, `UIBackgroundImage` (image placeholders as an image view's), `UITitleColor`,
 `UIShadowColor` (`titleShadowColor`), each when given (`button-state-content`).
 
@@ -712,7 +712,7 @@ event connections of the view nib (round 109, `sb-tvc-refresh*`).
   float), the cells compiled as cells in the view nib; File's Owner's `staticDataSource` outlet to
   it is the first connection. All objects lists the data source, then its sections, their cells
   (not the rows), then the cells' children as below. A section's `headerTitle`, in a document of
-  an `.lproj` folder, is an `NSLocalizableString` keyed `<section id>.headerTitle`.
+  `Base.lproj`, is an `NSLocalizableString` keyed `<section id>.headerTitle`.
 
 A scene's `<collectionViewController>` (round 70, `sb-cvc*`) is compiled as a table view controller
 (`UICollectionViewController` its original class), its `<collectionView key="view">` the view nib's
@@ -859,7 +859,7 @@ indicators, 250 x 750 for progress views; segmented controls, page controls and 
   Its subviews are its segments in order with the selected one last; all objects lists none of
   them. A `UISegment` is a view of 0 x 32 at 0, 0 whatever the control's height (`segmented-height-*`), not opaque, without a mask,
   `UIUserInteractionDisabled` for `enabled="NO"`, then `UISegmentInfo` (the title; in a document
-  of an `.lproj` folder an `NSLocalizableString` keyed `<id>.segmentTitles[<index>]`: `segmented-lproj`),
+  of `Base.lproj` an `NSLocalizableString` keyed `<id>.segmentTitles[<index>]`: `segmented-lproj`),
   `UISegmentWidth` (float), `UISegmentStyle` 5 and `UISegmentPosition`: 0 (not written) for the
   first segment, 3 for the second, 1 for the others (`segmented-positions-*`). A segment with an
   image makes ibtool exit 255 without a message.
@@ -942,7 +942,7 @@ its own keys (`sb-section-footer-no-sizes`).
 
 A `<textView>` is a `UITextView` (`text-view-*`, round 51): a view's and a scroll view's keys (as in
 "UIScrollView"), then, with a text (`text` attribute or `<string key="text">`), `UIText` (an
-`NSLocalizableString` in a document of an `.lproj` folder, `text-view-lproj`) and
+`NSLocalizableString` in a document of `Base.lproj`, `text-view-lproj`) and
 `UIAttributedText`, an `NSAttributedString` of the plain string (past 512 characters both are
 `NSMutableString`s, two objects, whatever the form, the plain one localizable as any in an `.lproj`
 folder; labels' texts stay `NSString`s: `text-view-length-*`, `label-length-*`, round 46;
@@ -1086,7 +1086,7 @@ document's order. This fits every nib with pairs on several objects: 153 of the 
 experiments, 48 of the holdout not seen when the rule was found, and `udra-order-root-many-*`,
 `udra-order-owner-many-*`, `udra-order-owner-root-many-*`, `udra-order-many-97` to `-120` and
 `-1100-every-37`, recorded to test it (round 117, B-290).
-Accessibility configurations keep the plain all-objects order (`a11y-order-many-*`). Values: `number`
+Accessibility configurations follow the walk of "Connections" (`a11y-order-many-*`, `a11y-walk-*`, `sb-a11y-walk-*`). Values: `number`
 an `NSNumber` (`<integer>` `NS.intval`, `<real>` `NS.dblval`, 4 as 4.0), `boolean` the integers 1
 and 0, `string` a string (plain in an `.lproj` folder too: `udra-lproj`), `color` a `UIColor`,
 `size` an `NSValue` (`NS.special` 2, `NS.sizeval` the string `{0, 2}`; fractional sizes are
@@ -1285,6 +1285,12 @@ from 5000 (`header-development-*`), `promptedForUpgradeToXcode5`, a `<simulatedM
 - Devices ibtool knows besides those of "Inputs nomac compiles": `ipad10_9rounded` (820 x 1180), `iPad13_0rounded`
   (1032 x 1376), `ipad7_9` (744 x 1133). `ipad12_9`, `ipad10_5` and `ipad11_0` are as no device
   (`header-device-*`, `sb-header-device-*`).
+
+Only `Base.lproj` makes a document's texts localizable; in `en.lproj`, `fr.lproj`, `zh-Hans.lproj` or
+`English.lproj` they are plain strings (`lproj-folder-*`, `sb-lproj-folder-*`). A view without a frame writes
+none in a document of `toolsVersion` under 11019 (bisected), and 1000 x 1000 from it (`no-rect-tools-*`,
+`sb-no-rect-tools-*`, `view-no-rect-*`, whatever its constraints). A slider of no `value` or of 0 writes no
+`UIValue` (`slider-value-*`).
 
 ## Storyboards
 

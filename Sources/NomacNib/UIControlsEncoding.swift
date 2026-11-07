@@ -123,7 +123,7 @@ struct SliderContent {
 
     func encode(to encoder: NibEncoder) throws {
         control.encode(to: encoder)
-        encoder.encode(.float(value), forKey: "UIValue")
+        if value != 0 { encoder.encode(.float(value), forKey: "UIValue") }
         if minimumValue != 0 { encoder.encode(.float(minimumValue), forKey: "UIMinValue") }
         if maximumValue != 1 { encoder.encode(.float(maximumValue), forKey: "UIMaxValue") }
         if !continuous { encoder.encode(.boolean(false), forKey: "UIContinuous") }
@@ -270,7 +270,7 @@ extension DocumentCompiler {
     mutating func sliderContent(_ element: XIBElement) throws -> SliderContent {
         let colors = try controlColors(element, keys: ["minimumTrackTintColor", "maximumTrackTintColor", "thumbTintColor"])
         let attributes = element.attributes
-        return SliderContent(control: try controlContent(element), value: Float(try number(attributes["value"] ?? "0.5", "value")),
+        return SliderContent(control: try controlContent(element), value: Float(try number(attributes["value"] ?? "0", "value")),
                              minimumValue: Float(try number(attributes["minValue"] ?? "0", "minValue")),
                              maximumValue: Float(try number(attributes["maxValue"] ?? "1", "maxValue")),
                              continuous: try bool(element, "continuous", default: true),

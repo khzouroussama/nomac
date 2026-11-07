@@ -1322,7 +1322,7 @@ extension DocumentCompiler {
         let topLevel: [NibArchivable] = [owner, responder] + (controllerFirst ? upstreams + recognizers : recognizers + upstreams) + [view] + dataSource
         let allObjects = Self.allObjects(topLevel)
         return (try NibEncoder.archive(NibRoot(topLevelObjects: topLevel, allObjects: allObjects, connections: connections,
-                                               accessibilityConfigurations: takeAccessibilityConfigurations(),
+                                               accessibilityConfigurations: takeAccessibilityConfigurations(allObjects: allObjects),
                                                traitStorageLists: try traitStorageLists(topLevel), keyValuePairs: try takeKeyValuePairs(allObjects: allObjects),
                                                empty: takeEmptyArray())),
                 usesUpstream)
