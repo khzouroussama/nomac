@@ -35,6 +35,17 @@ import Testing
         String(decoding: try PDFFile.inflate(QuartzPDF.contentStream(page), path: "test"), as: UTF8.self)
     }
 
+    /// Device colors take the resources' default space, an ICCBased one whose `cs` is written once;
+    /// a form with resources of its own has its own (`default-spaces`).
+    @Test func defaultColorSpaces() throws {
+        let icc = "<< /N 3 /Alternate /DeviceRGB /Length 4 >>\nstream\nicc \nendstream"
+        let defaults = "/ColorSpace << /DefaultRGB [/ICCBased 5 0 R] >>"
+        let page = try Self.page("1 0 0 rg 2 2 6 6 re f 0 0 1 rg 10 2 6 6 re f", resources: defaults, extra: [icc])
+        #expect(try Self.content(page).contains("/Cs1 cs 1 0 0 sc 2 2 6 6 re f 0 0 1 sc 10 2 6 6 re f"))
+        let plain = try Self.page("1 0 0 rg 2 2 6 6 re f 0 0 1 rg 10 2 6 6 re f")
+        #expect(try Self.content(plain).contains("/Cs1 cs 0 0 1 sc"))
+    }
+
     @Test func numbers() {
         let cases: [(Double, String)] = [
             (0.1234567891, "0.1234568"), (9.87654321, "9.876543"), (1234567.891, "1234568"), (12345678.9, "12345679"), (0.0000049, "0.0000049"),

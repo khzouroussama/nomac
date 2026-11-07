@@ -552,6 +552,9 @@ struct PDFPage {
     }
 
     private mutating func interpret(_ content: [UInt8], resources: [String: PDFValue], file: PDFFile, state initial: State = State(), depth: Int = 0) throws {
+        // Device colors take the resources' default spaces (`default-spaces`).
+        let deviceRGB = try Self.colorSpace("DeviceRGB", resources: resources, file: file)
+        let deviceGray = try Self.colorSpace("DeviceGray", resources: resources, file: file)
         var lexer = PDFLexer(data: content, path: file.path)
         var operands: [PDFLexer.Token] = []
         var state = initial
@@ -679,7 +682,7 @@ struct PDFPage {
             case "rg", "g", "k", "RG", "G", "K":
                 let kind = op.lowercased()
                 guard let v = numbers(kind == "rg" ? 3 : kind == "g" ? 1 : 4) else { continue }
-                let space: ColorSpace? = kind == "rg" ? .rgb : kind == "g" ? .gray : nil
+                let space: ColorSpace? = kind == "rg" ? deviceRGB : kind == "g" ? deviceGray : nil
                 if op == kind {
                     (state.fillSpace, state.fillColor) = (space, Color(space: space, components: v))
                 } else {
@@ -1291,12 +1294,19 @@ struct PDFPage {
     }
 
     /// The color space `name` names: a device space, or a resource that is one or an ICCBased
-    /// space (`nil` for DeviceCMYK).
-    static func colorSpace(_ name: String, resources: [String: PDFValue], file: PDFFile) throws -> ColorSpace? {
-        let value = file.resolve(file.resolve(resources["ColorSpace"])?.dictionary?[name]) ?? .name(name)
+    /// space (`nil` for DeviceCMYK). A device space is the resources' `DefaultRGB` or
+    /// `DefaultGray` when they have one, in colors and images but not in a shading's dictionary
+    /// (`default-spaces`).
+    static func colorSpace(_ name: String, resources: [String: PDFValue], file: PDFFile, defaults: Bool = true) throws -> ColorSpace? {
+        let spaces = file.resolve(resources["ColorSpace"])?.dictionary
+        let value = file.resolve(spaces?[name]) ?? .name(name)
         switch value {
-        case .name("DeviceRGB"): return .rgb
-        case .name("DeviceGray"): return .gray
+        case .name("DeviceRGB"):
+            guard defaults, spaces?["DefaultRGB"] != nil else { return .rgb }
+            return try colorSpace("DefaultRGB", resources: resources, file: file, defaults: false)
+        case .name("DeviceGray"):
+            guard defaults, spaces?["DefaultGray"] != nil else { return .gray }
+            return try colorSpace("DefaultGray", resources: resources, file: file, defaults: false)
         case .name("DeviceCMYK"): return nil
         case .array(let items) where items.first?.name == "ICCBased" && items.count == 2:
             guard let stream = file.resolve(items[1]), let components = file.number(stream.dictionary?["N"]) else { break }

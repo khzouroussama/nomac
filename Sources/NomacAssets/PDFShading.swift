@@ -179,7 +179,7 @@ extension PDFPage {
             let spaceValue = file.resolve(dictionary["ColorSpace"])
             let space: ColorSpace?
             switch spaceValue {
-            case .name(let name)?: space = try colorSpace(name, resources: resources, file: file)
+            case .name(let name)?: space = try colorSpace(name, resources: resources, file: file, defaults: false)
             case let value?: space = try colorSpace("CS", resources: ["ColorSpace": .dictionary(["CS": value])], file: file)
             case nil: space = nil
             }
