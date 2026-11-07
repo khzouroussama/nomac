@@ -103,6 +103,8 @@ open questions:
   `predominantSourceCodeLanguage` and how they count.
 - synchronized-phases-all: one synchronized member of every extension Xcode's specifications name,
   for the phase each joins.
+- scheme-extension-key: shared schemes with and without wasCreatedForAppExtension for each kind of
+  target, for the schemes -list reports.
 - pif-key-order: settings whose names hold every ASCII punctuation mark, both cases, digit runs
   and non-ASCII letters, for the order of a PIF object's keys.
 - workspace-locations-*: each key of a WorkspaceSettings.xcsettings that places builds, in the
@@ -4184,6 +4186,73 @@ WORKSPACE_LOCATION_CASES = {
 }
 
 
+def keyed(scheme_text):
+    return scheme_text.replace('version = "1.7"', 'wasCreatedForAppExtension = "YES"\n   version = "1.7"')
+
+
+def scheme_extension_key():
+    # The fuzzer's seed 400029: a shared scheme with wasCreatedForAppExtension = YES for a watch
+    # app, and -list shows that name twice. Each kind of target gets one shared scheme of its name
+    # with the key, one without, and one with the key under another name.
+    targets = Targets()
+    container = "container:P.xcodeproj"
+    files = {}
+    kinds = [("App", APPLICATION, "iphoneos", "app"), ("Fw", "com.apple.product-type.framework", "iphoneos", "framework"),
+             ("Ext", APPEX, "iphoneos", "appex"), ("WatchOnly", APPLICATION, "watchos", "app"),
+             ("Watch2", "com.apple.product-type.application.watchapp2", "watchos", "app"),
+             ("WatchExt", "com.apple.product-type.watchkit2-extension", "watchos", "appex"),
+             ("Mac", APPLICATION, "macosx", "app"), ("Tv", APPLICATION, "appletvos", "app"), ("Vision", APPLICATION, "xros", "app"),
+             ("Clip", "com.apple.product-type.application.on-demand-install-capable", "iphoneos", "app"),
+             ("Container", "com.apple.product-type.application.watchapp2-container", "iphoneos", "app"),
+             ("Legacy1", "com.apple.product-type.application.watchapp", "watchos", "app"),
+             ("Messages", "com.apple.product-type.application.messages", "iphoneos", "app"),
+             ("Tool", "com.apple.product-type.tool", "macosx", "tool"), ("Lib", "com.apple.product-type.library.static", "iphoneos", "a"),
+             ("Bundle", "com.apple.product-type.bundle", "iphoneos", "bundle"), ("ExKit", "com.apple.product-type.extensionkit-extension", "iphoneos", "appex")]
+    for name, product_type, sdk, suffix in kinds:
+        for variant, scheme_name, flagged in [("Keyed", f"{name}Keyed", True), ("Plain", f"{name}Plain", False), ("Other", f"{name}Other", True)]:
+            target_name = scheme_name if variant != "Other" else f"{name}Other"
+            target, _ = targets.add(target_name, product_type, {}, sdk=sdk)
+            shared_name = scheme_name if variant != "Other" else f"{name} Elsewhere"
+            buildable = (target, f"{target_name}.{suffix}", target_name, container)
+            text = scheme_file(build=[(*buildable, True)], launch=("product", buildable) if suffix == "app" else None)
+            if flagged:
+                text = keyed(text)
+            files[f"P.xcodeproj/xcshareddata/xcschemes/{shared_name}.xcscheme"] = text
+    # The shapes Xcode's templates write: an extension's scheme builds it and its app and launches
+    # the app, shared or per-user, and an app's scheme with the key and no launch.
+    extension, _ = targets.add("Pair Ext", APPEX, {})
+    host, _ = targets.add("PairHost", APPLICATION, {})
+    pair = [(extension, "Pair Ext.appex", "Pair Ext", container, True), (host, "PairHost.app", "PairHost", container, True)]
+    files["P.xcodeproj/xcshareddata/xcschemes/Pair Ext.xcscheme"] = keyed(scheme_file(build=pair, launch=("product", pair[1][:4])))
+    user_app, _ = targets.add("UserKeyed", APPLICATION, {})
+    user_buildable = (user_app, "UserKeyed.app", "UserKeyed", container)
+    files[f"{user_schemes_folder('P.xcodeproj')}/UserKeyed.xcscheme"] = keyed(scheme_file(build=[(*user_buildable, True)], launch=("product", user_buildable)))
+    quiet, _ = targets.add("NoLaunch", APPLICATION, {})
+    files["P.xcodeproj/xcshareddata/xcschemes/NoLaunch.xcscheme"] = keyed(scheme_file(build=[(quiet, "NoLaunch.app", "NoLaunch", container, True)]))
+    profiled, _ = targets.add("ProfileKeyed", APPLICATION, {})
+    files["P.xcodeproj/xcshareddata/xcschemes/ProfileKeyed.xcscheme"] = keyed(scheme_file(
+        build=[(profiled, "ProfileKeyed.app", "ProfileKeyed", container, True)], profile=("product", (profiled, "ProfileKeyed.app", "ProfileKeyed", container))))
+    both, _ = targets.add("BothKeyed", APPLICATION, {})
+    both_buildable = (both, "BothKeyed.app", "BothKeyed", container)
+    files["P.xcodeproj/xcshareddata/xcschemes/BothKeyed.xcscheme"] = keyed(scheme_file(
+        build=[(*both_buildable, True)], launch=("product", both_buildable), profile=("product", both_buildable)))
+    launched_no, _ = targets.add("KeyNoLaunched", APPLICATION, {})
+    launched_buildable = (launched_no, "KeyNoLaunched.app", "KeyNoLaunched", container)
+    files["P.xcodeproj/xcshareddata/xcschemes/KeyNoLaunched.xcscheme"] = scheme_file(build=[(*launched_buildable, True)], launch=("product", launched_buildable)).replace(
+        'version = "1.7"', 'wasCreatedForAppExtension = "NO"\n   version = "1.7"')
+    remote, _ = targets.add("RemoteKeyed", APPLICATION, {})
+    remote_buildable = (remote, "RemoteKeyed.app", "RemoteKeyed", container)
+    files["P.xcodeproj/xcshareddata/xcschemes/RemoteKeyed.xcscheme"] = keyed(scheme_file(build=[(*remote_buildable, True)], launch=("remote", remote_buildable)))
+    no_value, _ = targets.add("KeyNo", APPLICATION, {})
+    files["P.xcodeproj/xcshareddata/xcschemes/KeyNo.xcscheme"] = scheme_file(build=[(no_value, "KeyNo.app", "KeyNo", container, True)]).replace(
+        'version = "1.7"', 'wasCreatedForAppExtension = "NO"\n   version = "1.7"')
+    return targets.project(files)
+
+
+def observe_scheme_extension_key(run):
+    run("list", "-list", "-json")
+
+
 def info_plist_conditions():
     # The fuzzer's targets that set only `INFOPLIST_FILE[sdk=iphoneos*]` take the identifier of
     # that plist, and watch container stubs with no Info.plist settings report
@@ -4981,12 +5050,12 @@ def spec_extensions():
     """Every extension a `FileType` specification of the Xcode in DEVELOPER_DIR names."""
     contents = Path(os.environ.get("DEVELOPER_DIR", "/Applications/Xcode_27.app/Contents/Developer")).parent
     found = set()
-    listing = subprocess.run(["find", str(contents / "SharedFrameworks"), str(contents / "PlugIns"), "-name", "*.xcspec"], capture_output=True, text=True).stdout
+    listing = subprocess.run(["find", str(contents / "SharedFrameworks" / "SwiftBuild.framework"), "-name", "*.xcspec"], capture_output=True, text=True).stdout
     for path in listing.splitlines():
-        converted = subprocess.run(["plutil", "-convert", "json", "-o", "-", path], capture_output=True, text=True)
+        converted = subprocess.run(["plutil", "-convert", "xml1", "-o", "-", path], capture_output=True)
         if converted.returncode:
             continue
-        items = json.loads(converted.stdout)
+        items = plistlib.loads(converted.stdout)
         for item in items if isinstance(items, list) else [items]:
             if item.get("Type") == "FileType":
                 found.update(extension for extension in item.get("Extensions", []) if extension.isalnum())
@@ -6937,6 +7006,7 @@ EXPERIMENTS = {
     "language-fallback": (language_fallback, "P.xcodeproj", None),
     "language-fallback-missing": (language_fallback_missing, "P.xcodeproj", None),
     "pif-key-order": (pif_key_order, "P.xcodeproj", None),
+    "scheme-extension-key": (scheme_extension_key, "P.xcodeproj", observe_scheme_extension_key),
     **{f"workspace-locations-{name}": (lambda values=values: workspace_locations(values), "P.xcodeproj", observe_workspace_locations)
        for name, values in WORKSPACE_LOCATION_CASES.items()},
     **{f"workspace-locations-shared-{name}": (lambda values=values: workspace_locations(values, shared=True), "P.xcodeproj", observe_workspace_locations)
