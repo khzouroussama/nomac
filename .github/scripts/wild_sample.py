@@ -16,11 +16,15 @@ The checkout and its derived data are deleted after each project; the logs stay 
 outside the repository. Only project names, commits, classes and counts reach corpus/.
 
 `run` is meant to go unwatched (docs/state/wild-sample.md). Every step has a timeout. A step the
-network cuts runs again. A project is not measured, counts in no share and is taken again in the next
-round when its clone or dependency install fails, its archive times out, or this machine lacks a
-tool its README names; the report shows those apart, with the bounds they leave. <root>/results.log
+network cuts runs again. A project whose clone or dependency install fails, whose archive times out,
+or whose README names a tool this machine lacks is taken again in the next round. <root>/results.log
 gets one line per attempt. Under 15 GB free on the Mac the run kills its step, writes <root>/STOPPED
 and ends, and no run starts while that file exists.
+
+In the shares only what the network cut (or the run's own stop for disk) is not measured, and `report`
+prints the bounds that leaves. Every other failure counts as stopped until a verdict by hand moves
+it, labelled by what is known ("stopped at install, cause not read"), since `pod install` failing
+could be nomac's launchers and a share that is too low is better than one too high.
 
 Two frames, from the survey's `contents` records:
 
@@ -745,10 +749,34 @@ def attempts_of(root):
     return [result for result in found if "finished" in result]
 
 
+def cut_short(result):
+    """Whether only the network or the run's own stop for disk ended this attempt: `with_network_retries`
+    records those as "<step>: <reason>"."""
+    reason = result.get("notMeasured") or ""
+    return reason in ("GitHub did not answer", "stopped for disk space") or reason.startswith(("clone: ", "deps: ", "archive: "))
+
+
+def stop_label(result):
+    """What is known of a stopped project that has no verdict yet."""
+    reason = result.get("notMeasured")
+    if not reason:
+        return f"stopped at {result.get('stopped')}"
+    if reason == "dependency install failed":
+        return "stopped at install, cause not read"
+    if reason.startswith("this machine has no "):
+        return f"stopped at install, {reason}"
+    if reason == "clone failed":
+        return "stopped at clone, cause not read"
+    if reason == "archive timed out":
+        return "stopped at archive, timed out"
+    return f"stopped, {reason}"
+
+
 def results_of(root):
-    """Measured projects: finished, not cut short, an app; a verdict given by hand counts as measured."""
+    """Measured projects: finished and an app, whatever stopped them unless the network did; a verdict
+    given by hand counts as measured."""
     table = verdicts()
-    return [result for result in attempts_of(root) if not result.get("noApp") and (not result.get("notMeasured") or result["repository"] in table)]
+    return [result for result in attempts_of(root) if not result.get("noApp") and (not cut_short(result) or result["repository"] in table)]
 
 
 def verdicts():
@@ -767,7 +795,7 @@ def classes(arguments):
             continue
         verdict = table.get(result["repository"])
         if not verdict:
-            unjudged.append(f"{result['repository']} ({result.get('stopped')})")
+            unjudged.append(f"{result['repository']} ({stop_label(result)})")
             continue
         ranked[(verdict["verdict"], verdict["class"])].append(result["repository"])
     for (kind, name), projects in sorted(ranked.items(), key=lambda item: (item[0][0] != "nomac", -len(item[1]), item[0][1])):
@@ -785,7 +813,8 @@ def triage(arguments):
         if result["repository"] in table and not arguments.all:
             continue
         stopped = result["steps"].get(result.get("stopped"), {})
-        print(f"### {result['repository']} stopped at {result.get('stopped')} ({stopped.get('seconds')} s; not measured: {result.get('notMeasured')})")
+        outcome = f"not measured, {result['notMeasured']}" if cut_short(result) else stop_label(result)
+        print(f"### {result['repository']}: {outcome} ({stopped.get('seconds')} s)")
         for line in stopped.get("errors", [])[:arguments.lines]:
             print("  " + re.sub(r"/work/runs/[^/]+/(src/)?", "", line)[:220])
 
@@ -813,20 +842,24 @@ def report(arguments):
         print(f"  not measured: {len(unmeasured)} {dict(collections.Counter(result['notMeasured'].split(':')[0] for result in unmeasured))}")
         if unmeasured:
             print(f"  bounds if the not measured all fail or all pass: {ipa} to {ipa + len(unmeasured)} of {len(members) + len(unmeasured)}")
-        counts = collections.Counter((table.get(result["repository"]) or {}).get("verdict", "no verdict") for result in members if not result["ipa"])
-        print("  stopped:", dict(counts))
+        stopped = [result for result in members if not result["ipa"]]
+        counts = collections.Counter((table.get(result["repository"]) or {}).get("verdict", "no verdict") for result in stopped)
+        print("  verdicts of the stopped:", dict(counts))
+        print("  without a verdict:", dict(collections.Counter(stop_label(result) for result in stopped if result["repository"] not in table)))
         decided = len(members) - counts["project"]
-        print("  " + share_line("IPA, leaving out projects whose own failure stops them", ipa, decided))
-        print("  stopped at:", dict(collections.Counter(result.get("stopped") for result in members if not result["ipa"])))
+        print("  " + share_line("IPA, leaving out projects whose verdict is the project's own failure", ipa, decided))
     if arguments.write:
         rows = []
         for result in finished:
             verdict = table.get(result["repository"]) or {}
             rows.append({"repository": result["repository"], "frames": result["frames"], "ipa": result["ipa"], "stoppedAt": result.get("stopped"),
-                         "verdict": "ipa" if result["ipa"] else verdict.get("verdict", "no verdict"), "class": verdict.get("class"),
+                         "verdict": "ipa" if result["ipa"] else verdict.get("verdict", "no verdict"),
+                         "class": verdict.get("class") or (None if result["ipa"] else stop_label(result)),
                          "xcode": verdict.get("xcode")})
         dates = sorted(result["started"][:10] for result in finished)
-        summary = {"seed": manifest["seed"], "nomac": sorted({result["nomac"] for result in finished}), "dates": [dates[0], dates[-1]] if dates else [], "projects": rows}
+        summary = {"seed": manifest["seed"], "nomac": sorted({result["nomac"] for result in finished}), "dates": [dates[0], dates[-1]] if dates else [], "projects": rows,
+                   "notMeasured": sorted(result["repository"] for result in attempts if result["repository"] not in measured and not result.get("noApp")),
+                   "noApp": sorted(result["repository"] for result in attempts if result.get("noApp"))}
         RESULTS.write_text(json.dumps(summary, indent=1) + "\n")
 
 

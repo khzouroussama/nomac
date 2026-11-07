@@ -56,11 +56,17 @@ Then:
 
 Read these with the numbers:
 
-- A project is not measured when its clone or dependency install failed, its archive timed out, or
-  this machine lacks a tool its README names. It counts in no share, so a real install failure
-  raises the share until someone reads it. `report` prints the count and the bounds it leaves, and
-  `triage` lists these projects; a verdict by hand counts a project as measured.
-- `immich-app/immich` needs Flutter and `flutter` is not installed, so it stays not measured.
+- `report`, not `results.log`, says what counts. Only what the network cut is not measured: an
+  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`, and a project the
+  run's own stop for disk ended. Those count in no share, and `report` prints their count and the
+  worst-case bounds they leave. Every other failure counts as stopped until a verdict by hand moves
+  it, so a share here errs low: `pod install` failing could be nomac's launchers.
+- The running driver is older than that rule, so `results.log` says `not-measured:` for some projects
+  that `report` counts as stopped. `not-measured: dependency install failed` is `stopped at install,
+  cause not read`, `clone failed` is `stopped at clone, cause not read`, `archive timed out` is
+  `stopped at archive, timed out`, and `this machine has no <tool>` is `stopped at install, this
+  machine has no <tool>`. The driver takes all of these again in later rounds; the last attempt counts.
+- `immich-app/immich` needs Flutter and `flutter` is not installed, so it counts as stopped at install.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded
   in the manifest; a project without those keys uses what its files imply and its first app scheme.
