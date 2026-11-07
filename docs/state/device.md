@@ -57,7 +57,9 @@ Developer Disk Image's mount on a phone Xcode never prepared are untested agains
   target ran; a result bundle says failed after a runner failure; `nomac codesign --help` answers. Testables
   are named by identifier, and test plans read before the build.
 - A scheme's own test options in the `.xctestrun`, and schemes Xcode autocreates as format 2
-  (docs/formats/xctestrun.md "What a scheme sets on its tests", "A scheme Xcode autocreates").
+  (docs/formats/xctestrun.md "What a scheme sets on its tests", "A scheme Xcode autocreates"). On the Mac,
+  `--compare-only`: 13 of the new and old variants byte-identical to Xcode's, 1 not:
+  `xctestrun-no-scheme-own-bundle` (B-408).
 - Measured with no iPhone: Linux's usbmuxd states with a real Linux nomac (not installed, not running,
   no device, stale socket, no permission) and the automatic-signing project. `build-for-testing` on Linux
   gave the same `.xctestrun` values as Xcode for the base and coverage variants only: the

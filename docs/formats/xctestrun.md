@@ -154,6 +154,10 @@ Its UI test bundle comes before its unit test bundle, whatever the targets' orde
 (`-no-scheme-reversed`, `-no-scheme-renamed`, `-no-scheme-swapped-ids`). Each had one bundle of each kind:
 the order among several of one kind is not observed, and nomac keeps the project's.
 
+A test bundle's own scheme, with no app in the build (`-no-scheme-own-bundle`), differs in two more keys,
+which nomac does not write yet (B-408): `DSTROOTPath` is `/tmp/App.dst`, and
+`ProcessNamesForCrashReportCollection` is absent, not empty. nomac's file is otherwise the same.
+
 ## What the build products are
 
 `build-for-testing` builds what `build` builds for the scheme's testing entries and its
