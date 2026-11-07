@@ -395,8 +395,10 @@ Next actions:
 1. Wrong nibs: none left in this part. Xcode's own outputs for 5,297 documents of the survey are in `survey-obs`, the
    holdout's in `holdout-obs`: `python3 $C survey-obs <nomac> corpus` (`$C` = `.github/scripts/nib_compare.py`) counts them,
    `tools/classify.py <list>` groups them by first difference, `ddiff.py <document> 30` shows one. 28 survey and 5
-   holdout documents still differ, all part A's: `Info.plist` order (B-266, 8), constraints (10) and colors (10). A
-   xib's warning order changes from run to run and counts as equivalent (ADR 0254). The B-291 placeholders stay refused.
+   holdout documents differed at the last count, in part A's area but for what SF Symbols warn about: `SF Symbol 'x' is
+   deprecated, use 'y' instead. [7]` needs ibtool's table of renamed symbols, which nomac does not have, so nomac prints no
+   such warning, nib the same (3 survey documents). A xib's warning order changes from run to run and counts as equivalent
+   (ADR 0254). The B-291 placeholders stay refused.
 2. Refusals, ranked by the projects Xcode 27 accepts: `JOBS=3 TOP=60 python3 tools/rank_survey.py <current nomac> survey-docs
    survey-rank.json`, of 64 such projects with a refused document (`live` in `survey-docs/projects.json`, no `build:*below*`
    feature). Re-rank before starting anything: part A lands the same fixes, and did for bars while this list ran. Done:

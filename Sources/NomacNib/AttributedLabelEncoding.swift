@@ -101,9 +101,18 @@ extension DocumentCompiler {
             }
         }
         guard let font else { throw unsupported("an attributed label's fragment without a font") }
+        // Fragments of the same attributes share them, paragraph style included (`al-share-two-fragments*`).
+        let identity = entries.map { name, value -> String in
+            if let style = value as? NibParagraphStyle { return "\(name)=\(style.identity)" }
+            return "\(name)=\(ObjectIdentifier(value))"
+        }.joined(separator: " ")
+        let shared = fragmentAttributes[identity] ?? dictionary(entries)
+        fragmentAttributes[identity] = shared
         return AttributedLabelText(text: content, font: font, color: color, alignment: alignment,
-                                   attributedText: NibMutableAttributedString(string: NibMutableString(content), attributes: dictionary(entries)))
+                                   attributedText: NibMutableAttributedString(string: NibMutableString(content), attributes: shared))
     }
+
+    private static let systemFontFragmentNames: Set = [".SFNSText", ".SFUIText", ".SFUI-Regular", ".SFNSDisplay", ".SFUIDisplay"]
 
     /// A fragment's `<font>` as the `<fontDescription>` it stands for.
     @discardableResult
@@ -113,6 +122,8 @@ extension DocumentCompiler {
         let description: [String: String]
         switch (element.attributes["metaFont"], element.attributes["name"]) {
         case ("system", nil): description = ["key": "fontDescription", "type": "system", "pointSize": size]
+        // These names are the regular system font (`al-font-name-*`; the survey's adblockplus MainInterface).
+        case (nil, let name?) where Self.systemFontFragmentNames.contains(name): description = ["key": "fontDescription", "type": "system", "pointSize": size]
         case (nil, let name?): description = ["key": "fontDescription", "name": name, "family": name, "pointSize": size]
         default: throw unsupported("this font of an attributed label")
         }
@@ -123,6 +134,19 @@ extension DocumentCompiler {
 
     /// A fragment's `<color>`: as a view's, or the catalog color `textColor`.
     private mutating func fragmentColor(_ element: XIBElement) throws -> NibColor {
+        // Without `colorMatched` a calibrated one stays as written, its own object (`al-unmatched-*`; the survey's EmptyState).
+        if !colorMatched, ["calibratedWhite", "calibratedRGB"].contains(element.attributes["colorSpace"] ?? "") {
+            let attributes = element.attributes
+            func component(_ name: String) throws -> Double { try number(attributes[name] ?? "1", name) }
+            let components: NibColor.Components = attributes["white"] != nil
+                ? .gray(white: try component("white"), alpha: try component("alpha"))
+                : .rgb(red: try component("red"), green: try component("green"), blue: try component("blue"), alpha: try component("alpha"))
+            let identity = "fragment \(components)"
+            if let existing = colors[identity] { return existing }
+            let color = NibColor(components: components, name: nil)
+            colors[identity] = color
+            return color
+        }
         guard element.attributes["colorSpace"] == "catalog" else { return try color(element) }
         try check(element, attributes: ["key", "name", "catalog", "colorSpace"], children: [])
         guard element.attributes["name"] == "textColor", element.attributes["catalog"] == "System" else {

@@ -186,6 +186,10 @@ struct DocumentCompiler {
     /// size classes, which pick the values objects take.
     var traitStorages: [TraitStorage] = []
     /// The `<mask>`s of the nib's views, by view id and size class, then their storages.
+    /// The attributes of attributed labels' fragments, by what they hold.
+    var fragmentAttributes: [String: NibDictionary] = [:]
+    /// The traits of the italic system font, one dictionary whatever the size (`font-share-italic-*`).
+    var italicTraits: NibDictionary?
     /// What the default size class's masks exclude, by view: counted after the view's other objects
     /// in the numbers that order key-value pairs.
     var defaultMaskExclusions: [(owner: NibView, excluded: [NibArchivable])] = []
@@ -1057,7 +1061,9 @@ struct DocumentCompiler {
                                                                                                 options: NibFont.systemOptions)),
                                pointSize: size, traits: 2, systemFont: true, size: size)
             case ("italicSystem", "regular"):
-                let entries: [(String, NibArchivable)] = [("NSCTFontTraitsAttribute", dictionary([("NSCTFontSymbolicTrait", NibNumber(integer: 1))])),
+                let traits = italicTraits ?? dictionary([("NSCTFontSymbolicTrait", NibNumber(integer: 1))])
+                italicTraits = traits
+                let entries: [(String, NibArchivable)] = [("NSCTFontTraitsAttribute", traits),
                                                           ("NSCTFontUIUsageAttribute", string("CTFontObliqueUsage")), ("NSFontSizeAttribute", NibNumber(size))]
                 font = NibFont(name: string(".SFUI-RegularItalic"), kind: .descriptor(NibFontDescriptor(attributes: dictionary(entries),
                                                                                                          options: NibFont.systemOptions)),

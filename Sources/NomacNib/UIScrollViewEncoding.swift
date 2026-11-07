@@ -39,8 +39,8 @@ struct ScrollContent {
         if directionalLockEnabled { encoder.encode(.boolean(true), forKey: "UIDirectionalLockEnabled") }
         if let minimumZoomScale { encoder.encode(.float(minimumZoomScale), forKey: "UIMinimumZoomScale") }
         if let maximumZoomScale { encoder.encode(.float(maximumZoomScale), forKey: "UIMaximumZoomScale") }
-        if let keyboardDismissMode { encoder.encode(.integer(keyboardDismissMode), forKey: "UIKeyboardDismissMode") }
         if nilDelegate { encoder.encode(.null, forKey: "UIDelegate") }
+        if let keyboardDismissMode { encoder.encode(.integer(keyboardDismissMode), forKey: "UIKeyboardDismissMode") }
         encoder.encode(.integer(contentInsetAdjustmentBehavior), forKey: "UIScrollViewContentInsetAdjustmentBehavior")
     }
 

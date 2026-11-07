@@ -115,6 +115,8 @@ extension DocumentCompiler {
         viewElement.children = element.children
         let view = try view(viewElement, topLevel: true, originalClassName: "UICollectionReusableView")
         view.kind = .reusableView(element.attributes["reuseIdentifier"].map { string($0) })
+        // With safe areas a storyboard's section view has its guide, written or not (`sb-section-safe-*`; the survey's betcalsa).
+        if usesSafeAreas, view.safeAreaPlaceholder == nil { view.safeAreaPlaceholder = NibSafeAreaGuide(identifier: string("")) }
         return view
     }
 }

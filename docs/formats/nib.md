@@ -305,7 +305,8 @@ a dictionary, `UIFontDescriptorOptions`) or, for a text style, `UIIBTextStyle`, 
 light 8, regular and medium 0, semibold, heavy and black 2; bold (`boldSystem` or `weight="bold"`)
 is a mutable dictionary of the emphasized usage, `NSCTFontUIUsageOverrideAttribute`
 `CTFontBoldUsage` and the size, traits 2; `italicSystem` is `.SFUI-RegularItalic` with
-`NSCTFontTraitsAttribute` {`NSCTFontSymbolicTrait` 1}, `CTFontObliqueUsage`, traits 1;
+`NSCTFontTraitsAttribute` {`NSCTFontSymbolicTrait` 1}, one dictionary for all the nib's italic fonts
+(`font-share-italic-*`), `CTFontObliqueUsage`, traits 1;
 `.AppleSystemUIFont` is the regular system font. A system font of `pointSize="0"` is of 12 points but for
 `italicSystem`, which stays 0 (`label-font-zero-*`, `button-font-zero-*`; a label's minimum font size beside it is
 refused). Text styles have point size 0 and the
@@ -358,7 +359,11 @@ as the system font of that size, a named font as a `<fontDescription>` of that n
 alignment (natural without one), `UIDisableUpdateTextColorOnTraitCollectionChange` false; then,
 right after `UITextAlignment`, `UIAttributedText`: an `NSMutableAttributedString` of an
 `NSMutableString` of the content and an `NSDictionary` of the fragment's attributes in document
-order, the color and font the label's objects, `NSOriginalFont` dropped (`al-gomap`). The catalog
+order, the color and font the label's objects (without `colorMatched` a `calibratedWhite` or `calibratedRGB` color stays as
+written, not converted as a view's: `al-unmatched-*`), `NSOriginalFont` dropped (`al-gomap`), one dictionary for labels of
+the same attributes, whatever their texts (`al-share-two-fragments*`). A fragment's font named `.SFNSText`, `.SFUIText`,
+`.SFUI-Regular`, `.SFNSDisplay` or `.SFUIDisplay` is the regular system font, one object with the system font of that
+size (`al-font-name-*`; the survey's adblockplus MainInterface). The catalog
 color `textColor` (`catalog="System"`) is opaque black, unnamed (`al-system-15-text-color`). The
 paragraph style is an `NSMutableParagraphStyle` of `NSAlignment` (AppKit's values, none for left),
 `NSLineBreakMode` the label's own (tail truncation without one, whatever the paragraph's:
@@ -459,7 +464,7 @@ default, `UIIndicatorStyle` (black 1, white 2), `UIBounceEnabled` false,
 `UIScrollDisabled` true, `UIDelaysContentTouches` false, `UICanCancelContentTouches` false,
 `UIPagingEnabled` true, `UIBouncesZoom` (true unless `bouncesZoom="NO"`), `UIAlwaysBounceVertical`,
 `UIAlwaysBounceHorizontal`, `UIDirectionalLockEnabled`, `UIMinimumZoomScale` and
-`UIMaximumZoomScale` (floats), `UIKeyboardDismissMode` (onDrag 1, interactive 2), and
+`UIMaximumZoomScale` (floats), a collection view's nil `UIDelegate`, `UIKeyboardDismissMode` (onDrag 1, interactive 2), and
 `UIScrollViewContentInsetAdjustmentBehavior` always (automatic 0, scrollableAxes 1, never 2,
 always 3) (`scroll-flags`). Its `contentLayoutGuide` and `frameLayoutGuide` are listed in all
 objects as placeholders like a safe area no constraint names (`UILayoutGuide` without an owning
@@ -1136,7 +1141,8 @@ the content view has subviews, whether or not a constraint names it (`cvcell-old
 `cvcell-old-height`, `cvcell-old-label-no-safe-area`). In Xcode 12's template ibtool drops the
 cell's constraints (`cvcell-label-cell-constraints`); nomac refuses them.
 
-A top-level `<collectionReusableView>` is a `UICollectionReusableView`: a view's keys, then
+In a storyboard with `useSafeAreas="YES"` a section view has a safe area guide in all objects, written or not
+(`sb-section-safe-*`; the survey's betcalsa). A top-level `<collectionReusableView>` is a `UICollectionReusableView`: a view's keys, then
 `UIReuseIdentifier` (`reusable-*`).
 
 
@@ -1503,7 +1509,8 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   `UpstreamPlaceholder-1` (the view nib's string) to the view nib's placeholder.
 - A cell's accessory segue (`trigger="accessoryAction"`, round 91: `sb-cellseg-accessory*`) is a
   template as a selection segue, its cell's outlet `accessoryActionSegueTemplate`. Placeholders
-  are numbered from `UpstreamPlaceholder-2`: static cells last first, prototype cells first first
+  are numbered from `UpstreamPlaceholder-2`: static cells last first in each section, the sections in order
+  (`sb-cellseg-sections-*`; the survey's Slide test storyboard), prototype cells first first
   (`sb-cellseg-prototypes-reversed-ids`), a cell's segues in document order whatever triggers them
   (`sb-cellseg-accessory-first`); outlets sort by label, then by placeholder
   (`sb-cellseg-static-two-both`). A prototype's nib numbers its own placeholders from 1 in the same
@@ -1548,7 +1555,8 @@ lose their name and are converted by a route not matched yet (`mx-catalog-unmatc
   `UIDestinationContainmentContext` 0, `UISplitViewControllerIndex` 0), `modal` a
   `UIStoryboardModalSegueTemplate` (identifier, destination), `custom` a `UIStoryboardSegueTemplate`
   (`UIIdentifier`, `UISegueClassName` its class's runtime name as a view's custom class,
-  destination). ibtool warns, after compiling, `/* com.apple.ibtool.document.warnings */` then
+  destination). With `useTraitCollections="YES"`, 67 of 67 storyboards of the survey (`sb-segue-*-no-traits`), ibtool
+  warns, after compiling, `/* com.apple.ibtool.document.warnings */` then
   `<path>:<segue id>: warning: Push segues are deprecated since iOS 8.0 [7]` (`Modal` for modal
   segues) per segue, in the order of a Foundation hash table of their ids (`sb-segue-push-three`).
   Where ids collide in that table, ibtool's order changes from run to run: four orders in seven

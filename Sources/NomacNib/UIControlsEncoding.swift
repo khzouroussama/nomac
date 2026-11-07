@@ -156,6 +156,10 @@ extension DocumentCompiler {
             if !activity.animating {
                 view.flags.hidden = activity.hidesWhenStopped
             }
+            // `noauto-activity`, `auto-activity-unmasked`; none of 437 of the survey and the holdout that hide or animate.
+            if activity.hidesWhenStopped, !activity.animating, element.attributes["hidden"] != "YES", let id = element.attributes["id"] {
+                warnings.append((id, "Hides When Stopped, but is neither Hidden nor Animating [9]"))
+            }
         case "segmentedControl":
             let segmented = try segmentedContent(element)
             view.kind = .segmented(segmented)

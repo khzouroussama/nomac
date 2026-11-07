@@ -149,7 +149,8 @@ extension DocumentCompiler {
         }
         let unreachedWarnings = try skipped.map { ($0.id, "“\(try unreachedName(scenesByID[$0.id]!))“ is unreachable because it has no entry points, and no identifier "
                                                            + "for runtime access via -[UIStoryboard instantiateViewControllerWithIdentifier:]. [9]") }
-        warnings = unreachedWarnings + controllers.flatMap(\.segues).reversed().compactMap { segue in
+        // Segues warn only with trait collections (`sb-segue-*-no-traits`; 67 of 67 storyboards of the survey with such segues).
+        warnings = unreachedWarnings + (document.attributes["useTraitCollections"] == "YES" ? Array(controllers.flatMap(\.segues).reversed()) : []).compactMap { segue in
             [Segue.Kind.push: "Push", .modal: "Modal"][segue.kind].map { (segue.id, "\($0) segues are deprecated since iOS 8.0 [7]") }
         } + (usesSafeAreas && (declaredDeployment ?? deploymentTarget) >= IOSVersion(major: 11, minor: 0) ? scenes.flatMap(layoutGuideWarnings) : [])
         // An embedded controller's view, or its navigation controller's root's, takes its container
@@ -834,17 +835,22 @@ extension DocumentCompiler {
     }
 
     /// The templates of the segues cells of the scene trigger, in their placeholders' order: from
-    /// `UpstreamPlaceholder-2`, static cells last first, prototype cells first first, a cell's
-    /// segues in document order whatever triggers them (`sb-cellseg-*`, `sb-cellseg-nav-root`,
-    /// `sb-cellseg-accessory-*`, `sb-cellseg-prototypes-reversed-ids`, `sb-cellseg-static-two-both`).
+    /// `UpstreamPlaceholder-2`, static cells last first in each section, the sections in order,
+    /// prototype cells first first, a cell's segues in document order whatever triggers them
+    /// (`sb-cellseg-*`, `sb-cellseg-nav-root`, `sb-cellseg-accessory-*`, `sb-cellseg-prototypes-reversed-ids`,
+    /// `sb-cellseg-static-two-both`, `sb-cellseg-sections-*`; the survey's Slide test storyboard).
     private mutating func cellSegueTemplates(_ sceneController: SceneController, _ templates: [NibSegueTemplate]) -> [(Segue, NibSegueTemplate)] {
         let cellTemplates = zip(sceneController.segues, templates).filter { $0.0.cell != nil }
         var cells: [String] = []
         for (segue, _) in cellTemplates where !cells.contains(segue.cell!) {
             cells.append(segue.cell!)
         }
-        if !(cellTemplates.first?.0.prototype ?? true) {
-            cells.reverse()
+        if !(cellTemplates.first?.0.prototype ?? true), let document {
+            let sections = Self.descendants(of: document, named: "tableViewSection").enumerated().flatMap { index, section in
+                Self.descendants(of: section, named: "tableViewCell").compactMap { $0.attributes["id"] }.map { ($0, index) }
+            }
+            let section = Dictionary(sections) { first, _ in first }
+            cells = Dictionary(grouping: cells) { section[$0] ?? -1 }.sorted { $0.key < $1.key }.flatMap { $0.value.reversed() }
         }
         let ordered = cells.flatMap { cell in cellTemplates.filter { $0.0.cell == cell } }
         cellSeguePlaceholders = [:]

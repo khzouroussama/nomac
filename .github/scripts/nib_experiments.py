@@ -8769,6 +8769,95 @@ for key in ("separatorColor", "sectionIndexColor", "sectionIndexBackgroundColor"
 STORYBOARDS["sb-table-prototype-colors"] = storyboard(tvc_scene(extra=INSET_SEPARATOR + TABLE_COLOR.format("separatorColor") + TABLE_COLOR.format("sectionIndexColor") + TABLE_COLOR.format("sectionIndexBackgroundColor") + TABLE_COLOR.format("sectionIndexTrackingBackgroundColor"), body=prototypes(tvc_cell(1))), initial="tvc-aa-aaa")
 
 
+# Round 150: segues' warnings without trait collections, a scroll view's keyboard dismiss mode beside its nil delegate.
+for shape in ("push-two", "modal-push", "push-three"):
+    STORYBOARDS[f"sb-segue-{shape}-no-traits"] = STORYBOARDS[f"sb-segue-{shape}"].replace(' useTraitCollections="YES"', "")
+
+
+# Round 151: the placeholders of static cells' segues across sections.
+def static_sections(groups):
+    rows = 0
+    sections = ""
+    for index, group in enumerate(groups):
+        cells = ""
+        for name in group:
+            rows += 1
+            cells += with_cell_connections(tvc_cell(rows, y=44 * (rows - 1), attributes=""), cell_segue("show", name).replace("csg-aa-aaa", f"csg-aa-a{rows:02d}") if name else "") if name else tvc_cell(rows, y=44 * (rows - 1), attributes="")
+        sections += f'                            <tableViewSection id="sec-aa-a{index}">\n                                <cells>\n{cells}                                </cells>\n                            </tableViewSection>\n'
+    return storyboard(tvc_scene(f'                        <sections>\n{sections}                        </sections>\n', data_mode="static"), controller_scene(2), initial="tvc-aa-aaa")
+
+
+for name, groups in (("one-three", [["A", "B", "C"]]), ("two-one-two", [["A"], ["B", "C"]]), ("two-two-one", [["A", "B"], ["C"]]), ("three-sections", [["A"], ["B", "C", "D"], ["E", "F", "G"]]),
+                     ("gap", [["A", None, "B"], [None], ["C", None, "D"]])):
+    CELL_SEGUES[f"sb-cellseg-sections-{name}"] = static_sections(groups)
+    STORYBOARDS[f"sb-cellseg-sections-{name}"] = CELL_SEGUES[f"sb-cellseg-sections-{name}"]
+
+
+# Round 152: a section view's safe area in a document with safe areas.
+INSETS_NO = ' insetsLayoutMarginsFromSafeArea="NO"'
+for name, attributes, safe, footer in (("plain", "", False, False), ("safe", "", True, False), ("insets", INSETS_NO, False, False), ("safe-insets", INSETS_NO, True, False), ("safe-insets-both", INSETS_NO, True, True),
+                                       ("safe-subview", "", True, False)):
+    document = sb_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Header", 0, attributes=attributes), *((section_view(attributes=attributes),) if footer else ()))
+    STORYBOARDS[f"sb-section-safe-{name}"] = document.replace(' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"').replace("    </dependencies>\n", SAFE_AREA_CAPABILITY + "    </dependencies>\n").replace(
+        "                    </view>\n                </viewController>", SAFE_AREA + "                    </view>\n                </viewController>") if safe else document
+
+
+SECTION_LABEL = ('    <subviews>\n        <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="L" translatesAutoresizingMaskIntoConstraints="NO" id="lbl-aa-aa1">\n            <rect key="frame" x="0" y="0" width="10" height="10"/>\n'
+                 '            <fontDescription key="fontDescription" type="system" pointSize="17"/>\n        </label>\n    </subviews>\n')
+for name, content in (("label", SECTION_LABEL), ("label-pinned", SECTION_LABEL + '    <constraints>\n        <constraint firstItem="lbl-aa-aa1" firstAttribute="top" secondItem="shv-aa-aa1" secondAttribute="top" id="cst-aa-aa1"/>\n    </constraints>\n'),
+                      ("guide", '    <viewLayoutGuide key="safeArea" id="sgd-aa-aa1"/>\n')):
+    document = sb_sections(section_view("sectionHeaderView", "shv-aa-aa1", "Header", 0, content=content))
+    STORYBOARDS[f"sb-section-safe-{name}"] = document.replace(' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"').replace("    </dependencies>\n", SAFE_AREA_CAPABILITY + "    </dependencies>\n").replace(
+        "                    </view>\n                </viewController>", SAFE_AREA + "                    </view>\n                </viewController>")
+EXPERIMENTS["reusable-safe-doc"] = reusable().replace(' colorMatched="YES"', ' useSafeAreas="YES" colorMatched="YES"').replace('        <capability name="documents saved', SAFE_AREA_CAPABILITY + '        <capability name="documents saved')
+
+
+# Round 153: what attributed labels and fonts share with other objects of a nib.
+def label_at(identifier, x, **arguments):
+    return label(identifier=identifier, frame=(x, 40, 42, 21), **arguments)
+
+
+def two_labels(first, second):
+    return constrained(first + second, "")
+
+
+GRAY_TEXT = '<color key="textColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>\n<nil key="highlightedColor"/>\n'
+GRAY_FRAGMENT = '<color key="NSColor" white="0.5" alpha="1" colorSpace="calibratedWhite"/>'
+RED_TEXT = '<color key="textColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>\n<nil key="highlightedColor"/>\n'
+RED_FRAGMENT = '<color key="NSColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>'
+SYSTEM_FONT_ELEMENT = '<fontDescription key="fontDescription" type="system" pointSize="{}"/>\n'
+ITALIC_FONT_ELEMENT = '<fontDescription key="fontDescription" type="italicSystem" pointSize="{}"/>\n'
+BOLD_FONT_ELEMENT = '<fontDescription key="fontDescription" type="boldSystem" pointSize="{}"/>\n'
+WEIGHT_FONT_ELEMENT = '<fontDescription key="fontDescription" type="system" weight="light" pointSize="{}"/>\n'
+
+
+def attributed_at(identifier, x, *attributes):
+    return attributed_label(("Hello", list(attributes))).split("<subviews>\n", 1)[1].split("            </subviews>", 1)[0].replace('id="lll-ll-ll1"', f'id="{identifier}"').replace('x="20"', f'x="{x}"')
+
+
+for name, element in (("italic", ITALIC_FONT_ELEMENT), ("bold", BOLD_FONT_ELEMENT), ("weight", WEIGHT_FONT_ELEMENT)):
+    EXPERIMENTS[f"font-share-{name}-two-sizes"] = two_labels(label_at("lbl-aa-aa1", 10, font=element.format(13)), label_at("lbl-aa-aa2", 120, font=element.format(15)))
+    EXPERIMENTS[f"font-share-{name}-same-size"] = two_labels(label_at("lbl-aa-aa1", 10, font=element.format(13)), label_at("lbl-aa-aa2", 120, font=element.format(13)))
+EXPERIMENTS["al-share-gray-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, colors=GRAY_TEXT), attributed_at("lbl-aa-aa2", 120, GRAY_FRAGMENT, SYSTEM_15_META))
+EXPERIMENTS["al-share-red-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, colors=RED_TEXT), attributed_at("lbl-aa-aa2", 120, RED_FRAGMENT, SYSTEM_15_META))
+EXPERIMENTS["al-share-sibling-first"] = two_labels(attributed_at("lbl-aa-aa1", 10, RED_FRAGMENT, SYSTEM_15_META), label_at("lbl-aa-aa2", 120, colors=RED_TEXT))
+EXPERIMENTS["al-share-two-fragments"] = two_labels(attributed_at("lbl-aa-aa1", 10, RED_FRAGMENT, SYSTEM_15_META), attributed_at("lbl-aa-aa2", 120, RED_FRAGMENT, SYSTEM_15_META))
+EXPERIMENTS["al-font-sfns"] = attributed_label(("Hello", ['<font key="NSFont" size="11" name=".SFNSText"/>']))
+EXPERIMENTS["al-font-sfns-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, font=SYSTEM_FONT_ELEMENT.format(11)), attributed_at("lbl-aa-aa2", 120, '<font key="NSFont" size="11" name=".SFNSText"/>'))
+EXPERIMENTS["al-font-sfui-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, font=SYSTEM_FONT_ELEMENT.format(11)), attributed_at("lbl-aa-aa2", 120, '<font key="NSFont" size="11" name=".SFUIText"/>'))
+EXPERIMENTS["al-share-two-fragments-paragraph"] = two_labels(attributed_at("lbl-aa-aa1", 10, RED_FRAGMENT, SYSTEM_15_META, PARAGRAPH_15), attributed_at("lbl-aa-aa2", 120, RED_FRAGMENT, SYSTEM_15_META, PARAGRAPH_15))
+EXPERIMENTS["al-share-two-fragments-other-text"] = two_labels(attributed_at("lbl-aa-aa1", 10, SYSTEM_15_META), attributed_label(("Other", [SYSTEM_15_META])).split("<subviews>\n", 1)[1].split("            </subviews>", 1)[0].replace('id="lll-ll-ll1"', 'id="lbl-aa-aa2"').replace('x="20"', 'x="120"'))
+EXPERIMENTS["al-share-two-fragments-sizes"] = two_labels(attributed_at("lbl-aa-aa1", 10, SYSTEM_15_META), attributed_at("lbl-aa-aa2", 120, '<font key="NSFont" metaFont="system" size="16"/>'))
+EXPERIMENTS["al-share-third-gray"] = two_labels(label_at("lbl-aa-aa1", 10, colors='<color key="textColor" white="0.66666666666666663" alpha="1" colorSpace="calibratedWhite"/>\n<nil key="highlightedColor"/>\n'), attributed_at("lbl-aa-aa2", 120, '<color key="NSColor" white="0.66666666666666663" alpha="1" colorSpace="calibratedWhite"/>', '<font key="NSFont" size="13" name="HelveticaNeue"/>'))
+for name in (".SFNSText", ".SFUIText", ".SFUI-Regular", ".SFNSDisplay", ".SFUIDisplay"):
+    EXPERIMENTS[f"label-font-name-{name[1:]}"] = constrained(label(font=f'<fontDescription key="fontDescription" name="{name}" family="{name}" pointSize="11"/>'), "")
+    EXPERIMENTS[f"al-font-name-{name[1:]}"] = attributed_label(("Hello", [f'<font key="NSFont" size="11" name="{name}"/>']))
+for name, fragment in (("white", GRAY_FRAGMENT), ("rgb", RED_FRAGMENT), ("calibrated", '<color key="NSColor" red="0.5" green="0.25" blue="0.75" alpha="1" colorSpace="calibratedRGB"/>')):
+    EXPERIMENTS[f"al-unmatched-{name}"] = attributed_label(("Hello", [fragment, SYSTEM_15_META])).replace(' colorMatched="YES"', "")
+EXPERIMENTS["al-unmatched-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, colors=GRAY_TEXT), attributed_at("lbl-aa-aa2", 120, GRAY_FRAGMENT, SYSTEM_15_META)).replace(' colorMatched="YES"', "")
+EXPERIMENTS["al-font-apple-sibling"] = two_labels(label_at("lbl-aa-aa1", 10, font=SYSTEM_FONT_ELEMENT.format(11)), attributed_at("lbl-aa-aa2", 120, '<font key="NSFont" size="11" name=".AppleSystemUIFont"/>'))
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

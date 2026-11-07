@@ -105,6 +105,9 @@ final class NibParagraphStyle: NibArchivable {
         self.lineHeightMultiple = lineHeightMultiple
     }
 
+    /// What makes two paragraph styles equal.
+    var identity: String { "\(alignment) \(String(describing: lineBreakMode)) \(String(describing: lineHeightMultiple))" }
+
     var className: String { "NSMutableParagraphStyle" }
 
     func encode(to encoder: NibEncoder) throws {
