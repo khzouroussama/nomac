@@ -386,6 +386,29 @@ struct AutocreationProject {
         #expect(profiledStatus == 64)
     }
 
+    /// `scheme-extension-key`: a scheme with wasCreatedForAppExtension = YES covers no app it runs,
+    /// on any platform, and still covers other targets by building them.
+    @Test func schemesForExtensionsCoverNoApps() async throws {
+        let directory = try TemporaryDirectory()
+        var project = AutocreationProject(targets: [
+            .init(name: "App", type: "application"), .init(name: "Profiled", type: "application"),
+            .init(name: "Watch", type: "application", settings: ["SDKROOT": "watchos"]), .init(name: "Kit", type: "framework"),
+            .init(name: "Extension", type: "app-extension"), .init(name: "Unflagged", type: "application"),
+        ])
+        func flagged(_ scheme: String, _ value: String = "YES") -> String {
+            scheme.replacingOccurrences(of: "<Scheme", with: "<Scheme wasCreatedForAppExtension = \"\(value)\"")
+        }
+        project.schemes = [
+            "App": flagged(project.scheme(launch: "App")),
+            "S2": flagged(project.scheme(profile: "Profiled")),
+            "Watch": flagged(project.scheme(launch: "Watch")),
+            "S5": flagged(project.scheme(build: [("Kit", true), ("Extension", true)])),
+            "S6": flagged(project.scheme(launch: "Unflagged"), "NO"),
+        ]
+        let names = try await project.withInspector(in: directory.path) { try await $0.schemes().map(\.name) }
+        #expect(names.sorted() == ["App", "App", "Profiled", "S2", "S5", "S6", "Watch", "Watch"])
+    }
+
     /// `test-bundles`, `test-hosts`: which bundles an app's autocreated scheme tests, and which
     /// get a scheme of their own.
     @Test func testBundleSchemes() async throws {

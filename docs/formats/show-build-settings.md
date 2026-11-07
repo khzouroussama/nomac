@@ -247,7 +247,11 @@ schemes as in their own project; `user-schemes-references`: `SubUser`).
   `BuildableProductRunnable`, or by building it with a `RemoteRunnable` whose `MacroExpansion`
   names it; building it, even for running, or a `PathRunnable` leaves it its own scheme
   (`scheme-coverage`; `product-types`: of the targets a shared scheme builds, only those four
-  types keep one). It covers any other target by building it, for any action, or by testing it,
+  types keep one). A scheme with `wasCreatedForAppExtension = "YES"`, shared or per-user, covers no
+  app even so, whichever platform the app is for, so that name is listed twice when the scheme has
+  the app's name (`scheme-extension-key`, the fuzzer's seed 400029; `"NO"` changes nothing; the 129
+  survey projects with the key are the schemes Xcode writes for extensions, which launch their host
+  app). It covers any other target by building it, for any action, or by testing it,
   a skipped testable too (`own-test-schemes-more`: `SkipTests`, `SkipDepTests`). Autocreated
   schemes cover nothing, and an autocreated scheme is listed even when a shared or per-user
   scheme has its name (`test-bundles`: `Shared` is listed twice; `-scheme Shared` uses the

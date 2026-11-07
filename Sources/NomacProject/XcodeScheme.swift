@@ -63,6 +63,9 @@ public struct XcodeScheme: Sendable, Equatable {
     /// The target the Launch action runs: the buildable product runnable or the remote runnable's
     /// macro expansion of ``runs``, or an autocreated extension scheme's first app.
     public var launched: BuildEntry?
+    /// Whether the scheme has `wasCreatedForAppExtension = "YES"`: what it runs does not count as
+    /// covered (loader-experiments `scheme-extension-key`).
+    public var wasCreatedForAppExtension = false
     /// The test bundles the scheme's Test action runs.
     public var testables: [BuildEntry]
     /// The test bundles the Test action lists but skips, which still cover them
@@ -484,6 +487,7 @@ extension XcodeWorkspace {
                 launchConfiguration: parsed.launchAction?.buildConfiguration ?? "Debug",
                 archiveConfiguration: parsed.archiveAction?.buildConfiguration,
                 isAutocreated: false)
+            scheme.wasCreatedForAppExtension = parsed.wasCreatedForAppExtension == true
             scheme.buildPreActions = parsed.buildAction?.preActions.map(script) ?? []
             scheme.buildPostActions = parsed.buildAction?.postActions.map(script) ?? []
             scheme.runsBuildPostActionsOnFailure = parsed.buildAction?.runPostActionsOnFailure ?? false
@@ -756,7 +760,7 @@ struct AutocreationRules {
         guard !suppressed.contains(target.uuid) else { return true }
         if target.product != nil && Self.runnables.contains(productType(target)) {
             let key = entry(target, buildFor: []).key
-            return schemes.contains { $0.runs.contains { $0.key == key } }
+            return schemes.contains { !$0.wasCreatedForAppExtension && $0.runs.contains { $0.key == key } }
         }
         return isBuiltOrTested(target, by: schemes)
     }
