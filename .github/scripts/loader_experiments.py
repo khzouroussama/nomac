@@ -98,8 +98,15 @@ open questions:
   product-types-other, product-names-no-sdk: product types under each SDK.
 - class-prefix, -empty, -unset: a native, an aggregate and a legacy target under a project with
   and without CLASSPREFIX, for the targets' `classPrefix`.
-- language-synchronized, language-fallback: synchronized members a target excludes or has no
-  phase for, for when they decide `predominantSourceCodeLanguage`.
+- language-synchronized, language-fallback, language-fallback-missing: synchronized members a
+  target excludes or has no phase for, on disk or not, for when they decide
+  `predominantSourceCodeLanguage` and how they count.
+- synchronized-phases-all: one synchronized member of every extension Xcode's specifications name,
+  for the phase each joins.
+- pif-key-order: settings whose names hold every ASCII punctuation mark, both cases, digit runs
+  and non-ASCII letters, for the order of a PIF object's keys.
+- workspace-locations-*: each key of a WorkspaceSettings.xcsettings that places builds, in the
+  current user's and in the shared copy, for BUILD_DIR, OBJROOT and the folders under them.
 - info-plist-conditions: INFOPLIST_FILE and GENERATE_INFOPLIST_FILE with conditions, macros and
   boolean spellings, and one target of each product type without them, for
   `bundleIdentifierFromInfoPlist`.
@@ -4081,6 +4088,102 @@ def language_fallback():
     return synchronized_project(folders, specs, files)
 
 
+def language_fallback_missing():
+    # The fuzzer's seed 70136: a target that excludes a.swift, gone.swift (not on disk) and b.m
+    # reports Objective-C, where language-synchronized has gone.swift deciding on its own.
+    # Each target lists its own folder and excludes every file named, on disk or not.
+    cases = [
+        ("OneOfEachAndGone", ["a.swift", "b.m"], ["gone.swift"]),
+        ("TwoGoneOverOne", ["b.m"], ["gone1.swift", "gone2.swift"]),
+        ("ThreeGoneOverOne", ["b.m"], ["gone1.swift", "gone2.swift", "gone3.swift"]),
+        ("GoneTiesDisk", ["a.swift"], ["gone.m"]),
+        ("GoneOverDiskNoLanguage", ["a.json"], ["gone.swift"]),
+        ("GoneOnlyTie", [], ["gone.swift", "gone.m"]),
+        ("GoneOnlyCount", [], ["gone1.swift", "gone2.swift", "gone.m"]),
+        ("GoneOnlyReverse", [], ["gone1.m", "gone2.m", "gone.swift"]),
+        ("DiskWithFolder", ["a.swift", "b.m", "Feature/c.html"], ["gone.swift", "Feature"]),
+        ("GoneInSubfolder", ["b.m"], ["sub/gone1.swift", "sub/gone2.swift"]),
+        ("GoneInMissingSubfolder", ["b.m", "sub/a.json"], ["none/gone1.swift", "none/gone2.swift"]),
+        ("DiskOverGoneAssembly", ["a.swift"], ["gone1.s", "gone2.s"]),
+        ("DiskCountSwift", ["a.swift", "b.swift", "c.swift", "d.m"], []),
+        ("DiskCountC", ["a.swift", "b.swift", "c.swift", "d.c"], []),
+        ("DiskCountObjC", ["a.m", "b.m", "c.m", "d.c"], []),
+        ("DiskCountJS", ["a.swift", "b.swift", "c.js"], []),
+        ("DiskCountHeader", ["a.swift", "b.swift", "c.swift", "d.h"], []),
+        ("DiskCountCppHeader", ["a.m", "b.m", "c.hpp"], []),
+        ("DiskCountMetal", ["a.swift", "b.swift", "c.metal"], []),
+    ]
+    folders, specs, files = [], [], {}
+    for index, (name, disk, gone) in enumerate(cases, 1):
+        folder = f"S{index:023d}"
+        named = [path for path in disk if not path.startswith("Feature/") and not path.endswith(".json")] + gone
+        folders.append((folder, name, [(f"X{index:023d}", name, {"membershipExceptions": pbx_list(named)})]))
+        specs.append((name, APPLICATION, [SOURCES], [folder], {}))
+        files.update({f"{name}/{path}": "\n" for path in disk})
+    return synchronized_project(folders, specs, files)
+
+
+def pif_key_order():
+    # The fuzzer's seeds with PROVISIONING_PROFILE[sdk=iphoneos*] beside PROVISIONING_PROFILE_SPECIFIER:
+    # `_` comes before `[` in the PIF. One target's settings name every ASCII punctuation mark,
+    # both cases, digit runs with and without leading zeros, and non-ASCII letters.
+    punctuation = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
+    keys = [f"K{mark}z" for mark in punctuation] + ["K0z", "K9z", "KAz", "KBz", "Kaz", "Kbz", "KZz", "Kzz"]
+    keys += ["a1", "a01", "A1", "a2", "a10", "9b", "9B", "09b", "0_0", "0_00", "00_0"]
+    keys += ["KEz", "Kez", "KÉz", "KFz", "Knz", "Kñz", "Koz", "KUz", "KÜz", "Kαz", "K日z"]
+    keys += ["PROVISIONING_PROFILE[sdk=iphoneos*]", "PROVISIONING_PROFILE_SPECIFIER", "PROVISIONING_PROFILE", "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]"]
+    targets = Targets()
+    targets.add("Keys", APPLICATION, {pbx_string(key): pbx_string("x") for key in keys})
+    return targets.project({})
+
+
+def workspace_locations(values, shared=False, symroot=False, workspace=False):
+    # The fuzzer's seeds with BuildLocationStyle = UseTargetSettings in the per-user
+    # WorkspaceSettings.xcsettings: BUILD_DIR moves into the project. One app; `values` are the
+    # file's keys, in the shared or the current user's copy of the opened container.
+    targets = Targets()
+    targets.add("App", APPLICATION, {"SYMROOT": "Custom"} if symroot else {})
+    files = targets.project({})
+    container = "W.xcworkspace" if workspace else "P.xcodeproj/project.xcworkspace"
+    if workspace:
+        files["W.xcworkspace/contents.xcworkspacedata"] = workspace_contents(["P.xcodeproj"])
+    folder = "xcshareddata" if shared else f"xcuserdata/{getpass.getuser()}.xcuserdatad"
+    entries = "".join(f"\t<key>{key}</key>\n\t<string>{value}</string>\n" for key, value in values.items())
+    files[f"{container}/{folder}/WorkspaceSettings.xcsettings"] = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        f'<plist version="1.0">\n<dict>\n{entries}</dict>\n</plist>\n')
+    return files
+
+
+def observe_workspace_locations(run):
+    run("target", "-showBuildSettings", "-target", "App")
+    run("scheme", "-showBuildSettings", "-scheme", "App", "-destination", "generic/platform=iOS")
+    run("scheme-derived", "-showBuildSettings", "-scheme", "App", "-destination", "generic/platform=iOS", "-derivedDataPath", str(run.container.parent / "Given"))
+
+
+WORKSPACE_LOCATION_CASES = {
+    "target-settings": {"BuildLocationStyle": "UseTargetSettings"},
+    "app-preferences": {"BuildLocationStyle": "UseAppPreferences"},
+    "custom-derived": {"BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "RelativeToDerivedData",
+                       "CustomBuildProductsPath": "Out/Products", "CustomBuildIntermediatesPath": "Out/Intermediates"},
+    "custom-workspace": {"BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "RelativeToWorkspace",
+                         "CustomBuildProductsPath": "Out/Products", "CustomBuildIntermediatesPath": "Out/Intermediates"},
+    "custom-absolute": {"BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "Absolute",
+                        "CustomBuildProductsPath": "/tmp/nomac-out/Products", "CustomBuildIntermediatesPath": "/tmp/nomac-out/Intermediates"},
+    "derived-relative": {"DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DD"},
+    "derived-absolute": {"DerivedDataLocationStyle": "AbsolutePath", "DerivedDataCustomLocation": "/tmp/nomac-dd"},
+    "derived-default": {"DerivedDataLocationStyle": "Default"},
+    "custom-no-paths": {"BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "RelativeToWorkspace"},
+    "custom-no-type": {"BuildLocationStyle": "CustomLocation", "CustomBuildProductsPath": "Out/Products", "CustomBuildIntermediatesPath": "Out/Intermediates"},
+    "custom-products-only": {"BuildLocationStyle": "CustomLocation", "CustomBuildLocationType": "RelativeToWorkspace", "CustomBuildProductsPath": "Out/Products"},
+    "derived-no-location": {"DerivedDataLocationStyle": "WorkspaceRelativePath"},
+    "derived-and-custom": {"DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DD", "BuildLocationStyle": "CustomLocation",
+                           "CustomBuildLocationType": "RelativeToDerivedData", "CustomBuildProductsPath": "Out/Products", "CustomBuildIntermediatesPath": "Out/Intermediates"},
+    "derived-and-target-settings": {"DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DD", "BuildLocationStyle": "UseTargetSettings"},
+    "unknown-style": {"BuildLocationStyle": "Mystery", "DerivedDataLocationStyle": "Mystery"},
+}
+
+
 def info_plist_conditions():
     # The fuzzer's targets that set only `INFOPLIST_FILE[sdk=iphoneos*]` take the identifier of
     # that plist, and watch container stubs with no Info.plist settings report
@@ -4872,6 +4975,31 @@ def synchronized_phases(headers=True):
                  extra="\t\t\tfileSystemSynchronizedGroups = (\n\t\t\t\tS00000000000000000000001 /* Src */,\n\t\t\t);\n",
                  product_type="com.apple.product-type.framework", product_reference="F00000000000000000000001")
     return {"P.xcodeproj/project.pbxproj": project("F00000000000000000000006", "F00000000000000000000002", ["C00000000000000000000001"], objects), **files}
+
+
+def spec_extensions():
+    """Every extension a `FileType` specification of the Xcode in DEVELOPER_DIR names."""
+    contents = Path(os.environ.get("DEVELOPER_DIR", "/Applications/Xcode_27.app/Contents/Developer")).parent
+    found = set()
+    listing = subprocess.run(["find", str(contents / "SharedFrameworks"), str(contents / "PlugIns"), "-name", "*.xcspec"], capture_output=True, text=True).stdout
+    for path in listing.splitlines():
+        converted = subprocess.run(["plutil", "-convert", "json", "-o", "-", path], capture_output=True, text=True)
+        if converted.returncode:
+            continue
+        items = json.loads(converted.stdout)
+        for item in items if isinstance(items, list) else [items]:
+            if item.get("Type") == "FileType":
+                found.update(extension for extension in item.get("Extensions", []) if extension.isalnum())
+    return sorted(found)
+
+
+def synchronized_phases_all():
+    # The fuzzer's `.vsh` member, typed sourcecode.glsl, is in no phase of its target, where
+    # synchronized-phases' 113 extensions had no such case. One file of every extension the
+    # specifications name, in a framework with Headers, Sources, Resources and Frameworks phases.
+    specifications = spec_extensions()
+    return {**synchronized_phases(), **{f"Src/t_{extension}.{extension}": "x\n" for extension in specifications
+                                         if extension not in SYNCHRONIZED_PHASE_EXTENSIONS and extension not in SYNCHRONIZED_PHASE_FOLDERS}}
 
 
 def provisioning_fallback(project_entries, project_default, variants, xcconfigs=None, project_base=None):
@@ -6807,6 +6935,15 @@ EXPERIMENTS = {
     "synchronized-search-paths-project": (lambda: synchronized_search_paths({"LIBRARY_SEARCH_PATHS": pbx_string("/project/lib")}), "P.xcodeproj", None),
     "synchronized-search-paths-folders": (synchronized_search_paths_folders, "App/P.xcodeproj", None, place_outside_folder),
     "language-fallback": (language_fallback, "P.xcodeproj", None),
+    "language-fallback-missing": (language_fallback_missing, "P.xcodeproj", None),
+    "pif-key-order": (pif_key_order, "P.xcodeproj", None),
+    **{f"workspace-locations-{name}": (lambda values=values: workspace_locations(values), "P.xcodeproj", observe_workspace_locations)
+       for name, values in WORKSPACE_LOCATION_CASES.items()},
+    **{f"workspace-locations-shared-{name}": (lambda values=values: workspace_locations(values, shared=True), "P.xcodeproj", observe_workspace_locations)
+       for name, values in WORKSPACE_LOCATION_CASES.items()},
+    "workspace-locations-symroot": (lambda: workspace_locations(WORKSPACE_LOCATION_CASES["target-settings"], symroot=True), "P.xcodeproj", observe_workspace_locations),
+    "workspace-locations-workspace": (lambda: workspace_locations(WORKSPACE_LOCATION_CASES["target-settings"], workspace=True), "W.xcworkspace", observe_workspace_locations),
+    "workspace-locations-workspace-derived": (lambda: workspace_locations(WORKSPACE_LOCATION_CASES["derived-relative"], workspace=True), "W.xcworkspace", observe_workspace_locations),
     "product-types-other": (lambda: product_types_sdks(OTHER_PRODUCT_TYPES, PRODUCT_SDKS[:5]), "P.xcodeproj", None),
     "product-names-no-sdk": (lambda: product_types_sdks(["application.watchapp2", "xcode-extension", "tv-app-extension", "application"], [(None, {})]),
                              "P.xcodeproj", None, remove_project_sdk),
@@ -6995,6 +7132,7 @@ EXPERIMENTS = {
     "language-pairs": (lambda: language_pool(language_pair_cases()), "P.xcodeproj", None),
     "synchronized-phases": (synchronized_phases, "P.xcodeproj", None),
     "synchronized-phases-2": (lambda: synchronized_phases(headers=False), "P.xcodeproj", None),
+    "synchronized-phases-all": (synchronized_phases_all, "P.xcodeproj", None),
     "autocreate-testables": (autocreate_testables, "P.xcodeproj", observe_autocreate_testables),
     "provisioning-auto": (provisioning_auto, "P.xcodeproj", None),
     "synchronized-exceptions": (synchronized_exceptions, "P.xcodeproj", None),
