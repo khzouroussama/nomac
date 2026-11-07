@@ -8957,6 +8957,34 @@ for name, table, extra in (("grouped-header", GROUPED_TABLE, HEADER_34 + FOOTER)
     STORYBOARDS[f"sb-table-footer-{name}"] = storyboard(tvc_scene("", extra=extra, table_attributes=table), initial="tvc-aa-aaa")
 
 
+# Round 157: symbol configurations: every weight, and fonts beside a scale and a weight.
+SYMBOL_IMAGE = ' image="plus" catalog="system"'
+for weight in ("ultraLight", "thin", "light", "regular", "medium", "semibold", "bold", "heavy", "black"):
+    EXPERIMENTS[f"symbol-weight-{weight}"] = symbol_view(preferred_symbol(f' weight="{weight}"'), SYMBOL_IMAGE)
+    EXPERIMENTS[f"symbol-weight-{weight}-large"] = symbol_view(preferred_symbol(f' scale="large" weight="{weight}"'), SYMBOL_IMAGE)
+    EXPERIMENTS[f"symbol-weight-{weight}-size"] = symbol_view(preferred_symbol(f' configurationType="pointSize" pointSize="21" weight="{weight}"'), SYMBOL_IMAGE)
+HEADLINE_FONT = font_description({"style": "UICTFontTextStyleHeadline"})
+for scale in ("default", "small", "medium", "large"):
+    EXPERIMENTS[f"symbol-font-scale-{scale}"] = symbol_view(preferred_symbol(f' configurationType="font" scale="{scale}"', HEADLINE_FONT), SYMBOL_IMAGE)
+    EXPERIMENTS[f"symbol-font-scale-{scale}-regular"] = symbol_view(preferred_symbol(f' configurationType="font" scale="{scale}" weight="regular"', HEADLINE_FONT), SYMBOL_IMAGE)
+for weight in ("light", "regular", "medium", "bold"):
+    EXPERIMENTS[f"symbol-font-weight-{weight}"] = symbol_view(preferred_symbol(f' configurationType="font" weight="{weight}"', HEADLINE_FONT), SYMBOL_IMAGE)
+for style in ("Body", "Callout", "Caption1", "Caption2", "Footnote", "Headline", "Subheadline", "Title1", "Title2", "Title3", "LargeTitle"):
+    EXPERIMENTS[f"symbol-font-style-{style}"] = symbol_view(preferred_symbol(' configurationType="font"', font_description({"style": f"UICTFontTextStyle{style}"})), SYMBOL_IMAGE)
+    EXPERIMENTS[f"symbol-font-style-{style}-large"] = symbol_view(preferred_symbol(' configurationType="font" scale="large" weight="regular"', font_description({"style": f"UICTFontTextStyle{style}"})), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-system"] = symbol_view(preferred_symbol(' configurationType="font"', font_description({"type": "system", "pointSize": "17"})), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-system-weight"] = symbol_view(preferred_symbol(' configurationType="font"', font_description({"type": "system", "weight": "semibold", "pointSize": "17"})), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-no-type"] = symbol_view(preferred_symbol("", HEADLINE_FONT), SYMBOL_IMAGE)
+for style in ("Subhead", "Title0"):
+    EXPERIMENTS[f"symbol-font-style-{style}"] = symbol_view(preferred_symbol(' configurationType="font"', font_description({"style": f"UICTFontTextStyle{style}"})), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-no-type-scale"] = symbol_view(preferred_symbol(' scale="large"', HEADLINE_FONT), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-no-type-weight"] = symbol_view(preferred_symbol(' weight="bold"', HEADLINE_FONT), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-system-scale"] = symbol_view(preferred_symbol(' configurationType="font" scale="large"', font_description({"type": "system", "pointSize": "17"})), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-size-scale-weight"] = symbol_view(preferred_symbol(' configurationType="pointSize" pointSize="17" scale="large" weight="regular"'), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-size-scale"] = symbol_view(preferred_symbol(' configurationType="pointSize" pointSize="17" scale="default"'), SYMBOL_IMAGE)
+EXPERIMENTS["symbol-font-for-image"] = symbol_view(preferred_symbol(' configurationType="font"', HEADLINE_FONT).replace('key="preferredSymbolConfiguration"', 'key="preferredSymbolConfigurationForImage"'), SYMBOL_IMAGE)
+
+
 def main():
     out = Path(sys.argv[1]).resolve()
     selected = sys.argv[2:] or [*EXPERIMENTS, *STORYBOARDS, "link-lproj", "missing-file", "stable", "build"]

@@ -63,9 +63,11 @@ final class NibSymbolConfiguration: NibArchivable {
     /// `UIImage.SymbolScale` by the names documents use.
     static let scales = ["default": -1, "small": 1, "medium": 2, "large": 3]
     /// `UIImage.SymbolWeight` of the weights observed (`symbol-view-weight-*`, `symbol-view-scale-weight`).
-    static let weights = ["light": 3, "regular": 4, "bold": 7]
-    /// The text styles observed, with the weight they write (`symbol-view-font`).
-    static let textStyleWeights = ["UICTFontTextStyleHeadline": 6]
+    static let weights = ["ultraLight": 1, "thin": 2, "light": 3, "regular": 4, "medium": 5, "semibold": 6, "bold": 7, "heavy": 8, "black": 9]
+    /// The text styles observed, with the weight they write (`symbol-view-font`, `symbol-font-style-*`).
+    static let textStyleWeights = ["UICTFontTextStyleBody": 4, "UICTFontTextStyleCallout": 4, "UICTFontTextStyleCaption1": 4, "UICTFontTextStyleCaption2": 4,
+                                   "UICTFontTextStyleFootnote": 4, "UICTFontTextStyleHeadline": 6, "UICTFontTextStyleSubhead": 4, "UICTFontTextStyleTitle0": 4,
+                                   "UICTFontTextStyleTitle1": 4, "UICTFontTextStyleTitle2": 4, "UICTFontTextStyleTitle3": 4]
 
     var scale: Int?
     var weight: Int?
@@ -82,8 +84,8 @@ final class NibSymbolConfiguration: NibArchivable {
 
     func encode(to encoder: NibEncoder) throws {
         if let scale { encoder.encode(.integer(scale), forKey: "UISymbolScale") }
-        if let weight { encoder.encode(.integer(weight), forKey: "UISymbolWeight") }
         if let pointSize { encoder.encode(.float(pointSize), forKey: "UIPointSize") }
+        if let weight { encoder.encode(.integer(weight), forKey: "UISymbolWeight") }
         if let textStyle { try encoder.encode(textStyle, forKey: "UITextStyle") }
         if let hierarchicalColors {
             try encoder.encode(NibArray(hierarchicalColors), forKey: "UIHierarchicalColors")
@@ -201,25 +203,29 @@ extension DocumentCompiler {
         try check(preferred, attributes: ["key", "scale", "weight", "configurationType", "pointSize"], children: ["fontDescription"])
         try value(preferred, "key", in: [key])
         let attributes = preferred.attributes
-        guard configurations.count == 1, attributes["weight"] == nil || attributes["pointSize"] == nil else {
-            throw unsupported("two preferred symbol configurations, or one of a weight and a point size")
-        }
+        guard configurations.count == 1 else { throw unsupported("two preferred symbol configurations") }
         let configuration = NibSymbolConfiguration(scale: try attributes["scale"].map { try mapped($0, NibSymbolConfiguration.scales, "scale") })
         configuration.weight = try attributes["weight"].map { try mapped($0, NibSymbolConfiguration.weights, "weight") }
         switch attributes["configurationType"] {
         case nil:
-            guard attributes["pointSize"] == nil, preferred.children.isEmpty else { throw unsupported("a preferred symbol configuration's size without its type") }
+            // A font without its type changes nothing (`symbol-font-no-type*`).
+            guard attributes["pointSize"] == nil else { throw unsupported("a preferred symbol configuration's size without its type") }
         case "pointSize":
             guard let size = attributes["pointSize"], preferred.children.isEmpty else { throw unsupported("a point size configuration without a point size") }
             configuration.pointSize = Float(try number(size, "pointSize"))
         case "font":
-            guard preferred.children.count == 1, let font = preferred.children.first, Set(font.attributes.keys) == ["key", "style"], attributes["weight"] == nil,
-                  attributes["scale"] == nil, let style = font.attributes["style"], let weight = NibSymbolConfiguration.textStyleWeights[style] else {
+            guard preferred.children.count == 1, let font = preferred.children.first else { throw unsupported("a font configuration without one font") }
+            try value(font, "key", in: ["fontDescription"])
+            if let style = font.attributes["style"], Set(font.attributes.keys) == ["key", "style"], let weight = NibSymbolConfiguration.textStyleWeights[style] {
+                configuration.weight = configuration.weight ?? weight
+                configuration.textStyle = string(style)
+            } else if font.attributes["type"] == "system", attributes["weight"] == nil, let size = font.attributes["pointSize"], Set(font.attributes.keys).isSubset(of: ["key", "type", "weight", "pointSize"]) {
+                // `symbol-font-system*`.
+                configuration.pointSize = Float(try number(size, "pointSize"))
+                configuration.weight = try mapped(font.attributes["weight"] ?? "regular", NibSymbolConfiguration.weights, "weight")
+            } else {
                 throw unsupported("a font configuration other than a text style's")
             }
-            try value(font, "key", in: ["fontDescription"])
-            configuration.weight = weight
-            configuration.textStyle = string(style)
         case let other:
             throw unsupported("configurationType=\"\(other ?? "")\"")
         }

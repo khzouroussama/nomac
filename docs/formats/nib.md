@@ -246,7 +246,10 @@ with a `symbolScale` is a placeholder of its own whose `UISymbolImageConfigurati
 `UIImageSymbolConfiguration` of that scale (as in "Button configurations"), and its
 `<preferredSymbolConfiguration key="preferredSymbolConfiguration">` another, written
 `UIPreferredSymbolConfiguration` after `UIImage`, with which the image view writes no `UIOpaque`, when it has an
-image (`image-view-symbol-reference*`, `image-view-symbol-preferred-*`, `image-preferred-*-no-image`). A `variableValue` is the
+image (`image-view-symbol-reference*`, `image-view-symbol-preferred-*`, `image-preferred-*-no-image`). A configuration writes
+`UISymbolScale`, `UIPointSize`, `UISymbolWeight` (ultraLight 1 to black 9) and `UITextStyle`: `configurationType="font"` of a text style
+takes that style and its weight (Headline 6, the others 4) unless the configuration names one, of a system font its size and
+weight, and a font without the type changes nothing (`symbol-weight-*`, `symbol-font-*`, `symbol-size-*`, round 157). A `variableValue` is the
 placeholder's `UIImageVariableValue` (double) after `UISystemSymbolResourceName`; `renderingMode="hierarchical"`
 with its `<hierarchicalColors>` puts `UIHierarchicalColors` (an array of the colors) in the symbol
 configuration, after any scale, then `UIDerivativeHierarchicalColors` false,
