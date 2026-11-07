@@ -26,7 +26,7 @@ testmanagerd over TCP in nomac's own tunnel, keyed archives written and read by 
 Foundation archiver on Linux), the host launched with the app service and its output read from
 `openstdiosocket`, the XCTest frameworks from the mounted Developer Disk Image. `nomac build
 build-for-testing` writes the `.xctestrun` (docs/formats/xctestrun.md). Code coverage and test
-plans are refused until their `.xctestrun` is observed (B-433, B-434).
+plans got their `.xctestrun` later, as observed (docs/formats/xctestrun.md; what is left, B-408).
 
 The work started in the xctest workstream (`device/xctest`, uncommitted) and continues in the
 device workstream.

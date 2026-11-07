@@ -31,6 +31,49 @@ extension PIFDocument {
         return files.values.sorted()
     }
 
+    /// The paths of the files in the target's Sources phases, as the project spells them; a file
+    /// whose source tree is a build setting is left out.
+    public func compileSources(targetGUID: String) -> [String] {
+        var files: [String: String] = [:]
+        for object in objects where object.type == "project" {
+            guard let contents = object.contents.objectValue, let directory = contents["projectDirectory"]?.stringValue,
+                  let tree = contents["groupTree"] else { continue }
+            Self.collectFiles(tree, directory: directory, projectDirectory: directory, into: &files)
+        }
+        guard let target = objects.first(where: { $0.type == "target" && $0.contents.objectValue?["guid"]?.stringValue == targetGUID })?.contents.objectValue else { return [] }
+        let phases = (target["buildPhases"]?.arrayValue ?? []).compactMap(\.objectValue).filter { $0["type"]?.stringValue == "com.apple.buildphase.sources" }
+        return phases.flatMap { $0["buildFiles"]?.arrayValue ?? [] }.compactMap { $0.objectValue?["fileReference"]?.stringValue.flatMap { files[$0] } }
+    }
+
+    /// The targets `guids` depend on, directly or not, after them in the order found: what a scheme
+    /// builds besides the targets it names, by explicit dependency or by linking a package's product.
+    public func withDependencies(of guids: [String]) -> [String] {
+        var targets: [String: [String: PIFValue]] = [:]
+        for object in objects where object.type == "target" {
+            if let contents = object.contents.objectValue, let guid = contents["guid"]?.stringValue { targets[guid] = contents }
+        }
+        var result = guids
+        var index = 0
+        while index < result.count {
+            let target = targets[result[index]]
+            let linked = (target?["buildPhases"]?.arrayValue ?? []).flatMap { $0.objectValue?["buildFiles"]?.arrayValue ?? [] }.compactMap { $0.objectValue?["targetReference"]?.stringValue }
+            let listed = (target?["dependencies"]?.arrayValue ?? []).compactMap { $0.objectValue?["guid"]?.stringValue }
+            for guid in listed + linked where targets[guid] != nil && !result.contains(guid) { result.append(guid) }
+            index += 1
+        }
+        return result
+    }
+
+    /// The GUID of the target named `name`.
+    public func targetGUID(named name: String) -> String? {
+        objects.first { $0.type == "target" && $0.contents.objectValue?["name"]?.stringValue == name }?.contents.objectValue?["guid"]?.stringValue
+    }
+
+    /// The name of the target `guid`.
+    public func targetName(guid: String) -> String? {
+        objects.first { $0.type == "target" && $0.contents.objectValue?["guid"]?.stringValue == guid }?.contents.objectValue?["name"]?.stringValue
+    }
+
     /// `node` with the file references under it named by their paths on disk; `directory` is the
     /// folder its `<group>` paths are relative to.
     private static func resolve(_ node: PIFValue, directory: String?, projectDirectory: String) -> PIFValue {

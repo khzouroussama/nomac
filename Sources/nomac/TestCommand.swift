@@ -58,6 +58,9 @@ struct TestCommand: ParsableCommand {
         }
         let tests = DeviceTestSession(session: session)
         var failed = false
+        for option in Array(Set(run.entries.flatMap(\.unappliedOptions))).sorted() {
+            FileHandle.standardError.write(Data("warning: the test plan asks for \(option), which nomac test does not do yet (BACKLOG B-408)\n".utf8))
+        }
         for entry in run.entries {
             let only = Self.selection(onlyTesting, of: entry.name)
             let skipped = Self.selection(skipTesting, of: entry.name)

@@ -206,7 +206,6 @@ struct BuildOptions: ParsableArguments {
                 derivedDataPath: derivedDataPath.map(FileSystem.xcodebuildSpelling),
                 overrides: overrides,
                 action: archivePath != nil ? .archive : forTesting ? .buildForTesting : .build))
-            if forTesting, let scheme = resolution.scheme { try TestBuildSettings.check(scheme) }
             var settings = resolution.request
             // xcodebuild sets SDKROOT to the canonical name of -sdk's SDK, and the TOOLCHAINS of
             // its environment as an override and the toolchain override (expo-default's nested
@@ -283,7 +282,7 @@ struct BuildOptions: ParsableArguments {
             var testBuild: (TestBuildDescription, String)?
             if forTesting, outcome.succeeded, let scheme = resolution.scheme {
                 testBuild = try await TestBuildSettings.describe(scheme: scheme, targets: resolution.buildTargets, inspector: inspector, request: settings,
-                                                                 workspace: loaded)
+                                                                 workspace: loaded, pif: pif.document)
             }
             return (outcome, resolution, actions, actionFailures, testBuild)
         }
@@ -301,7 +300,7 @@ struct BuildOptions: ParsableArguments {
             }
         }
         if succeeded, let (description, folder) = testBuild {
-            try FileSystem.write(XCTestRunWriter.data(description), to: folder + "/" + XCTestRunWriter.fileName(description))
+            for file in XCTestRunWriter.files(description) { try FileSystem.write(file.data, to: folder + "/" + file.name) }
         }
         guard !succeeded else {
             if !quiet { write("** \(verb) SUCCEEDED **\n\n") }

@@ -1,7 +1,7 @@
 # Workstream: device and distribution
 
-Install, launch and test on a device, then TestFlight. Branch `device/install`; BACKLOG
-B-400–B-449, ADRs 0400–0449. Goal: an IPA nomac built installs and launches on the owner's
+Install, launch and test on a device, then TestFlight. Branch `device/linux-first-run` from
+`origin/main` (worktree `~/nomac-out/wt/linux`); BACKLOG B-400–B-459, ADRs 0400–0459. Goal: an IPA nomac built installs and launches on the owner's
 iPhone, first through `xcrun devicectl` on the Mac (the demo route), then with
 `nomac install` and `nomac run` from Linux (ADR 0400).
 
@@ -48,6 +48,27 @@ Image (B-403).
 
 ## Just finished
 
+- `.xctestrun` of code coverage and test plans (the former B-433, B-434): `nomac build
+  build-for-testing` no longer refuses such schemes, which include every scheme with
+  `shouldAutocreateTestPlan`. Rules from `xctest_experiments.py` `xctestrun-coverage-*`,
+  `-plan-*`, `-autocreated-plan*` (docs/formats/xctestrun.md); the options are those the corpus's
+  plans use, another stops with its name (B-408). `nomac test` runs each configuration and a plan's
+  selected and skipped tests, and warns about repetition, random order, parallel tests and timeouts.
+  Not run on a device.
+- The UI test runner signed (B-302): `nomac build ... build-for-testing --keychain ...` of
+  `xctest_experiments.py`'s full project on the Mac, with Xcode's compilers: `AppUITests-Runner.app`
+  and its `.xctest` signed as Xcode signs them (the same `.xcent`), `codesign -vv` valid on disk and
+  satisfying the Designated Requirement, `nomac device check` installable, the `.xctestrun` the same
+  as Xcode's. Not run on a device, and not built on Linux yet.
+- A first run with no Mac (ADR 0404), as far as it goes without a phone: `nomac device pair`,
+  `nomac device developer-mode`, `nomac signing request`, `identity` and `check`; messages for each
+  state of usbmuxd and for a device the kernel does or does not see; docs/INSTALL-ON-IPHONE.md
+  rewritten as the route from a Linux laptop, free and paid accounts said plainly. Checked by
+  `.github/scripts/first_run_experiments.py`: libimobiledevice's usbmuxd and tools in a container
+  and `fake_device.py` in place of an iPhone, with nomac and `idevicepair` sending the same requests
+  and each using the other's pair record; `signing identity` on the owner's real certificate gives
+  the same chain as the identity that installed on the iPhone. **No iPhone has been on a Linux
+  machine's USB** (B-407).
 - `nomac test` passed on the iPhone from Linux (2026-11-03): 2 unit tests of the self-written
   app, built and signed by nomac; XCTest's output barriers removed. `nomac install` stops a
   running copy of the app first. Next, without the phone: the `.xcresult` bundle, then signing
@@ -189,21 +210,21 @@ Xcode never saw lists no app service. From pymobiledevice3's `mobile_image_mount
 
 ## Next actions
 
-Paused 2026-11-03 at main 628f8602 (everything merged; no background runs). Phone use only when
-the owner asks (no relaunches).
+Phone use only when the owner asks. Mac disk: heavy Docker jobs wait for 25 GB free.
 
-1. `.xcresult` for `nomac test` (no phone): capture Xcode's result bundles of
-   `xctest_experiments.py`'s unit-only project on a simulator created and deleted for it
-   (`xcodebuild test`, all passing and mixed), dissect `Info.plist`, `database.sqlite3` (schema,
-   rows) and `Data/` (compression, objects); aim for a bundle `xcresulttool get test-results
-   summary/tests` reads as it reads Xcode's (ids and times aside). The earlier device bundle was
-   deleted; only `xcresulttool` JSON of it is in `~/nomac-out/xctest/out/test-pass` (holds the
-   UDID: never commit).
-2. Sign the UI test runner (B-302): a signing experiment on the Mac with a
-   `com.apple.product-type.bundle.ui-testing` target, manual signing and the development profile
-   in dev_keychain.py's temporary keychain; read the entitlements Xcode signs into
-   `AppUITests-Runner.app` against the profile's, implement the rule in `ManualSigning`, then
-   `nomac build ... build-for-testing` of the full project (unit and UI tests).
+0. The automatic-signing measurement, on Linux, once the Mac has 25 GB free (the owner's request,
+   2026-11-07; this workstream owns it, the coverage agent skips it). One small project with
+   `CODE_SIGN_STYLE=Automatic`, a team and entitlements: `nomac build` or `nomac archive`, then
+   `nomac export` and `nomac install`. From the code (`LinuxSigning.overrides`, `identity(for:)`) a
+   Linux build signs ad hoc and `nomac install` refuses it with the next step; nobody has run it. If
+   the user ends with an app that installs or is told the next step, no code change: a note in
+   docs/INSTALL-ON-IPHONE.md if it helps. The Mac's unsigned result is low priority.
+1. `.xcresult` for `nomac test` (no phone): `xctest_experiments.py` `xcresult-pass` and
+   `xcresult-mixed` make Xcode's result bundles on a simulator created and deleted for the run;
+   dissect `Info.plist`, `database.sqlite3` (schema, rows) and `Data/` (compression, objects); aim
+   for a bundle `xcresulttool get test-results summary/tests` reads as it reads Xcode's (ids and
+   times aside). The earlier device bundle was deleted; only `xcresulttool` JSON of it is in
+   `~/nomac-out/xctest/out/test-pass` (holds the UDID: never commit).
 3. With the phone, when the owner allows: the UI tests with `nomac test`; the mixed project
    (failing, skipped, expected failure: status and output against Xcode's `test-mixed`).
 4. B-403 mount on a device: needs a restart on a host whose CoreDevice does not remount the

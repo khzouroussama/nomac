@@ -13,6 +13,9 @@ usbmuxd and a scripted device (`.github/scripts/first_run_experiments.py`), neve
 iPhone. The certificate request and the identity file are checked against OpenSSL and against the
 identity that installed on that iPhone.
 
+You need nomac and your Xcode's SDK installed first (docs/INSTALL.md): install 7-Zip and xz before
+`nomac sdk install` so that it also extracts the Developer Disk Image (step 5).
+
 ## Which Apple account
 
 | | Free Apple ID | Apple Developer Program (paid) |

@@ -15,6 +15,11 @@ import XcodeProj
 /// retro-rampage, tofu).
 public struct XcodeScheme: Sendable, Equatable {
     /// A target the scheme's build action builds.
+    public struct TestPlanFile: Sendable, Equatable {
+        public var path: String
+        public var isDefault: Bool
+    }
+
     public struct BuildEntry: Sendable, Equatable {
         /// Absolute path of the `.xcodeproj` that contains the target, or of the Swift package's
         /// directory.
@@ -65,6 +70,13 @@ public struct XcodeScheme: Sendable, Equatable {
     public var skippedTestables: [BuildEntry] = []
     /// The test bundles of the test plans the scheme's Test action uses.
     public var testPlanTestables: [BuildEntry]
+    /// The test plans the scheme's Test action uses.
+    public var testPlans: [TestPlanFile] = []
+    /// Whether Xcode makes a test plan of the scheme's testables (`shouldAutocreateTestPlan`).
+    public var autocreatesTestPlan = false
+    /// A scheme limited to chosen targets (`onlyGenerateCoverageForSpecifiedTargets`): their
+    /// identifiers, the only ones that count in its coverage report.
+    public var coverageReportTargets: Set<String>?
     /// Whether the Test action gathers code coverage: the scheme's `codeCoverageEnabled`, or,
     /// when it uses test plans, its default plan's (loader-experiments `coverage`).
     public var codeCoverageEnabled: Bool
@@ -468,6 +480,11 @@ extension XcodeWorkspace {
             let usesLaunch = parsed.testAction?.shouldUseLaunchSchemeArgsEnv ?? true
             let arguments = usesLaunch ? parsed.launchAction?.commandlineArguments : parsed.testAction?.commandlineArguments
             let variables = usesLaunch ? parsed.launchAction?.environmentVariables : parsed.testAction?.environmentVariables
+            scheme.testPlans = plans.map { XcodeScheme.TestPlanFile(path: resolveContainer($0.reference, relativeTo: containerDirectory), isDefault: $0.default) }
+            scheme.autocreatesTestPlan = autocreatesTestPlan
+            if parsed.testAction?.onlyGenerateCoverageForSpecifiedTargets == true {
+                scheme.coverageReportTargets = Set((parsed.testAction?.codeCoverageTargets ?? []).map(\.blueprintIdentifier).compactMap { $0 })
+            }
             scheme.testArguments = arguments?.arguments.filter(\.enabled).map(\.name) ?? []
             scheme.testEnvironment = Dictionary((variables ?? []).filter(\.enabled).map { ($0.variable, $0.value) }) { $1 }
             schemes.append(scheme)

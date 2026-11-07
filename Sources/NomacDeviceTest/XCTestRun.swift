@@ -5,13 +5,15 @@ import NomacSigning
 
 /// An `.xctestrun` file as `xcodebuild build-for-testing` writes it (docs/formats/xctestrun.md):
 /// format 1, one entry per test target beside `__xctestrun_metadata__`, or format 2, test
-/// configurations each listing `TestTargets`. Paths start with `__TESTROOT__`, the file's folder,
-/// or `__TESTHOST__`, the target's host app.
+/// configurations each listing `TestTargets`, run in turn. Paths start with `__TESTROOT__`, the
+/// file's folder, or `__TESTHOST__`, the target's host app.
 public struct XCTestRun: Sendable {
     public struct Entry: Sendable {
         public var name: String
         public var runOrder: Int
         public var values: [String: PropertyListValue]
+        /// The test plan's configuration, in format 2.
+        public var configuration: String?
 
         func string(_ key: String) -> String? { if case .string(let text)? = values[key] { text } else { nil } }
 
@@ -31,6 +33,16 @@ public struct XCTestRun: Sendable {
         public var hostBundleIdentifier: String? { string("TestHostBundleIdentifier") }
         public var hostPath: String? { string("TestHostPath") }
         public var dependentProductPaths: [String] { strings("DependentProductPaths") }
+
+        /// What a test plan asks of the run that `nomac test` does not do yet (BACKLOG B-408).
+        public var unappliedOptions: [String] {
+            var options: [String] = []
+            if values["TestRepetitionPolicy"] != nil { options.append("repeating tests") }
+            if values["TestExecutionOrdering"] != nil { options.append("random test order") }
+            if flag("ParallelizationEnabled") { options.append("parallel tests") }
+            if flag("TestTimeoutsEnabled") || values["MaximumTestExecutionTimeAllowance"] != nil { options.append("test timeouts") }
+            return options
+        }
     }
 
     public var formatVersion: Int
@@ -54,13 +66,19 @@ public struct XCTestRun: Sendable {
                 return Entry(name: name, runOrder: order, values: values)
             }.sorted { ($0.runOrder, $0.name) < ($1.runOrder, $1.name) }
         case 2:
-            guard case .array(let configurations)? = top["TestConfigurations"], case .dictionary(let first)? = configurations.first,
-                  case .array(let targets)? = first["TestTargets"] else {
+            guard case .array(let configurations)? = top["TestConfigurations"] else {
                 throw NomacError("an .xctestrun of format 2 without TestConfigurations", path: path)
             }
-            entries = targets.enumerated().compactMap { index, value in
-                guard case .dictionary(let values) = value, case .string(let name)? = values["BlueprintName"] else { return nil }
-                return Entry(name: name, runOrder: index, values: values)
+            var runOrder = 0
+            entries = []
+            for case .dictionary(let configuration) in configurations where configuration["IsEnabled"] != .boolean(false) {
+                let name = if case .string(let text)? = configuration["Name"] { text } else { "" }
+                guard case .array(let targets)? = configuration["TestTargets"] else { continue }
+                for case .dictionary(let values) in targets {
+                    guard case .string(let target)? = values["BlueprintName"] else { continue }
+                    entries.append(Entry(name: target, runOrder: runOrder, values: values, configuration: name))
+                    runOrder += 1
+                }
             }
         default:
             throw NomacError("an .xctestrun of format \(formatVersion), not 1 or 2", path: path)
@@ -99,12 +117,14 @@ public struct XCTestRun: Sendable {
         }
         var environment = entry.environment("EnvironmentVariables")
         environment.merge(entry.environment("TestingEnvironmentVariables")) { $1 }
+        let planned = entry.strings("OnlyTestIdentifiers")
+        let plannedSkips = entry.strings("SkipTestIdentifiers")
         return TestTarget(name: entry.name, hostBundleIdentifier: host,
                           testBundleRelativePath: bundlePath.replacingOccurrences(of: "__TESTHOST__/", with: ""),
                           productModuleName: entry.string("ProductModuleName") ?? entry.name, isUITest: entry.isUITest,
                           targetApplication: targetApplication, arguments: entry.strings("CommandLineArguments"), environment: environment,
                           targetArguments: entry.strings("UITargetAppCommandLineArguments"),
                           targetEnvironment: entry.environment("UITargetAppEnvironmentVariables"),
-                          testsToRun: testsToRun, testsToSkip: testsToSkip)
+                          testsToRun: testsToRun.isEmpty ? planned : testsToRun, testsToSkip: plannedSkips + testsToSkip)
     }
 }

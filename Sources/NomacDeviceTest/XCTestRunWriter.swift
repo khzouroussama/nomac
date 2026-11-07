@@ -3,8 +3,31 @@ import NomacPlist
 
 /// What `build-for-testing` built, as the `.xctestrun` describes it.
 public struct TestBuildDescription: Sendable {
+    /// A built product whose code coverage the run gathers.
+    public struct CoverageProduct: Sendable {
+        /// The target's identifier in its project.
+        public var identifier: String
+        /// The product's name (`App.app`).
+        public var name: String
+        /// The product's binary in the build products folder (`Debug-iphoneos/App.app/App`).
+        public var binaryPath: String
+        public var isStatic: Bool
+        /// The target's compiled files, absolute.
+        public var sources: [String]
+
+        public init(identifier: String, name: String, binaryPath: String, isStatic: Bool, sources: [String]) {
+            self.identifier = identifier
+            self.name = name
+            self.binaryPath = binaryPath
+            self.isStatic = isStatic
+            self.sources = sources
+        }
+    }
+
     public struct Product: Sendable {
-        public enum Kind: Sendable { case application, unitTest, uiTest, other }
+        /// `wrapper`: a framework or a bundle, which the file lists but does not run. `other`: what
+        /// it does not list (a static library, `xctestrun-coverage-libraries`).
+        public enum Kind: Sendable { case application, unitTest, uiTest, wrapper, other }
 
         public var name: String
         public var moduleName: String
@@ -49,9 +72,16 @@ public struct TestBuildDescription: Sendable {
     /// The SDK and architecture of the file name (`iphoneos27.0`, `arm64`).
     public var sdkName: String
     public var architecture: String
+    /// The products a run measures: empty when it gathers no coverage.
+    public var coverage: [CoverageProduct]
+    /// A scheme limited to chosen targets: their identifiers. The others stay out of the report.
+    public var coverageReportTargets: Set<String>?
+    /// The scheme's test plans; with none, its testables make one file of format 1.
+    public var plans: [XCTestPlan]
 
     public init(schemeName: String, containerName: String, projectName: String, projectPath: String, products: [Product], testables: [String],
-                arguments: [String], environment: [String: String], sdkName: String, architecture: String) {
+                arguments: [String], environment: [String: String], sdkName: String, architecture: String, coverage: [CoverageProduct] = [],
+                coverageReportTargets: Set<String>? = nil, plans: [XCTestPlan] = []) {
         self.schemeName = schemeName
         self.containerName = containerName
         self.projectName = projectName
@@ -62,11 +92,14 @@ public struct TestBuildDescription: Sendable {
         self.environment = environment
         self.sdkName = sdkName
         self.architecture = architecture
+        self.coverage = coverage
+        self.coverageReportTargets = coverageReportTargets
+        self.plans = plans
     }
 }
 
-/// The `.xctestrun` Xcode 27.0 writes for a scheme with testables, format 1
-/// (docs/formats/xctestrun.md, `xctest_experiments.py` `xctestrun-*`).
+/// The `.xctestrun` files Xcode 27.0 writes for a scheme: format 1 for its testables, or format 2,
+/// one file per test plan (docs/formats/xctestrun.md, `xctest_experiments.py` `xctestrun-*`).
 public enum XCTestRunWriter {
     /// Xcode's variables for every test process, before the scheme's.
     static let defaultEnvironment: [String: String] = [
@@ -77,88 +110,247 @@ public enum XCTestRunWriter {
     ]
     /// The host of an unhosted test bundle.
     static let unhostedHost = "__PLATFORMS__/iPhoneOS.platform/Developer/Library/Xcode/Agents/xctest"
+    static let profileDataFolder = "__DERIVEDDATA__/Build/ProfileData"
+    static let toolchain = "com.apple.dt.toolchain.XcodeDefault"
+    /// A scheme's and an autocreated plan's entries have it; those of a plan file do not
+    /// (`xctestrun-test-plan`, `-autocreated-plan`).
+    static let interoperability = "complete"
+
+    /// Every file the build writes, by name.
+    public static func files(_ build: TestBuildDescription) -> [(name: String, data: Data)] {
+        if build.plans.isEmpty { return [(fileName(build), XMLPropertyList.data(value(build)))] }
+        return build.plans.map { ("\(build.schemeName)_\($0.name)_\(build.sdkName)-\(build.architecture).xctestrun", XMLPropertyList.data(value(build, plan: $0))) }
+    }
 
     public static func fileName(_ build: TestBuildDescription) -> String {
         "\(build.schemeName)_\(build.sdkName)-\(build.architecture).xctestrun"
     }
 
-    public static func data(_ build: TestBuildDescription) -> Data {
-        XMLPropertyList.data(value(build))
+    static func containerInformation(_ build: TestBuildDescription) -> PropertyListValue {
+        .dictionary(["ContainerName": .string(build.containerName), "SchemeName": .string(build.schemeName)])
     }
 
+    /// Format 1: one entry per testable beside the metadata.
     static func value(_ build: TestBuildDescription) -> PropertyListValue {
-        var top: [String: PropertyListValue] = [
-            "__xctestrun_metadata__": .dictionary([
-                "ContainerInfo": .dictionary(["ContainerName": .string(build.containerName), "SchemeName": .string(build.schemeName)]),
-                "FormatVersion": .integer(1),
-            ]),
-        ]
-        let bundles = build.products.filter { $0.kind != .other }
-        let testProducts = bundles.filter { $0.kind == .unitTest || $0.kind == .uiTest }
-        let runners = bundles.filter { $0.kind == .uiTest }.map(\.runnerPath)
-        let dependents = Array(Set(bundles.map(\.path) + runners)).sorted().map { "__TESTROOT__/" + $0 }
-        let identifiers = Array(Set(bundles.map(\.bundleIdentifier))).sorted()
-        let processes = Array(Set(bundles.filter { $0.kind == .application }.map(\.executableName)
-            + testProducts.filter { $0.kind == .uiTest }.map { $0.name + "-Runner" })).sorted()
-        let environment = defaultEnvironment.merging(build.environment) { $1 }
+        var metadata: [String: PropertyListValue] = ["ContainerInfo": containerInformation(build), "FormatVersion": .integer(1)]
+        if !build.coverage.isEmpty { metadata["CodeCoverageBuildableInfos"] = coverageInformation(build, reported: build.coverageReportTargets, plural: false) }
+        var top: [String: PropertyListValue] = ["__xctestrun_metadata__": .dictionary(metadata)]
+        let shared = SharedValues(build)
         for (order, name) in build.testables.enumerated() {
-            guard let product = testProducts.first(where: { $0.name == name }) else { continue }
-            var entry: [String: PropertyListValue] = [
-                "BlueprintName": .string(product.name),
-                "BlueprintProviderName": .string(build.projectName),
-                "BlueprintProviderRelativePath": .string(build.projectPath),
-                "BundleIdentifiersForCrashReportEmphasis": .array(identifiers.map { .string($0) }),
-                "CommandLineArguments": .array(build.arguments.map { .string($0) }),
-                "DefaultTestExecutionTimeAllowance": .integer(600),
-                "DependentProductPaths": .array(dependents.map { .string($0) }),
-                "DiagnosticCollectionPolicy": .integer(1),
-                "EnvironmentVariables": .dictionary(environment.mapValues { .string($0) }),
-                "IsMemoryTaggingAddressSanitizerEnabled": .boolean(false),
-                "PreferredScreenCaptureFormat": .string("screenRecording"),
-                "ProcessNamesForCrashReportCollection": .array(processes.map { .string($0) }),
-                "ProductModuleName": .string(product.moduleName),
-                "RunOrder": .integer(order),
-                "SystemAttachmentLifetime": .string("deleteOnSuccess"),
-                "TestInteropMode": .string("complete"),
-                "TestLanguage": .string(""),
-                "TestRegion": .string(""),
-                "TestTimeoutsEnabled": .boolean(false),
-                "ToolchainsSettingValue": .array([]),
-                "UserAttachmentLifetime": .string("deleteOnSuccess"),
-            ]
-            var testing: [String: PropertyListValue] = ["XCODE_SCHEME_NAME": .string(build.schemeName)]
-            switch product.kind {
-            case .uiTest:
-                let runner = product.runnerPath
-                entry["IsUITestBundle"] = .boolean(true)
-                entry["IsXCTRunnerHostedTestBundle"] = .boolean(true)
-                entry["TestBundlePath"] = .string("__TESTHOST__/PlugIns/" + (product.path as NSString).lastPathComponent)
-                entry["TestHostBundleIdentifier"] = .string(product.bundleIdentifier + ".xctrunner")
-                entry["TestHostPath"] = .string("__TESTROOT__/" + runner)
-                entry["UITargetAppCommandLineArguments"] = .array([])
-                entry["UITargetAppEnvironmentVariables"] = .dictionary([
-                    "APP_DISTRIBUTOR_ID_OVERRIDE": .string("com.apple.AppStore"), "XCODE_SCHEME_NAME": .string(build.schemeName),
-                ])
-                if let target = product.targetApplicationPath { entry["UITargetAppPath"] = .string("__TESTROOT__/" + target) }
-                entry["UITargetAppPerformanceAntipatternCheckerEnabled"] = .boolean(true)
-            default:
-                if let host = product.hostPath, let hostProduct = bundles.first(where: { $0.path == host }) {
-                    entry["IsAppHostedTestBundle"] = .boolean(true)
-                    entry["TestBundlePath"] = .string("__TESTHOST__/" + String(product.path.dropFirst(host.count + 1)))
-                    entry["TestHostBundleIdentifier"] = .string(hostProduct.bundleIdentifier)
-                    entry["TestHostPath"] = .string("__TESTROOT__/" + host)
-                    testing["DYLD_INSERT_LIBRARIES"] = .string("__TESTHOST__/Frameworks/libXCTestBundleInject.dylib:/usr/lib/libRPAC.dylib")
-                    testing["XCInjectBundleInto"] = .string("unused")
-                } else {
-                    entry["TestBundlePath"] = .string("__TESTROOT__/" + product.path)
-                    entry["TestHostPath"] = .string(unhostedHost)
-                    testing["DYLD_INSERT_LIBRARIES"] = .string("/usr/lib/libRPAC.dylib")
-                }
-                testing["PERFC_SUPPRESS_SYSTEM_REPORTS"] = .string("1")
-            }
-            entry["TestingEnvironmentVariables"] = .dictionary(testing)
+            guard let product = shared.testProducts.first(where: { $0.name == name }) else { continue }
+            var entry = self.entry(product, build: build, shared: shared, arguments: build.arguments, environment: build.environment, testing: [:], gathersCoverage: !build.coverage.isEmpty)
+            entry["RunOrder"] = .integer(order)
+            entry["TestInteropMode"] = .string(interoperability)
             top[name] = .dictionary(entry)
         }
         return .dictionary(top)
+    }
+
+    /// Format 2: the plan, its coverage, and its configurations, each listing its enabled targets.
+    /// The scheme's own arguments and variables do not join a plan's (`xctestrun-plan-launch-env`).
+    static func value(_ build: TestBuildDescription, plan: XCTestPlan) -> PropertyListValue {
+        var top: [String: PropertyListValue] = [
+            "ContainerInfo": containerInformation(build),
+            "TestPlan": .dictionary(["IsDefault": .boolean(plan.isDefault), "Name": .string(plan.name)]),
+            "__xctestrun_metadata__": .dictionary(["FormatVersion": .integer(2)]),
+        ]
+        switch plan.coverage {
+        case .off: break
+        case .all: top["CodeCoverageBuildableInfos"] = coverageInformation(build, reported: nil, plural: true)
+        case .targets(let reported): top["CodeCoverageBuildableInfos"] = coverageInformation(build, reported: reported, plural: true)
+        }
+        let shared = SharedValues(build)
+        top["TestConfigurations"] = .array(plan.configurations.map { configuration in
+            let targets: [PropertyListValue] = plan.targets.filter(\.isEnabled).compactMap { target in
+                guard let product = shared.testProducts.first(where: { $0.name == target.name }) else { return nil }
+                var entry = self.entry(product, build: build, shared: shared, arguments: [], environment: [:], testing: ["XCODE_TEST_PLAN_NAME": .string(plan.name)],
+                                       gathersCoverage: plan.coverage != .off)
+                apply(configuration.options, to: &entry)
+                if let parallelizable = target.parallelizable { entry["ParallelizationEnabled"] = .boolean(parallelizable) }
+                if let skipped = target.skippedTests { entry["SkipTestIdentifiers"] = .array(skipped.map { .string($0) }) }
+                if let selected = target.selectedTests { entry["OnlyTestIdentifiers"] = .array(selected.map { .string($0) }) }
+                if plan.isAutocreated { entry["TestInteropMode"] = .string(interoperability) }
+                if product.kind == .uiTest, case .dictionary(var variables)? = entry["UITargetAppEnvironmentVariables"] {
+                    variables["XCODE_TEST_PLAN_NAME"] = .string(plan.name)
+                    entry["UITargetAppEnvironmentVariables"] = .dictionary(variables)
+                }
+                return .dictionary(entry)
+            }
+            return .dictionary(["IsEnabled": .boolean(true), "Name": .string(configuration.name), "TestTargets": .array(targets)])
+        })
+        return .dictionary(top)
+    }
+
+    /// A configuration's options in an entry (`xctestrun-plan-options`, `-never`, `-languages`,
+    /// `-configurations`, `-config-overrides`): disabled variables and arguments stay out, and a
+    /// language or region joins the arguments of the test and of the app a UI test drives.
+    static func apply(_ options: [String: XCTestPlan.Value], to entry: inout [String: PropertyListValue]) {
+        if case .dictionary(var variables)? = entry["EnvironmentVariables"] {
+            for item in options["environmentVariableEntries"]?.array ?? [] {
+                guard let fields = item.object, fields["enabled"]?.boolean != false, let key = fields["key"]?.string else { continue }
+                variables[key] = .string(fields["value"]?.string ?? "")
+            }
+            entry["EnvironmentVariables"] = .dictionary(variables)
+        }
+        let arguments = (options["commandLineArgumentEntries"]?.array ?? []).compactMap { item -> String? in
+            guard let fields = item.object, fields["enabled"]?.boolean != false else { return nil }
+            return fields["argument"]?.string
+        }
+        let language = options["language"]?.string
+        let region = options["region"]?.string
+        let localization = languageArguments(language: language, region: region)
+        entry["CommandLineArguments"] = .array((arguments + localization).map { .string($0) })
+        if entry["UITargetAppCommandLineArguments"] != nil { entry["UITargetAppCommandLineArguments"] = .array(localization.map { .string($0) }) }
+        if let language { entry["TestLanguage"] = .string(language) }
+        if let region { entry["TestRegion"] = .string(region) }
+        if let enabled = options["testTimeoutsEnabled"]?.boolean { entry["TestTimeoutsEnabled"] = .boolean(enabled) }
+        if let seconds = options["defaultTestExecutionTimeAllowance"]?.number { entry["DefaultTestExecutionTimeAllowance"] = .integer(seconds) }
+        if let seconds = options["maximumTestExecutionTimeAllowance"]?.number { entry["MaximumTestExecutionTimeAllowance"] = .integer(seconds) }
+        if let ordering = options["testExecutionOrdering"]?.string { entry["TestExecutionOrdering"] = .string(ordering) }
+        if options["testRepetitionMode"]?.string == "retryOnFailure" {
+            entry["TestRepetitionPolicy"] = .dictionary([
+                "XCTMaximumIterations": .integer(options["maximumTestRepetitions"]?.number ?? 3),
+                "XCTRepeatInNewRunnerProcess": .boolean(false),
+                "XCTRepetitionMode": .integer(2),
+            ])
+        }
+        switch options["diagnosticCollectionPolicy"]?.string {
+        case "Always"?: entry["DiagnosticCollectionPolicy"] = .integer(2)
+        case "Never"?: entry["DiagnosticCollectionPolicy"] = .integer(0)
+        default: break
+        }
+        if let format = options["preferredScreenCaptureFormat"]?.string { entry["PreferredScreenCaptureFormat"] = .string(format) }
+        if let lifetime = options["uiTestingScreenshotsLifetime"]?.string { entry["SystemAttachmentLifetime"] = .string(lifetime) }
+        if let lifetime = options["userAttachmentLifetime"]?.string { entry["UserAttachmentLifetime"] = .string(lifetime) }
+    }
+
+    /// The arguments of a language and a region (`xctestrun-plan-languages`): Xcode's two
+    /// pseudolanguages have their own; a region alone reads as English's.
+    static func languageArguments(language: String?, region: String?) -> [String] {
+        switch language {
+        case "IDELaunchSchemeLanguageRLO"?:
+            return ["-AppleTextDirection", "YES", "-NSForceRightToLeftWritingDirection", "YES", "-NSForceRightToLeftLocalizedStrings", "YES"]
+        case "IDELaunchSchemeLanguageDoubleLocalizedStrings"?:
+            return ["-NSDoubleLocalizedStrings", "YES"]
+        default:
+            var arguments: [String] = []
+            if let language {
+                let rightToLeft = Locale.Language(identifier: language).characterDirection == .rightToLeft
+                arguments += ["-AppleLanguages", "(\(language))", "-AppleTextDirection", rightToLeft ? "YES" : "NO"]
+            }
+            if let region { arguments += ["-AppleLocale", "\(language ?? "en")_\(region)"] }
+            return arguments
+        }
+    }
+
+    /// One built product's measured code: sorted by name, its files sorted; several files are named
+    /// from the folder they share, one by its whole path (`xctestrun-coverage-*`). Format 2 has
+    /// `Architectures` and `ProductPaths`, lists, where format 1 has one of each.
+    static func coverageInformation(_ build: TestBuildDescription, reported: Set<String>?, plural: Bool) -> PropertyListValue {
+        .array(build.coverage.sorted { $0.name < $1.name }.map { product in
+            let path = "__TESTROOT__/" + product.binaryPath
+            var information: [String: PropertyListValue] = [
+                plural ? "Architectures" : "Architecture": plural ? .array([.string(build.architecture)]) : .string(build.architecture),
+                "BuildableIdentifier": .string(product.identifier + ":primary"),
+                "IncludeInReport": .boolean(reported?.contains(product.identifier) ?? true),
+                "IsStatic": .boolean(product.isStatic),
+                "Name": .string(product.name),
+                plural ? "ProductPaths" : "ProductPath": plural ? .array([.string(path)]) : .string(path),
+                "Toolchains": .array([.string(toolchain)]),
+            ]
+            let files = sourceFiles(product.sources)
+            information["SourceFiles"] = .array(files.relative.map { .string($0) })
+            if let prefix = files.prefix { information["SourceFilesCommonPathPrefix"] = .string(prefix) }
+            return .dictionary(information)
+        })
+    }
+
+    static func sourceFiles(_ paths: [String]) -> (prefix: String?, relative: [String]) {
+        guard paths.count > 1, var folder = paths.first.map({ ($0 as NSString).deletingLastPathComponent + "/" }) else { return (nil, paths) }
+        for path in paths {
+            while !path.hasPrefix(folder), folder != "/" {
+                let parent = (String(folder.dropLast()) as NSString).deletingLastPathComponent
+                folder = parent == "/" ? parent : parent + "/"
+            }
+        }
+        return (folder, paths.map { String($0.dropFirst(folder.count)) }.sorted())
+    }
+
+    /// What every entry of a file holds alike.
+    struct SharedValues {
+        let bundles: [TestBuildDescription.Product]
+        let testProducts: [TestBuildDescription.Product]
+        let dependents: [String]
+        let identifiers: [String]
+        let processes: [String]
+
+        init(_ build: TestBuildDescription) {
+            bundles = build.products.filter { $0.kind != .other }
+            testProducts = bundles.filter { $0.kind == .unitTest || $0.kind == .uiTest }
+            let runners = bundles.filter { $0.kind == .uiTest }.map(\.runnerPath)
+            dependents = Array(Set(bundles.map(\.path) + runners)).sorted().map { "__TESTROOT__/" + $0 }
+            identifiers = Array(Set(bundles.map(\.bundleIdentifier).filter { !$0.isEmpty })).sorted()
+            processes = Array(Set(bundles.filter { $0.kind == .application }.map(\.executableName)
+                + testProducts.filter { $0.kind == .uiTest }.map { $0.name + "-Runner" })).sorted()
+        }
+    }
+
+    static func entry(_ product: TestBuildDescription.Product, build: TestBuildDescription, shared: SharedValues, arguments: [String], environment: [String: String],
+                      testing: [String: PropertyListValue], gathersCoverage: Bool) -> [String: PropertyListValue] {
+        var entry: [String: PropertyListValue] = [
+            "BlueprintName": .string(product.name),
+            "BlueprintProviderName": .string(build.projectName),
+            "BlueprintProviderRelativePath": .string(build.projectPath),
+            "BundleIdentifiersForCrashReportEmphasis": .array(shared.identifiers.map { .string($0) }),
+            "CommandLineArguments": .array(arguments.map { .string($0) }),
+            "DefaultTestExecutionTimeAllowance": .integer(600),
+            "DependentProductPaths": .array(shared.dependents.map { .string($0) }),
+            "DiagnosticCollectionPolicy": .integer(1),
+            "EnvironmentVariables": .dictionary(defaultEnvironment.merging(environment) { $1 }.mapValues { .string($0) }),
+            "IsMemoryTaggingAddressSanitizerEnabled": .boolean(false),
+            "PreferredScreenCaptureFormat": .string("screenRecording"),
+            "ProcessNamesForCrashReportCollection": .array(shared.processes.map { .string($0) }),
+            "ProductModuleName": .string(product.moduleName),
+            "SystemAttachmentLifetime": .string("deleteOnSuccess"),
+            "TestLanguage": .string(""),
+            "TestRegion": .string(""),
+            "TestTimeoutsEnabled": .boolean(false),
+            "ToolchainsSettingValue": .array([]),
+            "UserAttachmentLifetime": .string("deleteOnSuccess"),
+        ]
+        if gathersCoverage { entry["ClangProfileDataDirectoryPath"] = .string(profileDataFolder) }
+        var variables: [String: PropertyListValue] = testing
+        variables["XCODE_SCHEME_NAME"] = .string(build.schemeName)
+        switch product.kind {
+        case .uiTest:
+            let runner = product.runnerPath
+            entry["IsUITestBundle"] = .boolean(true)
+            entry["IsXCTRunnerHostedTestBundle"] = .boolean(true)
+            entry["TestBundlePath"] = .string("__TESTHOST__/PlugIns/" + (product.path as NSString).lastPathComponent)
+            entry["TestHostBundleIdentifier"] = .string(product.bundleIdentifier + ".xctrunner")
+            entry["TestHostPath"] = .string("__TESTROOT__/" + runner)
+            entry["UITargetAppCommandLineArguments"] = .array([])
+            entry["UITargetAppEnvironmentVariables"] = .dictionary([
+                "APP_DISTRIBUTOR_ID_OVERRIDE": .string("com.apple.AppStore"), "XCODE_SCHEME_NAME": .string(build.schemeName),
+            ])
+            if let target = product.targetApplicationPath { entry["UITargetAppPath"] = .string("__TESTROOT__/" + target) }
+            entry["UITargetAppPerformanceAntipatternCheckerEnabled"] = .boolean(true)
+        default:
+            if let host = product.hostPath, let hostProduct = shared.bundles.first(where: { $0.path == host }) {
+                entry["IsAppHostedTestBundle"] = .boolean(true)
+                entry["TestBundlePath"] = .string("__TESTHOST__/" + String(product.path.dropFirst(host.count + 1)))
+                entry["TestHostBundleIdentifier"] = .string(hostProduct.bundleIdentifier)
+                entry["TestHostPath"] = .string("__TESTROOT__/" + host)
+                variables["DYLD_INSERT_LIBRARIES"] = .string("__TESTHOST__/Frameworks/libXCTestBundleInject.dylib:/usr/lib/libRPAC.dylib")
+                variables["XCInjectBundleInto"] = .string("unused")
+            } else {
+                entry["TestBundlePath"] = .string("__TESTROOT__/" + product.path)
+                entry["TestHostPath"] = .string(unhostedHost)
+                variables["DYLD_INSERT_LIBRARIES"] = .string("/usr/lib/libRPAC.dylib")
+            }
+            variables["PERFC_SUPPRESS_SYSTEM_REPORTS"] = .string("1")
+        }
+        entry["TestingEnvironmentVariables"] = .dictionary(variables)
+        return entry
     }
 }

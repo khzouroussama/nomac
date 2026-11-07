@@ -65,13 +65,44 @@ import Testing
         #expect(entry["TestHostBundleIdentifier"] == nil)
     }
 
+    /// Format 2: each enabled configuration's targets in turn, with what the plan selects.
+    @Test func readsEveryConfigurationOfAPlan() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("xctestrun-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        func target(_ name: String, _ extra: [String: PropertyListValue] = [:]) -> PropertyListValue {
+            .dictionary(["BlueprintName": .string(name), "TestHostBundleIdentifier": .string("org.example.app"), "TestBundlePath": .string("__TESTHOST__/PlugIns/\(name).xctest")].merging(extra) { $1 })
+        }
+        let file: PropertyListValue = .dictionary([
+            "__xctestrun_metadata__": .dictionary(["FormatVersion": .integer(2)]),
+            "TestConfigurations": .array([
+                .dictionary(["IsEnabled": .boolean(true), "Name": .string("One"), "TestTargets": .array([
+                    target("A", ["OnlyTestIdentifiers": .array([.string("C/test")]), "SkipTestIdentifiers": .array([.string("C/other")]), "TestRepetitionPolicy": .dictionary([:]), "ParallelizationEnabled": .boolean(true)]), target("B"),
+                ])]),
+                .dictionary(["IsEnabled": .boolean(false), "Name": .string("Off"), "TestTargets": .array([target("Z")])]),
+                .dictionary(["IsEnabled": .boolean(true), "Name": .string("Two"), "TestTargets": .array([target("A")])]),
+            ]),
+        ])
+        let path = folder + "/App_App_iphoneos27.0-arm64.xctestrun"
+        try XMLPropertyList.data(file).write(to: URL(fileURLWithPath: path))
+        let run = try XCTestRun(path: path)
+        #expect(run.entries.map(\.name) == ["A", "B", "A"])
+        #expect(run.entries.map(\.configuration) == ["One", "One", "Two"])
+        let first = try run.target(run.entries[0])
+        #expect(first.testsToRun == ["C/test"] && first.testsToSkip == ["C/other"])
+        #expect(try run.target(run.entries[0], testsToRun: ["D/given"], testsToSkip: ["D/skip"]).testsToRun == ["D/given"])
+        #expect(try run.target(run.entries[0], testsToSkip: ["D/skip"]).testsToSkip == ["C/other", "D/skip"])
+        #expect(run.entries[0].unappliedOptions == ["repeating tests", "parallel tests"])
+        #expect(run.entries[1].unappliedOptions.isEmpty)
+    }
+
     @Test func readsWhatItWrites() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("xctestrun-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: folder + "/Debug-iphoneos/App.app", withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: folder) }
         try XMLPropertyList.data(.dictionary(["CFBundleIdentifier": .string("org.example.app")])).write(to: URL(fileURLWithPath: folder + "/Debug-iphoneos/App.app/Info.plist"))
         let path = folder + "/" + XCTestRunWriter.fileName(Self.build)
-        try XCTestRunWriter.data(Self.build).write(to: URL(fileURLWithPath: path))
+        try XCTestRunWriter.files(Self.build)[0].data.write(to: URL(fileURLWithPath: path))
         let run = try XCTestRun(path: path)
         #expect(run.entries.map(\.name) == ["AppTests", "AppUITests"])
         #expect(run.applications == [folder + "/Debug-iphoneos/App.app", folder + "/Debug-iphoneos/AppUITests-Runner.app"])
