@@ -1188,17 +1188,28 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   color management. A `calibratedWhite` gray (either form) becomes a generic gray of a float white:
   0 and 1 stay (and take the gray names), 0.5 gives 0.572306752204895, 0.333… 0.40781933069229126,
   0.666… 0.7233663201332092, 0.96 0.9681890606880188, 0.97 0.9761723875999451 (`calibrated-white`,
-  `cw-*`: the corpus's values; nomac refuses others, B-260). `calibratedRGB`, `deviceRGB` and
+  `cw-*`: the corpus's values; nomac refuses others, B-281). `calibratedRGB`, `deviceRGB` and
   custom `displayP3` colors become sRGB floats ColorSync computes, possibly negative (extended
   sRGB), so no `-Double` follows them; alpha keeps the document's value, rounded in storyboards
   as above (`converted-*`, `sb-converted-*`: the corpus's 60 such colors, which `NibColor.convertedColors`
-  lists; nomac refuses others, B-260). `deviceRGB` is not the display's profile: on a Display P3
+  lists; nomac refuses others, B-281). `deviceRGB` is not the display's profile: on a Display P3
   panel it gave sRGB within 2.4e-4 (`sweep-deviceRGB-*`); ColorSync of another macOS may differ.
-- In a document without `colorMatched="YES"` ibtool converts colors otherwise (`unmatched-*`): a
-  `calibratedWhite` gray becomes the sRGB color of the same components, without a name (0, 0.5 and
-  1 observed: the corpus's flutter storyboards); a generic gray or an sRGB color gets converted
-  components, and a storyboard with a `cocoaTouchSystemColor` makes ibtool fail; nomac compiles
-  the observed `calibratedWhite` grays only.
+- In a document without `colorMatched="YES"` ibtool converts colors otherwise, to Generic RGB values
+  it then writes as sRGB (`unmatched-*`; each route matches CoreGraphics' on every recorded component:
+  `unmatched-grid-*` 300 colors, `unmatched-ramp-*` 25 grays): `calibratedRGB` components are written
+  unconverted, as sRGB ones with their `-Double`s, rounded in storyboards as above; `sRGB` and
+  `deviceRGB` convert from sRGB, `displayP3` from Display P3, `calibratedWhite` from Generic Gray,
+  `deviceWhite` and `genericGamma22GrayColorSpace` from Generic Gray Gamma 2.2. nomac compiles the
+  first, and the `calibratedWhite` grays 0, 0.5 and 1 of alpha 0 or 1 (the corpus's flutter
+  storyboards); the others wait for the pipeline (B-281). `cocoaTouchSystemColor` and `systemColor`
+  stay what a matched document writes, except that a storyboard's `blackColor`, `whiteColor` or
+  `clearColor` makes ibtool exit with 255, writing nothing (`sb-unmatched-cocoa-white`,
+  `sb-color-unmatched-cocoa-*`); nomac refuses those. A `systemColor` that also writes components
+  ignores them (`system-components-*`).
+- ibtool's other routes, each matching on every recorded component (B-281): a matched `calibratedRGB`
+  goes from Generic RGB through Display P3 to extended sRGB (`color-grid-calibratedRGB`, 900 components),
+  a matched `displayP3` from Display P3 to extended sRGB (`color-grid-displayP3`, 900), and a matched
+  `calibratedWhite` from Generic Gray to Generic Gray Gamma 2.2 (`matched-ramp-calibratedWhite`, 25).
 - A storyboard keeps 10 significant digits of an sRGB or gray component (`%.10g`: 0.50980392156862742
   writes `-Double` 0.5098039216), a xib the document's double; named colors and converted
   `calibratedWhite` grays keep theirs (`precise-*`, `sb-precise-*`, `sb-cw-*`; the corpus's 15

@@ -1092,7 +1092,7 @@ struct DocumentCompiler {
         let attributes = element.attributes
         var components: NibColor.Components
         var name: NibColor.Name?
-        if !colorMatched {
+        if !colorMatched, attributes["cocoaTouchSystemColor"] == nil, attributes["systemColor"] == nil {
             components = try unmatchedComponents(element)
         } else if let system = attributes["xcode11CocoaTouchSystemColor"]
                     ?? attributes["systemColor"].flatMap({ attributes["cocoaTouchSystemColor"] == nil ? nil : $0 }) {
@@ -1108,9 +1108,15 @@ struct DocumentCompiler {
             guard names.contains(system), let values = NibColor.systemColors[system] else {
                 throw unsupported("the system color \(system)")
             }
-            guard attributes.keys.allSatisfy({ ["key", "systemColor", "cocoaTouchSystemColor"].contains($0) }),
+            // Components beside a `systemColor` change nothing (`system-components-*`).
+            let componentAttributes: Set = ["red", "green", "blue", "white", "alpha", "colorSpace", "customColorSpace"]
+            guard attributes.keys.allSatisfy({ ["key", "systemColor", "cocoaTouchSystemColor"].contains($0) || (colorMatched && attributes["systemColor"] != nil && componentAttributes.contains($0)) }),
                   attributes["systemColor"].map({ $0 == system }) ?? true else {
-                throw unsupported("a system color with components")
+                throw unsupportedColor("a system color with components")
+            }
+            // Its scene's color stops ibtool, which exits with 255 and writes nothing (`sb-unmatched-cocoa-white`, `sb-color-unmatched-cocoa-*`).
+            guard colorMatched || !isStoryboard || !["blackColor", "whiteColor", "clearColor"].contains(system) else {
+                throw unsupportedColor("the system color \(system) in a storyboard without colorMatched=\"YES\", on which ibtool exits with 255")
             }
             components = values
             name = .system(system)
@@ -1146,17 +1152,26 @@ struct DocumentCompiler {
         return color
     }
 
-    /// A color of a document without `colorMatched="YES"`: a `calibratedWhite` gray is written as
-    /// the sRGB color of the same components, without a name (`unmatched-cw-*`, the corpus's
-    /// flutter storyboards); other colors are converted by ibtool and not compiled yet.
+    /// A color of a document without `colorMatched="YES"`: `calibratedRGB` components are written
+    /// as sRGB ones, unconverted (`unmatched-grid-calibratedRGB`, `unmatched-rgb-digits`), and a
+    /// `calibratedWhite` gray as the sRGB color of the same components, without a name
+    /// (`unmatched-cw-*`, the corpus's flutter storyboards); other colors are converted by ibtool
+    /// and not compiled yet.
     func unmatchedComponents(_ element: XIBElement) throws -> NibColor.Components {
         let attributes = element.attributes
         let space = attributes["colorSpace"] == "custom" ? attributes["customColorSpace"] : attributes["colorSpace"]
+        if space == "calibratedRGB", element.children.isEmpty, attributes["colorSpace"] != "custom",
+           Set(attributes.keys).isSubset(of: ["key", "red", "green", "blue", "alpha", "colorSpace"]),
+           let red = attributes["red"].flatMap(Double.init), let green = attributes["green"].flatMap(Double.init),
+           let blue = attributes["blue"].flatMap(Double.init), let alpha = attributes["alpha"].flatMap(Double.init) {
+            let components = NibColor.Components.rgb(red: red, green: green, blue: blue, alpha: alpha)
+            return isStoryboard ? components.significant(10) : components
+        }
         guard element.children.isEmpty, Set(attributes.keys).isSubset(of: ["key", "white", "alpha", "colorSpace", "customColorSpace"]),
               space == "calibratedWhite", attributes["colorSpace"] == "custom" || attributes["customColorSpace"] == nil,
               let white = attributes["white"].flatMap(Double.init), let alpha = attributes["alpha"].flatMap(Double.init),
               [0, 0.5, 1].contains(white), [0, 1].contains(alpha) else {
-            throw unsupported("this color in a document without colorMatched=\"YES\"")
+            throw unsupportedColor("this color in a document without colorMatched=\"YES\"")
         }
         return .rgb(red: white, green: white, blue: white, alpha: alpha)
     }
@@ -1171,19 +1186,19 @@ struct DocumentCompiler {
         let space = attributes["colorSpace"] == "custom" ? attributes["customColorSpace"] : attributes["colorSpace"]
         guard attributes["colorSpace"] == "custom" || (["calibratedWhite", "calibratedRGB", "deviceRGB"].contains(attributes["colorSpace"] ?? "")
                                                        && attributes["customColorSpace"] == nil) else {
-            throw unsupported("colorSpace=\"\(attributes["colorSpace"] ?? "")\"")
+            throw unsupportedColor("colorSpace=\"\(attributes["colorSpace"] ?? "")\"")
         }
         switch space {
         case let space? where ConvertedColor.spaces.contains(space):
             let key = ConvertedColor(space, try value("red"), try value("green"), try value("blue"))
             guard let converted = NibColor.convertedColors[key] else {
-                throw unsupported("the \(space) color \(attributes["red"] ?? "") \(attributes["green"] ?? "") \(attributes["blue"] ?? "")")
+                throw unsupportedColor("the \(space) color \(attributes["red"] ?? "") \(attributes["green"] ?? "") \(attributes["blue"] ?? "")")
             }
             return .rgb(red: Double(converted.red), green: Double(converted.green), blue: Double(converted.blue), alpha: try value("alpha"))
         case "calibratedWhite":
             let white = try value("white")
             guard let converted = NibColor.calibratedWhites[white] else {
-                throw unsupported("the calibratedWhite \(attributes["white"] ?? "")")
+                throw unsupportedColor("the calibratedWhite \(attributes["white"] ?? "")")
             }
             return .gray(white: converted, alpha: try value("alpha"))
         case "genericGamma22GrayColorSpace":
@@ -1191,7 +1206,7 @@ struct DocumentCompiler {
         case "sRGB":
             return .rgb(red: try value("red"), green: try value("green"), blue: try value("blue"), alpha: try value("alpha"))
         case let other:
-            throw unsupported("customColorSpace=\"\(other ?? "")\"")
+            throw unsupportedColor("customColorSpace=\"\(other ?? "")\"")
         }
     }
 
@@ -1291,6 +1306,10 @@ struct DocumentCompiler {
 
     func unsupported(_ what: String) -> NomacError {
         NomacError("nomac does not compile \(what) yet (BACKLOG B-260)", path: path)
+    }
+
+    func unsupportedColor(_ what: String) -> NomacError {
+        NomacError("nomac does not compile \(what) yet (BACKLOG B-281)", path: path)
     }
 }
 

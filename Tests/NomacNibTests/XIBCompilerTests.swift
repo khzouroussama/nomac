@@ -267,16 +267,40 @@ import NomacCore
         (#"<color key="backgroundColor" red="1" green="0" blue="0" alpha="1" colorSpace="custom" customColorSpace="displayP3"/>"#, "the displayP3 color 1 0 0"),
     ])
     func refusesUnobservedColorSpaces(color: String, what: String) {
-        #expect(throws: NomacError("nomac does not compile \(what) yet (BACKLOG B-260)", path: "/tmp/View.xib")) {
+        #expect(throws: NomacError("nomac does not compile \(what) yet (BACKLOG B-281)", path: "/tmp/View.xib")) {
             try XIBCompiler.compile(Data(Self.xib(Self.view(color: color)).utf8), path: "/tmp/View.xib", options: Self.options)
         }
+    }
+
+    /// `unmatched-grid-calibratedRGB`, `unmatched-rgb-digits`: without `colorMatched`, `calibratedRGB`
+    /// components are written as sRGB ones, unconverted.
+    @Test func writesCalibratedComponentsUnconvertedWithoutColorMatching() throws {
+        func nib(_ color: String) throws -> Data {
+            let document = Self.xib(Self.view(color: color)).replacingOccurrences(of: #" colorMatched="YES""#, with: "")
+            return try XIBCompiler.compile(Data(document.utf8), path: "/tmp/View.xib", options: Self.options)
+        }
+        let components = #"red="0.25" green="0.5" blue="0.75" alpha="1""#
+        let calibrated = try nib(#"<color key="backgroundColor" \#(components) colorSpace="calibratedRGB"/>"#)
+        let srgb = try XIBCompiler.compile(Data(Self.xib(Self.view(color: #"<color key="backgroundColor" \#(components) colorSpace="custom" customColorSpace="sRGB"/>"#)).utf8),
+                                           path: "/tmp/View.xib", options: Self.options)
+        #expect(calibrated == srgb)
+    }
+
+    /// `system-components-*`: a `systemColor`'s components change nothing.
+    @Test func ignoresTheComponentsOfASystemColor() throws {
+        func nib(_ color: String) throws -> Data {
+            try XIBCompiler.compile(Data(Self.xib(Self.view(color: color)).utf8), path: "/tmp/View.xib", options: Self.options)
+        }
+        let plain = try nib(#"<color key="backgroundColor" systemColor="secondaryLabelColor"/>"#)
+        #expect(try nib(#"<color key="backgroundColor" systemColor="secondaryLabelColor" red="0.2" green="0.4" blue="0.6" alpha="0.7" colorSpace="custom" customColorSpace="sRGB"/>"#) == plain)
+        #expect(try nib(#"<color key="backgroundColor" systemColor="secondaryLabelColor" red="0.9" green="0.1" blue="0.3" alpha="0.5" colorSpace="calibratedRGB"/>"#) == plain)
     }
 
     /// `unmatched-gray-0.5`: without `colorMatched`, ibtool converts a generic gray with color
     /// management.
     @Test func refusesConvertedColorsWithoutColorMatching() {
         let document = Self.xib(Self.view(color: Self.gray("0.5", "1"))).replacingOccurrences(of: #" colorMatched="YES""#, with: "")
-        #expect(throws: NomacError(#"nomac does not compile this color in a document without colorMatched="YES" yet (BACKLOG B-260)"#, path: "/tmp/View.xib")) {
+        #expect(throws: NomacError(#"nomac does not compile this color in a document without colorMatched="YES" yet (BACKLOG B-281)"#, path: "/tmp/View.xib")) {
             try XIBCompiler.compile(Data(document.utf8), path: "/tmp/View.xib", options: Self.options)
         }
     }

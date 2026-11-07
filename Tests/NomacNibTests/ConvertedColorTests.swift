@@ -30,7 +30,7 @@ import Testing
 
     @Test func refusesColorsTheCorpusDoesNotUse() {
         let color = #"<color key="backgroundColor" red="0.2" green="0.4" blue="0.6" alpha="1" colorSpace="calibratedRGB"/>"#
-        #expect(throws: NomacError("nomac does not compile the calibratedRGB color 0.2 0.4 0.6 yet (BACKLOG B-260)", path: "/tmp/View.xib")) {
+        #expect(throws: NomacError("nomac does not compile the calibratedRGB color 0.2 0.4 0.6 yet (BACKLOG B-281)", path: "/tmp/View.xib")) {
             try XIBCompiler.compile(Data(Self.xib(color).utf8), path: "/tmp/View.xib", options: XIBCompilerTests.options)
         }
     }
