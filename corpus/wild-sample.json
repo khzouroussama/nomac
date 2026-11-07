@@ -1,0 +1,538 @@
+{
+ "seed": 20261107,
+ "count": 30,
+ "survey": "feature_survey.py contents of 2026-11-06",
+ "projects_read": 1328,
+ "clear": 133,
+ "accepted": 319,
+ "projects": [
+  {
+   "repository": "jtrivedi/Mesh-Transform-Animation",
+   "commit": "73f1cb87e546ee0074bb8b160248a4dce2e6935d",
+   "container": "MeshTransformAnimation.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "sobri909/ArcMini",
+   "commit": "acdb5ca083aa554e0c864fcd1517b2b013dc9f26",
+   "container": "Arc Mini.xcodeproj",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [],
+   "scheme": "Arc Mini RELEASE"
+  },
+  {
+   "repository": "OnionBrowser/OnionBrowser",
+   "commit": "ed3324efc87b39a332f68e8853347be82c1cd4c2",
+   "container": "OnionBrowser.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "pod install"
+    }
+   ],
+   "chosenContainer": "OnionBrowser.xcworkspace",
+   "scheme": "OnionBrowser"
+  },
+  {
+   "repository": "PallavAg/Apple-Intelligence-Chat",
+   "commit": "6444c7d96d3fc2ce8bdff9a406f2f44724cf556e",
+   "container": "Apple Intelligence Chat.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ]
+  },
+  {
+   "repository": "mozilla-mobile/focus-ios",
+   "commit": "a2832521c1daa0c23419c73705ae043ed60c9791",
+   "container": "focus-ios/Blockzilla.xcodeproj",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": "focus-ios",
+     "run": "./checkout.sh"
+    }
+   ],
+   "chosenContainer": "focus-ios/Blockzilla.xcodeproj",
+   "scheme": "Focus"
+  },
+  {
+   "repository": "cranci1/Sora",
+   "commit": "28f55f3d273b0dd32338e564324054287e500ff9",
+   "container": "Sulfur.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "chosenContainer": "Sulfur.xcodeproj"
+  },
+  {
+   "repository": "Sigil-Wen/Dream-with-Vision-Pro",
+   "commit": "febd77e8bad6874fee6291a388d2a46aedc6816b",
+   "container": "Dream.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ]
+  },
+  {
+   "repository": "ml-explore/mlx-swift-examples",
+   "commit": "378f2449c257788c5067b9f8b086731d76b39b33",
+   "container": "mlx-swift-examples.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "dependencies": [],
+   "scheme": "MLXChatExample"
+  },
+  {
+   "repository": "fulldecent/8-ball-answer",
+   "commit": "706718361ac3e51a6cfb84997722ee00be810d9a",
+   "container": "8 Ball.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "kickstarter/ios-oss",
+   "commit": "5f5463cfb830413d253efed45bfcec0322c9f152",
+   "container": "GraphAPI/.swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Kickstarter.xcodeproj",
+   "scheme": "Kickstarter iOS"
+  },
+  {
+   "repository": "rrroyal/Harbour",
+   "commit": "e56c10cb376baaa3ada49b29b8396e1ab9293942",
+   "container": "Harbour.xcodeproj",
+   "frames": [
+    "accepted"
+   ],
+   "scheme": "Harbour"
+  },
+  {
+   "repository": "immich-app/immich",
+   "commit": "745bdd2edf72ce0f75e748e2d68c37b6ea196cc5",
+   "container": "mobile/ios/Runner.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": "mobile",
+     "run": "flutter pub get"
+    },
+    {
+     "cwd": "mobile/ios",
+     "run": "pod install"
+    }
+   ],
+   "chosenContainer": "mobile/ios/Runner.xcworkspace",
+   "scheme": "Runner"
+  },
+  {
+   "repository": "audiokit/AudioKit",
+   "commit": "c358c15fdcdd0e78c4b4988f5c532c7cfb5c2eeb",
+   "container": "AudioKit.playground/playground.xcworkspace",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "noApp": true
+  },
+  {
+   "repository": "thunderbird/thunderbird-ios",
+   "commit": "cb338c68151cc6ed5fc755bbc38d260a4c0ca8b7",
+   "container": "Thunderbird.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Thunderbird.xcworkspace",
+   "scheme": "Thunderbird"
+  },
+  {
+   "repository": "twocentstudios/vinylogue",
+   "commit": "2d0af51d081f6493d40d05c5c18b272ba29560a6",
+   "container": "Vinylogue.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "cp Secrets.example.swift Vinylogue/Core/Infrastructure/Secrets.swift"
+    }
+   ],
+   "chosenContainer": "Vinylogue.xcodeproj",
+   "scheme": "Vinylogue"
+  },
+  {
+   "repository": "glushchenko/fsnotes",
+   "commit": "ca305e464c469e6372cccba11b37d4a58bb51e2c",
+   "container": "FSNotes.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "chosenContainer": "FSNotes.xcworkspace",
+   "scheme": "FSNotes iOS"
+  },
+  {
+   "repository": "opensourceios/pickerfull",
+   "commit": "99cf1b0ba9b31928b3c0f094c84cf16690538d33",
+   "container": "PickerFull.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "nicedreamzapp/RealTime-Space",
+   "commit": "1c35737e76a243407f2abcde40118dcd5c52af03",
+   "container": "ios/RealTime Fidget.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ]
+  },
+  {
+   "repository": "standardnotes/app",
+   "commit": "8929036bd13900789528f6b00ecedecf1b3c7652",
+   "container": "packages/mobile/ios/StandardNotes.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "corepack yarn install"
+    },
+    {
+     "cwd": "packages/mobile/ios",
+     "run": "pod install"
+    }
+   ],
+   "chosenContainer": "packages/mobile/ios/StandardNotes.xcworkspace",
+   "scheme": "StandardNotes"
+  },
+  {
+   "repository": "mullvad/mullvadvpn-app",
+   "commit": "3d6146a416a44cbd906f8b34acc29485cf7c36a9",
+   "container": "ios/MullvadVPN.xcodeproj",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "ios/MullvadVPN.xcodeproj",
+   "scheme": "MullvadVPN"
+  },
+  {
+   "repository": "opensourceios/prefacto",
+   "commit": "d11ee6581c6417e1e9586e6f89b77a62c3be8c42",
+   "container": "Prefacto.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "apoorvdarshan/verceltics",
+   "commit": "9293e51f5909013584a4c607d8129658f1b9b5b0",
+   "container": "ios/verceltics.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ]
+  },
+  {
+   "repository": "nerdykidtech/Autheris",
+   "commit": "016cdbda3b772764ea58e4676489c96ae9f9bdf0",
+   "container": "Vaultic.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "irccloud/ios",
+   "commit": "0649e2e01ce3cc0661fac9d6b7f75a52e1cdaeff",
+   "container": "IRCCloud.xcodeproj",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "pod install"
+    }
+   ],
+   "chosenContainer": "IRCCloud.xcworkspace",
+   "scheme": "IRCCloud"
+  },
+  {
+   "repository": "emrepbu/CosmicDaily",
+   "commit": "4e624184b9d84c2f61d854d19160e34ab39df98f",
+   "container": "CosmicDaily.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "scheme": "CosmicDaily"
+  },
+  {
+   "repository": "mattrubin/authenticator",
+   "commit": "0c6cdf41e06b52a25e349fe3f52ee304268cd72f",
+   "container": "Authenticator.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Authenticator.xcworkspace",
+   "scheme": "Authenticator"
+  },
+  {
+   "repository": "ethanhuang13/blahker",
+   "commit": "f467a93bfc0dfec3ff2f2cbdfbdffa85839b1bdd",
+   "container": "Features/.swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Blahker.xcodeproj",
+   "scheme": "Blahker"
+  },
+  {
+   "repository": "heart/CarBode-Barcode-Scanner-For-SwiftUI",
+   "commit": "aa66b507d65b3c8d0877e690d3ee510e251b38f5",
+   "container": ".swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "ExampleProject/ExampleProject.xcodeproj"
+  },
+  {
+   "repository": "adrbn/aura",
+   "commit": "3f0274be931d13c11a08405577d12ff976349b7a",
+   "container": "Aura/Aura.xcodeproj",
+   "frames": [
+    "clear",
+    "accepted"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Aura/Aura.xcodeproj",
+   "scheme": "Aura"
+  },
+  {
+   "repository": "opensourceios/SafePeople",
+   "commit": "7cfec7225e69c125e141d4f6febf8201306c5cf4",
+   "container": "SafePeople.xcodeproj",
+   "frames": [
+    "accepted"
+   ]
+  },
+  {
+   "repository": "vkoser/PlainNote",
+   "commit": "268050ae11ce2eaa2bfbfe6bacb8aecce8caaec0",
+   "container": "PlainNote.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "Dimillian/ACHNBrowserUI",
+   "commit": "7bcb4e383a740fd81ae3ef6498a3f1757de24460",
+   "container": "ACHNBrowserUI/Packages/Backend/.swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "ACHNBrowserUI/ACHNBrowserUI.xcodeproj",
+   "scheme": "ACHNBrowserUI"
+  },
+  {
+   "repository": "criticalmaps/criticalmaps-ios",
+   "commit": "68f0b3288c7a8e9e0a309ca14243ee06755a9530",
+   "container": "iOS/.swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "CriticalMaps.xcodeproj",
+   "scheme": "Critical Maps"
+  },
+  {
+   "repository": "Significant-Hobbies/setline",
+   "commit": "b0e08877cce760f35e5f9f9d74c483af8ae44b70",
+   "container": "ios/Setline.xcodeproj",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "ios/Setline.xcodeproj",
+   "scheme": "Setline"
+  },
+  {
+   "repository": "tirupati17/sip-calculator-swift",
+   "commit": "e030f65ceaaf832d60ac1574eb3d34aa75c257e2",
+   "container": "SIP.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "nate-parrott/web98",
+   "commit": "9b40b3a4f8426696dae3ca4626ddf5da98f6c5a6",
+   "container": "Web98.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "robbiehanson/AlarmClock",
+   "commit": "64219e341430db5fae92561ae6ef31bd1a8f6926",
+   "container": "AlarmClock.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "gonchar/VisionProVacuumDemo",
+   "commit": "1b85a2ad863475fe40fce15c075c084add439975",
+   "container": "VacuumDemo.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "brittanyarima/MovieDB",
+   "commit": "ffdf0de15533f3e7e06258b9d5447c5a8f7e2ec6",
+   "container": "MovieInfo.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "HOCKULUS/BoxHelper",
+   "commit": "a106d1d3d4fed9eff251df12958c4806b35bc1be",
+   "container": "BoxHelper.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "CliffsDover/crawl",
+   "commit": "c15d2f016316ec47db37acecbb0bab2e6fa10eaa",
+   "container": "crawl-ref/source/Crawl.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  },
+  {
+   "repository": "Significant-Hobbies/kith",
+   "commit": "0070d63e883d6fd324c512d4b374f666facfb0f5",
+   "container": "ios/Kith.xcodeproj",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "ios/Kith.xcodeproj",
+   "scheme": "Kith"
+  },
+  {
+   "repository": "bitwarden/ios",
+   "commit": "b762967806f3535d2b235c432247718a78222c9b",
+   "container": "Bitwarden.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "./Scripts/bootstrap.sh"
+    }
+   ],
+   "chosenContainer": "Bitwarden.xcworkspace",
+   "scheme": "Bitwarden"
+  },
+  {
+   "repository": "react/react-native",
+   "commit": "a340eec183dd2fa208cd4c94718ffd5577682ccd",
+   "container": "packages/rn-tester/RNTesterPods.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "corepack yarn install"
+    },
+    {
+     "cwd": "packages/rn-tester",
+     "run": "bundle install && bundle exec pod install"
+    }
+   ],
+   "chosenContainer": "packages/rn-tester/RNTesterPods.xcworkspace",
+   "scheme": "RNTester"
+  },
+  {
+   "repository": "JohnYezub/NewsFeed_SwiftUI_MVVM",
+   "commit": "815e32dcaf4e4f2172782a5b678c229476d0eb85",
+   "container": "NewsFeed.xcodeproj",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [
+    {
+     "cwd": ".",
+     "run": "cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig"
+    }
+   ],
+   "chosenContainer": "NewsFeed.xcodeproj",
+   "scheme": "NewsFeed"
+  },
+  {
+   "repository": "belm/BaiduFM-Swift",
+   "commit": "844b073ed0bb8365ebc7746e5eb3a535df2cdb7b",
+   "container": ".swiftpm/xcode/package.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "BaiduFM.xcodeproj",
+   "scheme": "BaiduFMApp"
+  },
+  {
+   "repository": "pointfreeco/swift-composable-architecture",
+   "commit": "bc2db5ba8ad3a47deba5db32fa340637ba6c9a76",
+   "container": "ComposableArchitecture.xcworkspace",
+   "frames": [
+    "clear"
+   ],
+   "dependencies": [],
+   "chosenContainer": "Examples/CaseStudies/CaseStudies.xcodeproj",
+   "scheme": "CaseStudies (SwiftUI)"
+  },
+  {
+   "repository": "soffes/bar",
+   "commit": "84055edcbef7ef881894ff08d5ef08a9be396401",
+   "container": "Bar.xcodeproj",
+   "frames": [
+    "clear"
+   ]
+  }
+ ]
+}
