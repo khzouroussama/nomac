@@ -18,7 +18,7 @@ tested with results a test supplies, and on a Mac read back by Xcode's `xcresult
   object --legacy` and `get content-availability` read these, from `rootId`.
 
 A `data` file is a Zstandard frame. nomac writes raw blocks, which `xcresulttool` reads, so its files
-are larger than Xcode's and their ids differ.
+are larger than Xcode's and their ids differ, and a zero byte in every `refs` file, which it also reads.
 
 ## Objects
 
@@ -67,3 +67,6 @@ configuration, one with the destination, and one per configuration with both. A 
 - No `host_fk` or developer tools: `environmentDescription` is the scheme alone, without ` · Built with
   macOS …`. No diagnostics and no logs: `content-availability` has `hasDiagnostics` false and `logs` empty.
 - `xcresulttool merge`, code coverage (`.xccovreport`), attachments and activities.
+- A runner that does not start or finish: Xcode's record of it is not observed. nomac's legacy objects
+  say `failed` with the reason in `errorSummaries`, but such tests have no rows, so `get test-results`
+  does not show the failure: rely on `nomac test`'s exit status.

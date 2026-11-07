@@ -69,6 +69,8 @@ struct TestCommand: ParsableCommand {
         var failed = false
         let started = Date()
         var configurations: [ResultBundle.Configuration] = []
+        var ranAny = false
+        var runFailure: String?
         for option in Array(Set(run.entries.flatMap(\.unappliedOptions))).sorted() {
             FileHandle.standardError.write(Data("warning: the test plan asks for \(option), which nomac test does not do yet (BACKLOG B-408)\n".utf8))
         }
@@ -77,6 +79,7 @@ struct TestCommand: ParsableCommand {
             let skipped = Self.selection(skipTesting, of: entry.name)
             if !onlyTesting.isEmpty && only == nil { continue }
             if skipped == [] { continue }
+            ranAny = true
             var barriers = OutputBarrierFilter()
             var printed: [UInt8] = []
             let result = try tests.run(try run.target(entry, testsToRun: only ?? [], testsToSkip: skipped ?? [])) { bytes in
@@ -91,6 +94,9 @@ struct TestCommand: ParsableCommand {
                 FileHandle.standardError.write(Data("\(entry.name): error: \(error)\n".utf8))
             }
             failed = failed || result.failed
+            if result.bootstrapError != nil || !result.finished {
+                runFailure = runFailure ?? "\(entry.name): " + (result.bootstrapError ?? "the test runner stopped before the plan finished")
+            }
             let testable = ResultBundle.Testable(name: entry.name, projectRelativePath: entry.projectRelativePath, isUITest: entry.isUITest, language: entry.language, region: entry.region,
                                                  cases: ResultBundle.attaching(ResultBundle.notes(in: String(decoding: printed, as: UTF8.self)), to: result.cases))
             let configuration = entry.configuration ?? "Test Scheme Action"
@@ -100,12 +106,19 @@ struct TestCommand: ParsableCommand {
                 configurations.append(ResultBundle.Configuration(name: configuration, testables: [testable]))
             }
         }
+        guard ranAny else {
+            // Nothing ran: no selection matched, or the file lists no enabled target. Not a success.
+            let targets = Array(Set(run.entries.map(\.name))).sorted().joined(separator: ", ")
+            throw NomacError("no test target ran", path: FileSystem.absolute(xctestrun), notes: [
+                run.entries.isEmpty ? "the .xctestrun lists no enabled test target" : "-only-testing and -skip-testing leave none of its targets: \(targets)",
+            ], exitStatus: 65)
+        }
         if let bundlePath {
             func text(_ key: String) -> String { if case .string(let value)? = try? session.value(key: key) { value } else { "" } }
             let identity = ResultBundle.Device(name: text("DeviceName"), identifier: device, operatingSystemVersion: text("ProductVersion"), buildVersion: text("BuildVersion"),
                                                model: text("ProductType"), architecture: text("CPUArchitecture"))
             try ResultBundle(scheme: run.schemeName, containerName: run.containerName, planName: run.planName ?? run.schemeName, device: identity, sdkVersion: run.sdkVersion,
-                             started: started, finished: Date(), configurations: configurations).write(to: bundlePath)
+                             started: started, finished: Date(), configurations: configurations, runFailure: runFailure).write(to: bundlePath)
             print("Test session results, code coverage, and logs:\n\t\(bundlePath)\n")
         }
         print(failed ? "** TEST EXECUTE FAILED **\n" : "** TEST EXECUTE SUCCEEDED **\n")

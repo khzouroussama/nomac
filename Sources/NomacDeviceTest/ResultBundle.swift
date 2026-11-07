@@ -101,9 +101,13 @@ public struct ResultBundle: Sendable {
     public var finished: Date
     public var configurations: [Configuration]
     public var uniqueIdentifier: String
+    /// What failed besides a test's own result: a runner that did not start or did not finish, whose
+    /// tests have no rows. Xcode's record of that is not observed (BACKLOG B-408).
+    public var runFailure: String?
 
     public init(scheme: String, containerName: String, planName: String, device: Device, sdkVersion: String, started: Date, finished: Date,
-                configurations: [Configuration], uniqueIdentifier: String = UUID().uuidString) {
+                configurations: [Configuration], uniqueIdentifier: String = UUID().uuidString, runFailure: String? = nil) {
+        self.runFailure = runFailure
         self.scheme = scheme
         self.containerName = containerName
         self.planName = planName
@@ -303,9 +307,11 @@ public struct ResultBundle: Sendable {
 
     private static let noIssues = issues(failures: [])
 
-    private static func issues(failures: [ResultObject]) -> ResultObject {
+    private static func issues(failures: [ResultObject], errors: [String] = []) -> ResultObject {
         .object("ResultIssueSummaries", [
-            "analyzerWarningSummaries": .array([]), "errorSummaries": .array([]), "testFailureSummaries": .array(failures), "testWarningSummaries": .array([]), "warningSummaries": .array([]),
+            "analyzerWarningSummaries": .array([]),
+            "errorSummaries": .array(errors.map { .object("IssueSummary", ["issueType": .string("Error"), "message": .string($0)]) }),
+            "testFailureSummaries": .array(failures), "testWarningSummaries": .array([]), "warningSummaries": .array([]),
         ])
     }
 
@@ -374,14 +380,14 @@ public struct ResultBundle: Sendable {
             ]),
             "uniqueIdentifier": .string(uniqueIdentifier),
         ]))
-        let failed = allCases.contains { $0.status == "failed" }
+        let failed = runFailure != nil || allCases.contains { $0.status == "failed" }
         let notRequested = ResultObject.object("ActionResult", [
             "coverage": .object("CodeCoverageInfo", ["hasCoverageData": .boolean(false)]), "issues": Self.noIssues,
             "metrics": metrics(counting: []), "resultName": .string("build"), "status": .string("notRequested"),
         ])
         let action = ResultObject.object("ActionRecord", [
             "actionResult": .object("ActionResult", [
-                "coverage": .object("CodeCoverageInfo", ["hasCoverageData": .boolean(false)]), "issues": Self.issues(failures: failureSummaries), "metrics": metrics(counting: allCases), "resultName": .string("action"),
+                "coverage": .object("CodeCoverageInfo", ["hasCoverageData": .boolean(false)]), "issues": Self.issues(failures: failureSummaries, errors: runFailure.map { [$0] } ?? []), "metrics": metrics(counting: allCases), "resultName": .string("action"),
                 "status": .string(failed ? "failed" : "succeeded"), "testsRef": reference(testsReference, type: "ActionTestPlanRunSummaries"),
             ]),
             "buildResult": notRequested,
@@ -405,7 +411,7 @@ public struct ResultBundle: Sendable {
             "testPlanName": .string(planName),
         ])
         return try store.put(.object("ActionsInvocationRecord", [
-            "actions": .array([action]), "issues": Self.issues(failures: failureSummaries), "metadataRef": reference(metadata, type: "ActionsInvocationMetadata"), "metrics": metrics(counting: allCases),
+            "actions": .array([action]), "issues": Self.issues(failures: failureSummaries, errors: runFailure.map { [$0] } ?? []), "metadataRef": reference(metadata, type: "ActionsInvocationMetadata"), "metrics": metrics(counting: allCases),
         ]))
     }
 }
