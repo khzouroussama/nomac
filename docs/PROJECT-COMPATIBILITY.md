@@ -3,7 +3,7 @@
 nomac is a general runner for iOS projects on Linux, not an Expo or React Native tool. A project
 written for a Mac can name macOS tools or test for macOS, and Linux cannot run those as they are.
 A few such cases nomac handles itself, and it always tells you when it does (Part A). The rest are
-your project's to change (Part B).
+your project's to change (Part B). Part C is how far other cross-platform frameworks' fresh apps have got.
 
 ## Part A: What nomac changes for you
 
@@ -145,5 +145,42 @@ or a computed path runs is not seen.
 | A library that does not compile with Xcode 27, or a mix of package versions, such as RevenueCat 5.50.1 | The build fails with the compiler's error, which Xcode 27 gives too | Update the library, or align the versions |
 | What the build machine needs for your project's tools: Node, Ruby and CocoaPods for React Native and Expo | The tool is not found. `nomac doctor` checks nomac's own tools, not these | Install them ([docs/DEMO.md](DEMO.md) lists them) |
 | A system's hard limit on open files too low for your project. Ubuntu's is 1048576, so this is rare | The build fails with "Too many open files" | Raise the hard limit: `/etc/security/limits.conf`, or `--ulimit nofile=` for a container |
+
+## Part C: Fresh apps of other cross-platform frameworks
+
+**No framework on this list has reached an IPA through nomac yet, so none of them is claimed to work.**
+These are the results so far, from 2026-11-07, on a machine overloaded enough that the runs did not finish.
+`.github/scripts/framework_apps.py` repeats them. Whether an app launches on a phone is not tested for any
+of them. These runs used an older copy of the Xcode SDK subset, so a failure here is not yet a verdict on nomac.
+
+| Framework | What ran on Linux | Stopped at | Reached an IPA |
+|---|---|---|---|
+| Flutter 3.47.7 | Nothing yet: its Dart SDK did not finish downloading | Not run | No |
+| Capacitor 8 | `npm init @capacitor/app`, `npm install @capacitor/ios`, `npx cap add ios` and `npx cap sync ios` all succeeded | `nomac check` reports that nomac cannot compile its launch screen (below). `nomac archive` was stopped unfinished after 7 minutes with no output | No |
+| Cordova | Stopped during `cordova create` | Not run | No |
+| Kotlin Multiplatform | Nothing | Not run | No |
+| NativeScript | Nothing | Not run | No |
+| Tauri mobile | Nothing | Not run | No |
+
+### Flutter
+
+Seen on a Mac with Xcode 27.0: `flutter create`, `flutter pub get` and an ad hoc `xcodebuild archive` of the
+result succeed, and `nomac check` lists only signing settings for that project (4 of 270 features).
+
+What you should expect on Linux, from Flutter 3.47.7's sources and its macOS files, not from a run:
+
+- `flutter build ios` refuses every system but macOS: "Building for iOS is only supported on macOS.".
+  `flutter pub get` is what writes `ios/Flutter/Generated.xcconfig` and the Swift package the project needs.
+- **Release and Profile builds need a Linux build of `gen_snapshot_arm64`.** Flutter ships that compiler only
+  as a macOS executable, and it has to match Flutter's Dart revision exactly. nomac does not provide one and
+  has not tested one, so a Release build, which is what `nomac archive` makes by default, is the open question
+  (BACKLOG B-510).
+- Debug builds do not run that compiler, but they and Profile builds run `plutil`, which nomac does not provide
+  yet (B-190).
+
+### Capacitor
+
+`nomac check` reports `nib:refused=B-260` for the launch screen `cap add ios` writes, because its view
+controller's root view is an `imageView` (BACKLOG B-511).
 
 If nomac fails on something not in either part, it is a bug or a gap in this list: please open an issue.
