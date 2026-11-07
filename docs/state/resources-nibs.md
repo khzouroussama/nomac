@@ -5,6 +5,10 @@ Branch `res/nibs`. BACKLOG B-250–B-269 and B-280–B-289, ADRs 0250–0259 (B-
 
 ## Current step
 
+Working from the coverage survey's split below, weighted toward live projects (those Xcode 27 accepts
+as they are), with the corpus ranking beside it. Colors first (B-281): the route and the pipeline are
+known, the power function's log2 is what remains. Earlier state, kept for reference:
+
 Storyboards are split between two agents since 2026-10-31: this one (`res/nibs`) keeps tofu's list
 (text fields, switches, control actions, cell styles, `<mask>`, `firstBaseline`) with BACKLOG
 B-266–B-269 and B-280–B-289 and ADRs 0252–0259; `res/nibs-2` takes buttons, stack views,
@@ -21,7 +25,53 @@ The launch storyboards of the React Native and Expo test apps (docs/state/react-
 link identical to Xcode 27.0's, Debug and Release (rn-bare's `LaunchScreen` at 15.1 on iPhone and
 iPad, expo-default's `SplashScreen` at 16.4).
 
+## Survey split
+
+`python3 ~/nomac-out/scripts/nib_survey_split.py <nomac> <out.json> --docs <dir>` overlays each surveyed
+project's shell (`~/nomac-out/survey/repos`) with its `.xib` and `.storyboard` blobs (`fetch_docs.py`,
+kept in `~/nomac-out/wt-scratch/nibs/survey/docs`) and runs `nomac check --json`: the build's documents
+and options, each refusal's own message. Final survey, 2026-11-07: 1,328 projects, 319 of them live
+(Xcode 27 accepts them as they are), 747 with a refusal, all measured. Projects (live / all) and
+documents, on main 79a3126a with the first batch below.
+
+| Item | Live | All | Documents |
+|---|---|---|---|
+| B-260 | 50 | 461 | 1,676 |
+| B-261 | 18 | 115 | 154 |
+| B-281 (colors, split out of B-260) | 16 | 158 | 437 |
+| B-265 | 6 | 46 | 79 |
+| `document=missing` (was `unexplained`) | 3 | 12 | 18 |
+| B-263 | 0 | 171 | 654 |
+| B-291 | 0 | 5 | 5 |
+| B-266 | 0 | 2 | 2 |
+
+Causes in this workstream's families (sums of a family's messages; a project can count under several):
+
+| Family | Live | All | Documents | Largest causes (live/all) |
+|---|---|---|---|---|
+| Colors | 32 | 254 | 544 | `displayP3` 10/33, `calibratedRGB` 8/72, `catalog` attribute 3/6, `deviceRGB` 3/4, a text field's colors 2/3, Xcode 11's `labelColor` 1/8 |
+| Bars and toolbars | 20 | 104 | 120 | bar button items without one system item or title 3/14, `<barButtonItem>` in `<items>` 2/10, `<navigationBar>`'s `translucent` 2/6 and `barStyle` 1/5, `<rightBarButtonItems>` 2/4 |
+| Cells | 19 | 71 | 179 | `insetsLayoutMarginsFromSafeArea` 4/12, `tag` 2/3, `userInteractionEnabled` 2/3, `<animations>` 1/11, Xcode 8's prototype cell 1/5 |
+| Constraints and baselines | 9 | 104 | 155 | ties of constants or relations 5/38, the `baseline` attribute 1/12, `Alignment constraints` capabilities 0/20 and 0/16 |
+| Text fields and switches | 6 | 30 | 34 | `enabled` 2/3, `decimalPad` 1/5, `keyboardAppearance` 0/4 |
+| Masks and variations | 5 | 35 | 50 | size-class masks in a cell's content view 2/3, `<mask>` in `<variation>` 1/22 |
+| Document formats (in neither part's list) | 20 | 175 | 355 | `iOS.CocoaTouch.iPad` 5/15, `ipad*` devices 4/10, `customModuleProvider=""` 2/9, `iPad.XIB` 2/5, `<simulatedMetricsContainer>` 1/13, `<archive>` 1/13, `<simulatedStatusBarMetrics>` 1/10 |
+
+- B-263 falls away, as expected: 0 live; of its 654 documents, at the minimum target 15.0, 233 compile
+  and the others stop at other items, largely `<archive>` (192) and `defaultVersion` (56). It stays
+  low in this list.
+- `unexplained` (7.9% of the survey's projects) was nomac's bug, not a refusal: XcodeProj's `fullPath`
+  answers a variant group with its base localization's path, so a variant group with its own `path`
+  (React Native's old template, `path = iOS`) resolved to
+  `Base.lproj/LaunchScreen.xib/Base.lproj/LaunchScreen.xib` and was never read. Fixed; what is left
+  is really absent (`Pods/` not installed, files never committed), 0.9%: `nib:document=missing`.
+
 ## Just finished
+
+- First survey batch: variant groups' localizations resolved as the build does, `nib:document=missing`,
+  colors under B-281, unmatched `calibratedRGB`, system colors with components. Colors' routes found
+  (docs/formats/nib.md); corpus 448 identical and 11 equivalent (from 446), 0 different, 692 of 1,065
+  documents compile (from 687).
 
 - Round 64 (`no-translate-mask-*`): a constrained subview that does not translate its mask keeps
   the mask its document gives; the refusal is lifted. Paused again after it.
