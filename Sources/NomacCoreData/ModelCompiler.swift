@@ -55,9 +55,15 @@ public enum ModelCompiler {
         return files.map { destination + "/" + $0 }
     }
 
+    /// The version momc treats as current without a declared one, for generated classes and
+    /// insecure transformer warnings: the last file name in byte order, `Model.xcdatamodel` after
+    /// `Model 2.xcdatamodel` (coredata-experiments `no-current-*`, 20 of 20; the survey's models).
+    private static func lastByName(_ files: [String]) -> String? {
+        files.max { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }
+    }
+
     /// The model version code generation uses, and the name of the input: the current version of
-    /// a `.xcdatamodeld`; a model of no generating entities when there is none and no version
-    /// generates code.
+    /// a `.xcdatamodeld`, or the one `lastByName` picks.
     static func generatingModel(_ input: String) throws -> (DataModel, String) {
         let name = ((input as NSString).lastPathComponent as NSString).deletingPathExtension
         switch (input as NSString).pathExtension {
@@ -69,12 +75,10 @@ public enum ModelCompiler {
             if let current = try currentVersion(input), let index = versions.firstIndex(of: current + ".xcdatamodel") {
                 return (models[index], name)
             }
-            // The only version (`versioned-one-no-current`).
-            if models.count == 1 { return (models[0], name) }
-            if models.allSatisfy({ $0.entities.allSatisfy { $0.codeGeneration == nil } }) {
+            guard let file = lastByName(versions), let index = versions.firstIndex(of: file) else {
                 return (DataModel(entities: [], fetchRequests: [], minimumToolsVersion: nil, sourceLanguage: "Swift"), name)
             }
-            throw NomacError("\(input): which version momc generates classes for without a current version is not observed yet (BACKLOG B-258)", path: input)
+            return (models[index], name)
         default:
             throw NomacError("momc compiles .xcdatamodel and .xcdatamodeld inputs, not \(name)", path: input)
         }
@@ -110,7 +114,7 @@ public enum ModelCompiler {
             models[version] = dataModel
             files.append(("\(bundle)/\(version).mom", try ModelArchive.data(dataModel, module: module)))
             notes.append("\(file): note: Model \(version) version checksum: \(checksum)")
-            warnings += ModelWarnings.of(fileModel, location: (input as NSString).appendingPathComponent(file), transformers: current == nil || current == version)
+            warnings += ModelWarnings.of(fileModel, location: (input as NSString).appendingPathComponent(file), transformers: file == current.map({ $0 + ".xcdatamodel" }) ?? lastByName(order))
         }
         if let current {
             let path = (input as NSString).appendingPathComponent(current + ".xcdatamodel")

@@ -256,9 +256,6 @@ private struct Generator {
                     """))
                 imports.append(represented + "+CoreDataClass.h")
             } else {
-                guard classes.isEmpty else {
-                    throw NomacError("\(input): Objective-C code generation for the category of \(entity.name), which refers to other classes, is not observed yet (BACKLOG B-258)", path: input)
-                }
                 imports.append(represented + "+CoreDataProperties.h")
             }
             let header = generation == .class ? "\(represented)+CoreDataClass.h" : "\(represented).h"
@@ -283,13 +280,15 @@ private struct Generator {
     }
 
     /// The classes a class header declares with `@class`: those of its relationships' destinations
-    /// and transformable attributes but its own, in byte order (relationships-several, -order).
+    /// and transformable attributes but its own and its parent's, which it imports, in byte order
+    /// (relationships-several, -order; the survey's NCDBDgmppHullType).
     private func forwardDeclarations(_ entity: DataModel.Entity, _ className: String) throws -> [String] {
         var classes = Set(try attributes(entity).filter { $0.type == .transformable }.map { try transformableClass($0, entity) })
         for relationship in relationships(entity) {
             classes.insert(try self.className(try destination(relationship, entity)))
         }
         classes.remove(className)
+        if let parent = try parentClassName(entity) { classes.remove(parent) }
         return classes.sorted { $0.utf8.lexicographicallyPrecedes($1.utf8) }
     }
 

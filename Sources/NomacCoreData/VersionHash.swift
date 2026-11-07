@@ -47,6 +47,9 @@ public enum VersionHash {
     /// own inverse, hashed as one without (coredata-experiments `own-inverse`).
     static func property(_ property: DataModel.Property, owner: String = "") -> [UInt8] {
         switch property {
+        case .fetched(let fetched):
+            // Its own hash alone, flags 4 for read-only and 2 for transient (coredata-experiments `fetched-*`).
+            return own(fetched.name, flags: (fetched.isOptional ? 1 : 0) | 6, fetched.versionHashModifier)
         case .attribute(let attribute):
             var tail = littleEndian(UInt32(attribute.type.rawValue))
             if attribute.allowsExternalBinaryDataStorage { tail.append(1) }
@@ -64,7 +67,11 @@ public enum VersionHash {
     }
 
     private static func own(_ name: String, _ isOptional: Bool, _ isTransient: Bool, _ versionHashModifier: String?) -> [UInt8] {
-        SHA256.digest(cString(name) + [(isOptional ? 1 : 0) | (isTransient ? 2 : 0), 0] + cString(versionHashModifier))
+        own(name, flags: (isOptional ? 1 : 0) | (isTransient ? 2 : 0), versionHashModifier)
+    }
+
+    private static func own(_ name: String, flags: UInt8, _ versionHashModifier: String?) -> [UInt8] {
+        SHA256.digest(cString(name) + [flags, 0] + cString(versionHashModifier))
     }
 
     /// The UTF-8 bytes up to the first NUL, with no terminator (`version-hashes` `name-nul`).

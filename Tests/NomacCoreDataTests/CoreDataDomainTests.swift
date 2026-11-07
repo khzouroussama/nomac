@@ -6,7 +6,7 @@ import Testing
 @testable import NomacCoreData
 
 /// `nomac check`'s `coredata:` domain on a self-written app: a model with renaming identifiers in
-/// the sources phase, and one with a configuration nomac refuses in a synchronized folder.
+/// the sources phase, and one with a predicate nomac refuses in a synchronized folder.
 @Suite struct CoreDataDomainTests {
     static let project = """
         // !$*UTF8*$!
@@ -49,7 +49,7 @@ import Testing
                                    to: "Renamed.xcdatamodeld/.xccurrentversion")
         try directory.writeExactly(Self.model("""
                 <entity name="Item" representedClassName="Item" syncable="YES"/>
-                <configuration name="Cloud"><memberEntity name="Item"/></configuration>
+                <fetchRequest name="R" entity="Item" predicateString="a == 0 OR a == 1"/>
 
             """), to: "Sources/Store/Local.xcdatamodel/contents")
         return CheckReport.make(container: directory.path + "/App.xcodeproj", domains: [CoreDataDomain()],
@@ -64,7 +64,7 @@ import Testing
         let refused = try #require(features["coredata:refused=B-257"])
         #expect(refused.status == .unverified)
         #expect(refused.uses.map { ($0.file as NSString).lastPathComponent } == ["Local.xcdatamodel"])
-        #expect(refused.uses.first?.object.contains("<configuration>") == true)
+        #expect(refused.uses.first?.object.contains("predicate") == true)
         #expect(features.count == 3)
     }
 

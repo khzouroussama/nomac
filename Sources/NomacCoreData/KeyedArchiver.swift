@@ -44,6 +44,7 @@ final class KeyedArchiver {
         case double(Double)
         case uids([Int])
         case bytes([UInt8])
+        case text(String)
     }
 
     private enum Slot {
@@ -73,6 +74,7 @@ final class KeyedArchiver {
         "NSDictionary", "NSMutableDictionary", "NSMutableArray", "NSPredicate", "NSComparisonPredicate", "NSExpression",
         "NSConstantValueExpression", "NSSelfExpression", "NSFunctionExpression", "NSKeyPathExpression",
         "NSKeyPathSpecifierExpression", "NSPredicateOperator", "NSStringPredicateOperator", "NSMatchingPredicateOperator",
+        "NSMutableString", "NSEqualityPredicateOperator", "NSCompoundPredicate",
     ]
 
     func encode(_ item: ArchivedItem?, forKey key: String) throws {
@@ -114,6 +116,11 @@ final class KeyedArchiver {
 
     func encodeBytes(_ bytes: [UInt8], forKey key: String) {
         frames[frames.count - 1].append((key, .bytes(bytes)))
+    }
+
+    /// A string in the object itself, not a reference (`NSMutableString`'s `NS.string`).
+    func encodeText(_ text: String, forKey key: String) {
+        frames[frames.count - 1].append((key, .text(text)))
     }
 
     /// The `NS.keys` and `NS.objects` of collections: an array of references.
@@ -254,6 +261,7 @@ final class KeyedArchiver {
         case .double(let double): .double(double, shared: true)
         case .uids(let uids): .array(uids.map { .uid($0) })
         case .bytes(let bytes): .data(bytes)
+        case .text(let text): .string(text, shared: nil)
         }
     }
 

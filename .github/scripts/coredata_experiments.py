@@ -253,7 +253,55 @@ EXPERIMENTS.update({
     "transformable-module": model(entity("Item", attribute("c", "Transformable", 'optional="YES" valueTransformerName="V" customClassName="UIKit.UIColor"'))),
     "two-classes-in-module": model('    <entity name="A" representedClassName=".Same" syncable="YES"/>\n', '    <entity name="B" representedClassName=".Same" syncable="YES"/>\n'),
 })
-SURVEY_MODELS = ["no-class", "version-identifier", "model-attributes", "decimal-defaults", "decimal-several", "default-ignored", "tools-automatic-11116",
+_TWO = (typed("String", "a"), typed("String", "b"))
+
+
+def _compound(*groups):
+    return "<compoundIndexes>" + "".join("<compoundIndex>" + "".join(f'<index value="{v}"/>' for v in group) + "</compoundIndex>" for group in groups) + "</compoundIndexes>"
+
+
+_A_INDEXED = attribute("a", "String", 'optional="YES" indexed="YES"')
+_OLD = "5064"
+_CONFIGURED = "".join(entity(f"E{i}", codegen=None) for i in range(9))
+_PREDICATE_ENTITIES = (entity("Item", typed("Integer 64", "a"), typed("String", "s"), _to_one("o", "Other"), codegen=None) + entity("Other", typed("String", "name"), codegen=None))
+
+
+def _predicate(text):
+    return model(_PREDICATE_ENTITIES, extra=f'    <fetchRequest name="R" entity="Item" predicateString="{text}"/>\n')
+
+
+EXPERIMENTS.update({
+    "compound-two": model(entity("Item", *_TWO, typed("String", "c"), _compound(["a", "b"], ["b", "c"]), codegen=None)),
+    "compound-indexed": model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["a", "b"]), codegen=None)),
+    "compound-single": model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["a"]), codegen=None)),
+    "compound-fetch-index": model(entity("Item", _A_INDEXED, typed("String", "b"), '<fetchIndex name="f"><fetchIndexElement property="b" type="Binary" order="ascending"/></fetchIndex>', _compound(["a", "b"]), codegen=None)),
+    "compound-legacy-pair": _tools(model(entity("Item", *_TWO, _compound(["a", "b"]), codegen=None)), last=_OLD),
+    "compound-legacy-indexed": _tools(model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["a", "b"]), codegen=None)), last=_OLD),
+    "compound-legacy-single": _tools(model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["a"]), codegen=None)), last=_OLD),
+    "compound-legacy-single-other": _tools(model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["b"]), codegen=None)), last=_OLD),
+    "compound-legacy-mixed": _tools(model(entity("Item", _A_INDEXED, typed("String", "b"), _compound(["a"], ["a", "b"]), codegen=None)), last=_OLD),
+    "configuration-all": model(_CONFIGURED, extra='    <configuration name="Cloud">' + "".join(f'<memberEntity name="E{i}"/>' for i in range(9)) + "</configuration>\n"),
+    "configuration-order": model(_CONFIGURED, extra='    <configuration name="B"><memberEntity name="E8"/><memberEntity name="E1"/></configuration>\n    <configuration name="A"><memberEntity name="E3"/></configuration>\n'),
+    "configuration-four": model(_CONFIGURED, extra="".join(f'    <configuration name="{n}"{" usedWithCloudKit=" + chr(34) + "YES" + chr(34) if n == "Cloud" else ""}><memberEntity name="E{i}"/></configuration>\n' for i, n in enumerate(["Local", "Cloud", "Other", "Zed"]))),
+    "predicate-integer": _predicate("a == 0"),
+    "predicate-comparisons": _predicate("a &gt;= 1 AND a &lt;= 2 AND a &gt; 3 AND a &lt; 4 AND a != 5"),
+    "predicate-string": _predicate("s == &quot;x_y&quot;"),
+    "predicate-maximum": _predicate("a == max:(a)"),
+    "predicate-variable": _predicate("o.name == $LANGUAGE AND s == &quot;Hi&quot;"),
+    "predicate-limit": model(_PREDICATE_ENTITIES, extra='    <fetchRequest name="R" entity="Item" predicateString="a == 0" fetchLimit="5"/>\n    <fetchRequest name="S" entity="Item" fetchLimit="7"/>\n'),
+    "fetched-optional": model(entity("Item", typed("String", "a"), '<fetchedProperty name="fp" optional="YES"><fetchRequest name="fpFetchRequest" entity="Other"/></fetchedProperty>', _to_one("o", "Other"), codegen=None), entity("Other", codegen=None)),
+    "fetched-required": model(entity("Item", '<fetchedProperty name="fp"><fetchRequest name="fpFetchRequest" entity="Other"/></fetchedProperty>', codegen=None), entity("Other", codegen=None)),
+    "fetched-predicate": model(entity("Item", '<fetchedProperty name="fp" optional="YES" elementID="old" versionHashModifier="3"><fetchRequest name="fpFetchRequest" entity="Other" predicateString="name == $FETCH_SOURCE"/></fetchedProperty>', codegen=None), entity("Other", typed("String", "name"), codegen=None)),
+    "boolean-defaults": model(entity("Item", *[attribute(f"a{i:02}", "Boolean", f'optional="YES" defaultValueString="{value}" usesScalarValueType="YES"')
+                                               for i, value in enumerate(["0.0", "0", "1", "YES", "NO", "true", "false", "T", "y", "n", "2", "abc", "01", "", " 1", "-1", "0.5", "00.1"])], codegen=None)),
+    "undefined-transient": model(entity("Item", '<attribute name="u" optional="YES" transient="YES"/>', codegen=None)),
+    "swiftdata-warnings": model('    <entity name="A" representedClassName="A" syncable="YES"><attribute name="t" optional="YES" attributeType="Transformable"/><relationship name="bs" optional="YES" toMany="YES" ordered="YES" deletionRule="No Action" destinationEntity="B"/></entity>\n    <entity name="B" representedClassName="B" syncable="YES" isAbstract="YES"/>\n').replace("<model ", '<model usedWithSwiftData="YES" '),
+})
+SURVEY_MODELS = ["compound-two", "compound-indexed", "compound-single", "compound-fetch-index", "compound-legacy-pair", "compound-legacy-indexed", "compound-legacy-single",
+                 "compound-legacy-single-other", "compound-legacy-mixed", "configuration-all", "configuration-order", "configuration-four", "predicate-integer",
+                 "predicate-comparisons", "predicate-string", "predicate-maximum", "predicate-variable", "predicate-limit", "fetched-optional", "fetched-required",
+                 "fetched-predicate", "boolean-defaults", "undefined-transient", "swiftdata-warnings",
+                 "no-class", "version-identifier", "model-attributes", "decimal-defaults", "decimal-several", "default-ignored", "tools-automatic-11116",
                  "tools-automatic-11117", "tools-automatic-2", "tools-automatic-fraction", "syncable-xcode-10", "syncable-xcode-11", "syncable-no", "syncable-user-info",
                  "property-flags-attribute", "property-flags-relationship", "property-flags-transient", "regular-expression", "user-info-validation", "modifier-attribute",
                  "modifier-relationship", "modifier-strings", "relationship-user-info", "relationship-indexed", "own-inverse", "same-name-inverse", "inverse-without",
@@ -310,6 +358,14 @@ VERSIONED.update({f"versions-{n}": {f"V{i}": EXPERIMENTS["one-date"] for i in ra
 VERSIONED["warn-repeated"] = {"Model": EXPERIMENTS["no-inverse"], "Model 2": EXPERIMENTS["no-inverse"]}
 VERSIONED["versioned-one-no-current"] = {"Model": EXPERIMENTS["one-date"]}
 NO_CURRENT_VERSION["versioned-one-no-current"] = None
+# Which version momc treats as current without a declared one: no .xccurrentversion, or an empty one.
+_CLASS = '<entity name="C{0}" representedClassName="C{0}" syncable="YES" codeGenerationType="class"><attribute name="t" optional="YES" attributeType="Transformable"/></entity>\n'
+for _names in (["Item", "Model"], ["Main", "Data"], ["Alpha", "Alpha 2"], ["Zeta", "Zeta 2"], ["Store 2", "Store"], ["V 3", "V 2", "V"]):
+    _key = _names[0].replace(" ", "")
+    VERSIONED[f"no-current-{_key}"] = {n: model(_CLASS.format(n.replace(" ", ""))) for n in _names}
+    NO_CURRENT_VERSION[f"no-current-{_key}"] = None
+    VERSIONED[f"no-current-empty-{_key}"] = VERSIONED[f"no-current-{_key}"]
+    NO_CURRENT_VERSION[f"no-current-empty-{_key}"] = NO_CURRENT_VERSION["versioned-empty-current"]
 
 # The .omo of a current version, one input varied at a time: each experiment model as the only
 # version of an .xcdatamodeld that names it current.

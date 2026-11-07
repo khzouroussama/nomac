@@ -12,6 +12,9 @@ enum ModelWarnings {
             if entity.isAbstract, !model.entities.contains(where: { $0.parentName == entity.name }) {
                 warnings.append("\(location):\(entity.name): warning: abstract entity \(entity.name) has no children [1]")
             }
+            if entity.isAbstract, model.isUsedWithSwiftData {
+                warnings.append("\(location):\(entity.name): warning: Abstract entities are not supported in SwiftData. [10]")
+            }
             for property in entity.properties {
                 let qualified = "\(entity.name).\(property.name)"
                 let prefix = "\(location):\(qualified): warning: "
@@ -23,6 +26,8 @@ enum ModelWarnings {
                     if transformers, attribute.type == .transformable, attribute.valueTransformerName == nil {
                         warnings.append(prefix + "\(qualified) is using a nil or insecure value transformer. Please switch to NSSecureUnarchiveFromDataTransformerName or a custom NSValueTransformer subclass of NSSecureUnarchiveFromDataTransformer [2]")
                     }
+                case .fetched:
+                    continue
                 case .relationship(let relationship):
                     // The delete rule's warning comes first (`no-inverse`).
                     if relationship.deleteRule == .noAction {
@@ -35,6 +40,9 @@ enum ModelWarnings {
                         warnings.append(prefix + (relationship.isToMany
                             ? "\(qualified) does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]"
                             : "\(qualified) should have an inverse [2]"))
+                    }
+                    if model.isUsedWithSwiftData, relationship.isOrdered {
+                        warnings.append(prefix + "Ordered relationships are unsupported in SwiftData. [10]")
                     }
                 }
             }

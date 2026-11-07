@@ -8,6 +8,356 @@ import Testing
 /// lists and families sorted (ADR 0230, ADR 0232), and its warnings.
 @Suite struct SurveyedFeatureTests {
     static let models: [(name: String, contents: String, mom: String, omo: String, warnings: [String])] = [
+        ("compound-two", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <attribute name="c" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/><index value="b"/></compoundIndex><compoundIndex><index value="b"/><index value="c"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "93a268a305c586ef5f154061b25b6e19afaeba2a81fa8a5c956669d96695089c", "430bd8ceb306689dddded36390b6722c547096209a5cba2bcb117ef26e6274ec",
+         []),
+        ("compound-indexed", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "5f522c5c01999c833f334b110baa491721d8d201fb8759630d8b22a959c7ef17", "a39f909c6b0d47800b619aecd30a2bd9be664b0d41bd957fc0d1cc05e0ad2ba7",
+         []),
+        ("compound-single", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "26ed7bc607fce9bc02304081a49bd7fdf3644e3fde20fd4daaa2e127d914d316", "d188df9503fdbd565ce4ca3a71f69634c53f6c28d8407c401ce9c0efd9f87bbe",
+         []),
+        ("compound-fetch-index", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <fetchIndex name="f"><fetchIndexElement property="b" type="Binary" order="ascending"/></fetchIndex>
+        <compoundIndexes><compoundIndex><index value="a"/><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "e054f018d84019f59a8f6f093677295269036e903517f92fd728ce24023f98b5", "ab4b21c419f1494d74f97fdc1efda41212f69b744bb3adf6e6c9174a0aa84ae5",
+         []),
+        ("compound-legacy-pair", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="5064" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "47c53f57fb4131791de37ff1db37afe2be8703a138e501aad1a59adfbc1697b5", "a66b95b30be7ef98a5b9dc11f9637b21b9a07848c8c06860a00ced06121be32e",
+         []),
+        ("compound-legacy-indexed", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="5064" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "9b1e7e9a35e833a8aec50b89c931659e8974b359c743af458e6f0b8f44b3440f", "a49e0f42f67fd8301fb0fc3081bf1f846c2eb975b38454309b85a5cf4b6920bb",
+         []),
+        ("compound-legacy-single", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="5064" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "f3522243735860e6345f8c89dc7e47ef9e622af8ef15b69ed3a8609e47b4a46d", "1250a6712d95b8d471ae759959d375eef5e4b4fc0aad4a329e7c51e287c4ec7f",
+         []),
+        ("compound-legacy-single-other", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="5064" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "53938c2bd9278111c50eb1be155f2d52af4576cdeb7e7c78f2a98733d309ea60", "d8054d32a691fcf8df77089d7412788547f1ddb115191a2d41a963c157855cd9",
+         []),
+        ("compound-legacy-mixed", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="5064" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" indexed="YES" attributeType="String"/>
+        <attribute name="b" optional="YES" attributeType="String"/>
+        <compoundIndexes><compoundIndex><index value="a"/></compoundIndex><compoundIndex><index value="a"/><index value="b"/></compoundIndex></compoundIndexes>
+    </entity>
+</model>
+"""#, "9b1e7e9a35e833a8aec50b89c931659e8974b359c743af458e6f0b8f44b3440f", "a49e0f42f67fd8301fb0fc3081bf1f846c2eb975b38454309b85a5cf4b6920bb",
+         []),
+        ("configuration-all", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="E0" representedClassName="E0" syncable="YES">
+    </entity>
+    <entity name="E1" representedClassName="E1" syncable="YES">
+    </entity>
+    <entity name="E2" representedClassName="E2" syncable="YES">
+    </entity>
+    <entity name="E3" representedClassName="E3" syncable="YES">
+    </entity>
+    <entity name="E4" representedClassName="E4" syncable="YES">
+    </entity>
+    <entity name="E5" representedClassName="E5" syncable="YES">
+    </entity>
+    <entity name="E6" representedClassName="E6" syncable="YES">
+    </entity>
+    <entity name="E7" representedClassName="E7" syncable="YES">
+    </entity>
+    <entity name="E8" representedClassName="E8" syncable="YES">
+    </entity>
+    <configuration name="Cloud"><memberEntity name="E0"/><memberEntity name="E1"/><memberEntity name="E2"/><memberEntity name="E3"/><memberEntity name="E4"/><memberEntity name="E5"/><memberEntity name="E6"/><memberEntity name="E7"/><memberEntity name="E8"/></configuration>
+</model>
+"""#, "e086c7151a37ccbcfa38e2d470086b7efa06e3ac65412ae2d1b463525e7593c1", "9edfb2ee0e367e0a51a513b011f842aceda9f9b997fce9bb69a0e760fa0c979a",
+         []),
+        ("configuration-order", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="E0" representedClassName="E0" syncable="YES">
+    </entity>
+    <entity name="E1" representedClassName="E1" syncable="YES">
+    </entity>
+    <entity name="E2" representedClassName="E2" syncable="YES">
+    </entity>
+    <entity name="E3" representedClassName="E3" syncable="YES">
+    </entity>
+    <entity name="E4" representedClassName="E4" syncable="YES">
+    </entity>
+    <entity name="E5" representedClassName="E5" syncable="YES">
+    </entity>
+    <entity name="E6" representedClassName="E6" syncable="YES">
+    </entity>
+    <entity name="E7" representedClassName="E7" syncable="YES">
+    </entity>
+    <entity name="E8" representedClassName="E8" syncable="YES">
+    </entity>
+    <configuration name="B"><memberEntity name="E8"/><memberEntity name="E1"/></configuration>
+    <configuration name="A"><memberEntity name="E3"/></configuration>
+</model>
+"""#, "438f65c08d8af05735b85370c9f608003f14b2b263f78ce1330ae6de7acb948e", "dfa412b627a92d8ed7eb9d51a5751321d71d7d791da67d862248b23ddd6d2c9f",
+         []),
+        ("configuration-four", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="E0" representedClassName="E0" syncable="YES">
+    </entity>
+    <entity name="E1" representedClassName="E1" syncable="YES">
+    </entity>
+    <entity name="E2" representedClassName="E2" syncable="YES">
+    </entity>
+    <entity name="E3" representedClassName="E3" syncable="YES">
+    </entity>
+    <entity name="E4" representedClassName="E4" syncable="YES">
+    </entity>
+    <entity name="E5" representedClassName="E5" syncable="YES">
+    </entity>
+    <entity name="E6" representedClassName="E6" syncable="YES">
+    </entity>
+    <entity name="E7" representedClassName="E7" syncable="YES">
+    </entity>
+    <entity name="E8" representedClassName="E8" syncable="YES">
+    </entity>
+    <configuration name="Local"><memberEntity name="E0"/></configuration>
+    <configuration name="Cloud" usedWithCloudKit="YES"><memberEntity name="E1"/></configuration>
+    <configuration name="Other"><memberEntity name="E2"/></configuration>
+    <configuration name="Zed"><memberEntity name="E3"/></configuration>
+</model>
+"""#, "8cc4603bfce293b624e01d307389b8c133c0251464aca6d6a92f88d92afdcd13", "6753fdad2a4dcfec6d33362be8c297e4fdf71b9fe9cf9440e64d636017df1836",
+         []),
+        ("predicate-integer", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="a == 0"/>
+</model>
+"""#, "33591301ad086e8dfbd30ffe6beb670f9bf2461054e53a8fc3bbb8e50596592b", "7f2cf2e91239b9ddb6e0aa9452bb42832f4d0a2769336c9ae1f6c9d61846368c",
+         ["Item.o should have an inverse [2]"]),
+        ("predicate-comparisons", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="a &gt;= 1 AND a &lt;= 2 AND a &gt; 3 AND a &lt; 4 AND a != 5"/>
+</model>
+"""#, "b14a2d19d2e6c96bd22a41f26276ed5d1044c02997540deb2d507ae6220d467b", "67992828f18928cd60315d9e45952e63dbfa4c4e3bc7e2c203cd808fed570c23",
+         ["Item.o should have an inverse [2]"]),
+        ("predicate-string", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="s == &quot;x_y&quot;"/>
+</model>
+"""#, "558da58c901ff4700703bfb8039b97f373be70c8f1e3274dce3a0727992836a5", "a90c8208857f389cc85c921d2990eca8afef9d6a59fad5d76bc53649bf34aef8",
+         ["Item.o should have an inverse [2]"]),
+        ("predicate-maximum", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="a == max:(a)"/>
+</model>
+"""#, "d91bf615bf61314b1dab66132705baf1d341f4f430ce3a4a818f0b8a2a299f66", "461a6205c1d65ce245b597d7aec6164a042d20c450f7d898549b97cc34a9adab",
+         ["Item.o should have an inverse [2]"]),
+        ("predicate-variable", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="o.name == $LANGUAGE AND s == &quot;Hi&quot;"/>
+</model>
+"""#, "428fd3fe5e00391e2db95be137144bb89cb501901f82f9a55c534a88311ce50e", "afde0cfd599baa525fde213be81db65e66cae11a132795e633f25fdb1b8d461c",
+         ["Item.o should have an inverse [2]"]),
+        ("predicate-limit", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" usesScalarValueType="YES" attributeType="Integer 64"/>
+        <attribute name="s" optional="YES" attributeType="String"/>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+    <fetchRequest name="R" entity="Item" predicateString="a == 0" fetchLimit="5"/>
+    <fetchRequest name="S" entity="Item" fetchLimit="7"/>
+</model>
+"""#, "8f1f365ae7a3184e936042c26687e4a732c0ec6f95b6a3e44ed852670e26103c", "ca3485b4f6efe6402f3e76069ebfc5ce043ac0e3fb6bc101546eac21c947deac",
+         ["Item.o should have an inverse [2]"]),
+        ("fetched-optional", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a" optional="YES" attributeType="String"/>
+        <fetchedProperty name="fp" optional="YES"><fetchRequest name="fpFetchRequest" entity="Other"/></fetchedProperty>
+        <relationship name="o" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Other"/>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+    </entity>
+</model>
+"""#, "aa867612c52ddfde80c1b96717d7442137a1f3d0b272091c02cfbed9fb564485", "1e420c59ab26d26bfa2d0d71f7535aa4e997264620fce9d78fe3795a77fb2e58",
+         ["Item.o should have an inverse [2]"]),
+        ("fetched-required", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <fetchedProperty name="fp"><fetchRequest name="fpFetchRequest" entity="Other"/></fetchedProperty>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+    </entity>
+</model>
+"""#, "8e876bd8c1fc93ad71c01ba3b99a2facf8b8c3d62a8328e9776ff68442fa70e4", "e44a690f9370cf409987959f4aed338ef490377ca145a8f5866d104e7e45dc1c",
+         []),
+        ("fetched-predicate", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <fetchedProperty name="fp" optional="YES" elementID="old" versionHashModifier="3"><fetchRequest name="fpFetchRequest" entity="Other" predicateString="name == $FETCH_SOURCE"/></fetchedProperty>
+    </entity>
+    <entity name="Other" representedClassName="Other" syncable="YES">
+        <attribute name="name" optional="YES" attributeType="String"/>
+    </entity>
+</model>
+"""#, "2e8e2e89247b5c4cf083285bdefb24083fa8b72df805776e6186a44e8e041cd2", "deafee28f6fae255d7ebc8055ee4578d0539c4a398070ade7bce25ac81c3a8bb",
+         []),
+        ("boolean-defaults", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="a00" optional="YES" defaultValueString="0.0" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a01" optional="YES" defaultValueString="0" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a02" optional="YES" defaultValueString="1" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a03" optional="YES" defaultValueString="YES" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a04" optional="YES" defaultValueString="NO" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a05" optional="YES" defaultValueString="true" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a06" optional="YES" defaultValueString="false" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a07" optional="YES" defaultValueString="T" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a08" optional="YES" defaultValueString="y" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a09" optional="YES" defaultValueString="n" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a10" optional="YES" defaultValueString="2" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a11" optional="YES" defaultValueString="abc" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a12" optional="YES" defaultValueString="01" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a13" optional="YES" defaultValueString="" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a14" optional="YES" defaultValueString=" 1" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a15" optional="YES" defaultValueString="-1" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a16" optional="YES" defaultValueString="0.5" usesScalarValueType="YES" attributeType="Boolean"/>
+        <attribute name="a17" optional="YES" defaultValueString="00.1" usesScalarValueType="YES" attributeType="Boolean"/>
+    </entity>
+</model>
+"""#, "4cd2e7c83efa68a9602f5ea3551f556a6be8e83d0c5eebcdce56b7bc08238b10", "9b15ab35ee6b02369106a6c4206c2e5da35471f2d24d880f76e76c8be6097df3",
+         []),
+        ("undefined-transient", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Item" representedClassName="Item" syncable="YES">
+        <attribute name="u" optional="YES" transient="YES"/>
+    </entity>
+</model>
+"""#, "6441c6d128c16e7c72cebbdf46a5b0cd77081e4103f7488e19db401ce07f827d", "5c0b9de171cb75e7d38bc7937b8bc4d240055cff064ad51397488fbf8c3542e2",
+         []),
+        ("swiftdata-warnings", #"""
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model usedWithSwiftData="YES" type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="A" representedClassName="A" syncable="YES"><attribute name="t" optional="YES" attributeType="Transformable"/><relationship name="bs" optional="YES" toMany="YES" ordered="YES" deletionRule="No Action" destinationEntity="B"/></entity>
+    <entity name="B" representedClassName="B" syncable="YES" isAbstract="YES"/>
+</model>
+"""#, "92767db835f5646c14069886faee453d253c73470f24b0745575182bc6fbf543", "2b9cdd60f870deab28dacf55c53cc228b337e39d0b955e4701abe68598fae208",
+         ["A.t is using a nil or insecure value transformer. Please switch to NSSecureUnarchiveFromDataTransformerName or a custom NSValueTransformer subclass of NSSecureUnarchiveFromDataTransformer [2]", "Setting the No Action Delete Rule on A.bs may result in relationships to deleted objects [7]", "A.bs does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]", "Ordered relationships are unsupported in SwiftData. [10]", "abstract entity B has no children [1]", "Abstract entities are not supported in SwiftData. [10]"]),
         ("no-class", #"""
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
@@ -560,6 +910,22 @@ import Testing
         #expect(warnings.count == 2)
     }
 
+    /// Without a declared current version momc uses the last file name in byte order, for generated
+    /// classes and transformer warnings alike (coredata-experiments `no-current-*`).
+    @Test(arguments: [(["Item", "Model"], "Model"), (["Main", "Data"], "Main"), (["Alpha", "Alpha 2"], "Alpha"), (["Store 2", "Store"], "Store"), (["V 3", "V 2", "V"], "V")])
+    func usesTheLastFileNameWithoutACurrentVersion(_ names: [String], _ picked: String) throws {
+        let path = "\(Self.work)/no-current-\(names[0])/Model.xcdatamodeld"
+        let head = #"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">"#
+        for name in names {
+            let cls = "C" + name.replacingOccurrences(of: " ", with: "")
+            try FileSystem.write(Data((head + #"<entity name="\#(cls)" representedClassName="\#(cls)" syncable="YES" codeGenerationType="class"><attribute name="t" optional="YES" attributeType="Transformable"/></entity></model>"#).utf8), to: "\(path)/\(name).xcdatamodel/contents")
+        }
+        let cls = "C" + picked.replacingOccurrences(of: " ", with: "")
+        #expect(try ModelCompiler.generatedFiles(path, destination: "/d").first == "/d/\(cls)+CoreDataClass.swift")
+        let warned = try ModelCompiler.compile(path, module: "T").diagnostics.filter { $0.contains("insecure value transformer") }
+        #expect(warned.count == 1 && warned[0].contains("/\(picked).xcdatamodel:"))
+    }
+
     /// `NSDecimalNumber(string:)` and `description`, as momc's `.mom` and `.omo` show them
     /// (coredata-experiments `decimal-defaults`).
     @Test(arguments: [("0.0", "0"), ("-0.0", "0"), ("1.50", "1.5"), ("100", "100"), ("1e3", "1000"), ("1E-2", "0.01"), ("abc", "NaN"), ("", "NaN"),
@@ -567,6 +933,17 @@ import Testing
                       ("123456789012345678901234567890", "123456789012345678901234567890")])
     func describesDecimals(_ text: String, _ description: String) throws {
         #expect(try ArchivedDecimal.defaultValue(text, context: nil, location: "").description == description)
+    }
+
+    /// Predicates of the forms observed are read; others are refused (coredata-experiments `predicate-*`).
+    @Test(arguments: ["a == 0", "a >= 1 AND a <= 2", "s == \"x_y\"", "a == max:(a)", "o.name == $LANGUAGE AND s == \"Hi\""])
+    func readsObservedPredicates(_ text: String) throws {
+        _ = try PredicateSyntax(text)
+    }
+
+    @Test(arguments: ["a == 0 OR a == 1", "NOT a == 0", "a IN {1, 2}", "s == nil", "TRUEPREDICATE", "s CONTAINS[cd] \"x\"", "a > 1.5", "a == YES", "a == min:(a)", ""])
+    func refusesOtherPredicates(_ text: String) {
+        #expect { _ = try PredicateSyntax(text) } throws: { "\($0)".contains("B-257") }
     }
 
     /// What needs rounding, and zero with an exponent, are not observed.

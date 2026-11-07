@@ -54,9 +54,10 @@ its module (`.Mid` → `Mid`, `Other.Beta` → `Beta`, `codegen-order`); then `<
 (moonlight's `Limelight.xcdatamodeld` gives `Limelight+CoreDataModel`, not its version's name).
 Each is `.swift` when the model's `sourceLanguage` is Swift or missing (`no-language`), `.h` then
 `.m` when Objective-C. A model without such entities prints nothing. A versioned model uses its
-current version, or its only version without one (`versioned-one-no-current`); which of several it
-uses without one is not settled (`versioned-no-current` uses its first listed version,
-`versioned-empty-current` another), so nomac refuses that case (B-258).
+current version; without one declared, by no `.xccurrentversion` or an empty one, the last file name
+in byte order, so `Model.xcdatamodel` before a space sorts after `Model 2.xcdatamodel`
+(`no-current-*`, `versioned-no-current`, `versioned-empty-current`, 20 of 20 self-written sets and
+the survey's models).
 
 The files (`momc --action generate`, 133 observed models of both languages, `coredata_compare.py`)
 start with the same comment: `//`, `//  <file name>`, `//  ` (two spaces), `//`, `//  Created by
@@ -91,7 +92,7 @@ Objective-C (moonlight, `objc-*`):
 - `+CoreDataClass.h`: `#import <Foundation/Foundation.h>`, then `#import <CoreData/CoreData.h>` or
   the parent's `"<Parent>+CoreDataClass.h"`; `@class` with the classes of the relationships'
   destinations and the transformable attributes (`NSObject` without `customClassName`), but the
-  entity's own, in byte order; the `@interface`; `#import "<C>+CoreDataProperties.h"`.
+  entity's own and its parent's, in byte order; the `@interface`; `#import "<C>+CoreDataProperties.h"`.
 - `+CoreDataProperties.h`: imports `"<representedClassName>+CoreDataClass.h"`, or
   `"<representedClassName>.h"` for a category (`.Mid.h`). `fetchRequest` has
   `NS_SWIFT_NAME(fetchRequest())` unless the entity has subentities. Properties are `(nonatomic)`
@@ -105,8 +106,8 @@ Objective-C (moonlight, `objc-*`):
 
 nomac refuses what was not observed (B-258): another `--swift-version` than 5.0 (Swift Build passes
 5.0 for both languages), numeric attributes without `usesScalarValueType`, scalar dates, parents of
-another module, Objective-C categories that need `@class`, relationships to classes of several
-modules, and classes whose names differ only by case (on a Mac's case-insensitive volume their files overwrite each other,
+another module, relationships to classes of several modules, and classes whose names differ only
+by case (on a Mac's case-insensitive volume their files overwrite each other,
 `version-strings`).
 
 ## Standard error
@@ -133,6 +134,8 @@ order (`sort-order`), properties in momc's order ("`.mom`: order"):
 | `E.r should have an inverse [2]` | a to-one relationship whose `inverseName` is missing or does not name a relationship of the destination (`inverse-missing`, `inverse-attribute`) |
 | `E.r does not have an inverse; this is an advanced setting (no object can be in multiple destinations for a specific relationship) [7]` | a to-many relationship likewise |
 | `The inverse relationship for E.r does not reciprocate an inverse relationship [2]` | the inverse names another relationship, or none (`inverse-without`; artsy's `Image.artist`) |
+| `Ordered relationships are unsupported in SwiftData. [10]` | an ordered relationship with `usedWithSwiftData="YES"` on the model, after its inverse warning (`swiftdata-warnings`) |
+| `Abstract entities are not supported in SwiftData. [10]` | an abstract entity likewise, after `abstract entity` (`swiftdata-warnings`) |
 | `E.a is set to be stored using a Spotlight external record file, which is deprecated. Use Core Spotlight integration instead. [5]` | `storedInTruthFile="YES"`, transient or not, before its other warnings (`property-flags-*`) |
 | `<input>:: warning: Missing current version declaration [0]` | an `.xcdatamodeld` of several versions without a current one, last |
 
@@ -164,8 +167,8 @@ length; integers are 32-bit little-endian.
   - Not inputs: `isIndexed`, `isIndexedBySpotlight`, `renamingIdentifier`, `userInfo`,
     `valueTransformerName`, `defaultValue`, `allowsCloudEncryption`, validation predicates, the
     value class name, the delete rule.
-  - Fetched properties: only `isOptional` changed the hash among the inputs tried, and no small
-    preimage fits (no corpus model has one; nomac refuses them).
+  - Fetched property: `own` alone with flags 6 and 1 for optional: 2 for transient and 4 for
+    read-only, which they all are (`fetched-*`; found by search, then checked on the `.omo`s).
 - **Entity**: `SHA256(name, isAbstract as one byte, the superentity's hash, the hashes of its
   non-transient properties, inherited ones included, in name order, versionHashModifier, each
   uniqueness constraint's names joined by "." in sorted order)`. An empty entity is `SHA256(00)`.
@@ -240,13 +243,19 @@ Recorded with an `NSCoder` subclass given to each object's `encode(with:)` on ev
 
 | Class | Encoded, in order |
 |---|---|
-| `NSManagedObjectModel` | `NSEntities`, `NSFetchRequestTemplates`, `NSVersionIdentifiers` (`{userDefinedModelVersionIdentifier}`, `{""}` without one: `version-identifier`), then momc's two keys |
+| `NSManagedObjectModel` | `NSEntities`, [`NSConfigurations`], `NSFetchRequestTemplates`, `NSVersionIdentifiers` (`{userDefinedModelVersionIdentifier}`, `{""}` without one: `version-identifier`), then momc's two keys |
 | `NSEntityDescription` | `NSEntityName`, `NSClassNameForEntity`, [`NSIsAbstract`], `NSManagedObjectModel` (conditional), `NSSuperentity` (conditional), `NSSubentities`, `NSProperties`, `NSUserInfo`, `NSVersionHashModifier`, `NSRenamingIdentifier` (`elementID` or the name), [`NSUniqueTuples`], [`NSFetchIndexDescriptions`, `NSCompoundIndexes`] |
 | `NSAttributeDescription` | [`NSIsOptional`], [`NSIsTransient`], [`NSIndexedBySpotlight`], [`NSIsStoredInTruth`], [`NSAllowsCloudEncryption`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSValidationPredicates`, `NSValidationWarnings`], [`NSUserInfo`], [`NSVersionHashModifier`], `_P`, `NSAttributeType`, `NSAttributeValueClassName`, `NSDefaultValue`, `NSValueTransformerName`, `NSFlagsKey` |
 | `NSRelationshipDescription` | [`NSIsOptional`], [`NSIsTransient`], [`NSIndexedBySpotlight`], [`NSIsStoredInTruth`], [`NSIsOrdered`], `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSUserInfo`], [`NSVersionHashModifier`], `_P`, `NSMaxCount`, `NSMinCount`, `NSDeleteRule`, `NSDestinationEntity` (conditional), `_NSDestinationEntityName`, `NSInverseRelationship` (conditional), `_NSInverseRelationshipName` |
 | `NSFetchIndexDescription` | `NSIndexName`, `NSIndexElements` (an `NSArray`), `NSEntity`, `NSPartialIndexPredicate` (nil) |
 | `NSFetchIndexElementDescription` | `NSPropertyName`, `NSFetchIndexElementType` (0, 64-bit), `NSFetchIndexDescription`, `NSAscending` |
-| `NSFetchRequest` (a model's `<fetchRequest name entity/>`) | `NSValuesToGroupBy`, `NSHavingPredicate`, `NSFetchOffset`, `NSValuesToFetch`, `NSEntity` (conditional), `NSPredicate`, `NSSortDescriptors`, `NSFetchLimit`, `NSBatchSize`, `NSRelationshipKeyPathsForPrefetching`, `NSResultType`, `NSAllocationType`, `NSHasFetchRequestFlags` (true), `NSFetchRequestFlags` (30) |
+| `NSFetchedPropertyDescription` | [`NSIsOptional`], `NSIsReadOnly`, `NSIsTransient`, `NSRenamingIdentifier` (`elementID` or the name), `NSPropertyName`, `NSEntity` (conditional), [`NSVersionHashModifier`], `_P` (as others', and 4 for read-only), `NSFetchRequest`, `_NSFetchRequestEntityName` (`fetched-*`) |
+| `NSFetchRequest` (a model's or fetched property's `<fetchRequest name entity/>`) | `NSValuesToGroupBy`, `NSHavingPredicate`, `NSFetchOffset`, `NSValuesToFetch`, `NSEntity` (conditional), `NSPredicate`, `NSSortDescriptors`, `NSFetchLimit` (`fetchLimit`), `NSBatchSize`, `NSRelationshipKeyPathsForPrefetching`, `NSResultType`, `NSAllocationType`, `NSHasFetchRequestFlags` (true), `NSFetchRequestFlags` (30) |
+| `NSComparisonPredicate` (`predicateString`) | `NSLeftExpression`, `NSRightExpression`, `NSPredicateOperator` |
+| `NSCompoundPredicate` (`AND`) | `NSSubpredicates` (an `NSArray`), `NSCompoundPredicateType` (1) |
+| `NSEqualityPredicateOperator` | `NSOperatorType` (4, `!=` 5), `NSModifier`, `NSNegate`, `NSOptions` |
+| `NSVariableExpression` | `NSExpressionType` (2), `NSVariable` |
+| `NSFunctionExpression` (`max:(a)`) | `NSExpressionType` (4), `NSSelectorName`, `NSOperand` (an `NSConstantValueExpression` of `NSConstantValueClassName` `_NSPredicateUtilities`), `NSArguments` (an `NSMutableArray`) |
 
 Order: momc archives the entities by name, and each entity's attributes by name, then its
 relationships by name, whatever the file's order (`relationships-order`, whose relationships are out
@@ -261,7 +270,11 @@ Values:
 
 - `NSEntities`, `NSSubentities`, `NSProperties` and `NSFetchRequestTemplates` are
   `NSMutableDictionary`s; entities in the order of a dictionary copied twice from momc's order,
-  properties (own ones only) once. An entity's `NSSubentities` is a copy of a dictionary filled in
+  properties (own ones only: attributes, relationships, then fetched properties, each by name)
+  once. `NSConfigurations`, when the file has `<configuration>`s, is an `NSMutableDictionary` filled
+  by name, of `NSSet`s of entities in the order of a table created with the entities' names, in the
+  file's order, an entity's hash being its name's (`configuration-*`). `usedWithCloudKit`, and the
+  model's `name` and `usedWithSwiftData`, change no file. An entity's `NSSubentities` is a copy of a dictionary filled in
   the iteration order of a copy of a dictionary of every entity that has a parent (302 of 302
   dictionaries of several keys in the survey's models, whose order shows only where names collide:
   `subentities-8` and `subentities-9` order Egg, Food and Quest differently). `NSUserInfo` is one
@@ -274,7 +287,8 @@ Values:
   Boolean), `NSString`, `NSDate`, `NSData`, `NSUUID`, `NSURL`, nil for Transformable, and
   `NSDecimalNumber`, a new string for each attribute (`decimal-several`).
 - `NSDefaultValue`: `defaultValueString` read as `NSString.integerValue` for integers (`0.0` and
-  `YES` are 0), `YES`/`NO`/`1`/`0` for Boolean, a float or double, a string, an `NSDecimalNumber` for
+  `YES` are 0), as `NSString.boolValue` for Boolean (`boolean-defaults`: blanks, a sign and zeros,
+  then one of `YyTt1-9`: `0.5` and `` false, `01` and `T` true), a float or double, a string, an `NSDecimalNumber` for
   Decimal ("`NSDecimalNumber`" below); `defaultDateTimeInterval` floored to a whole minute as an
   `NSDate` (`NS.time`; 1030 and 1000.7 give 960, -59 gives -60: `omo-date-defaults`), one object per
   value. momc drops the `defaultValueString` of URI, UUID, Binary and Transformable attributes
@@ -294,11 +308,14 @@ Values:
   `SELF`, `[length]`) per predicate. A String's `regularExpressionString` follows them: `SELF`
   against a constant string with an `NSMatchingPredicateOperator` (`NSOperatorType` 6, `NSModifier`
   0, `NSFlags` 0), warning code 1680 (`regular-expression`).
-- Fetch indexes: indexed attributes and relationships in momc's order (`by<Name>Index`,
-  `relationship-indexed`), then the older `<compoundIndexes>` (`compoundIndex`), or the file's
-  `<fetchIndex>` elements. With `minimumToolsVersion` Xcode 8.0 or older, an indexed attribute's
-  index is named after the attribute and has no entity (`indexed-tools-*`; 9.0 and later name it
-  `by<Name>Index`).
+- Fetch indexes: the file's `<fetchIndex>` elements, then indexed attributes and relationships in
+  momc's order (`by<Name>Index`, `relationship-indexed`), then the older `<compoundIndexes>`
+  (`compoundIndex`, `compoundIndex1`, ...: `compound-*`). With `minimumToolsVersion` Xcode 8.0 or
+  older (`indexed-tools-*`; 9.0 and later as above), an indexed attribute's index is named after
+  the attribute, a compound index of one property counts as that property's index, once, and one
+  of several is named `a_b` with an `NSMutableString`, whose `NS.string` is in the object itself;
+  indexes have no entity unless the entity has one of several properties (`compound-legacy-*`).
+  `<fetchIndex>` under old tools is refused: momc renames it (`a`, not `f`), not explained yet.
   `NSCompoundIndexes` lists the property names of every index of several elements that are all
   attributes (wikipedia: an index with a to-one or to-many relationship is left out).
 - With `minimumToolsVersion` Xcode 10.0 or older, an entity, attribute or relationship without a
@@ -321,10 +338,19 @@ with exponent -1, `100` is 1 with exponent 2); zero keeps the fraction's length 
 (`0.00` is -2) unless negative (`-0.0` is 0). `decimal-defaults` covers these; nomac refuses what
 would need rounding, more than 38 digits or exponents outside ±38, and zero with an exponent.
 
-Not observed yet, refused by nomac (BACKLOG B-257): configurations, fetched properties, fetch
-requests with predicates or limits, derived attributes, validation of types other than numbers and
-strings, regular expressions on other types, `defaultValueString` of a Date, models of several
-compound indexes.
+### Predicates
+
+A fetch request's `predicateString` is parsed for the forms observed (`predicate-*`): comparisons
+(`==`, `!=`, `<`, `<=`, `>`, `>=`; types 4, 5, 0, 1, 2, 3, `NSVariant` repeating the last four as in
+validation) of a key path with an integer, a double-quoted string, a `$VARIABLE` or `max:(keyPath)`,
+joined by `AND`. The left side is an `NSKeyPathExpression` as in validation, `valueForKeyPath:` when
+it has a dot. Strings the parser makes are new objects, and integers are not the 64-bit numbers of
+defaults. Other forms are refused (`OR`, `NOT`, `IN`, `CONTAINS`, `nil`, `TRUEPREDICATE`, floats and
+Booleans are observed in the scratch experiments, not implemented: no surveyed model uses them).
+
+Not observed yet, refused by nomac (BACKLOG B-257): other predicate forms, derived attributes,
+binary `elements` models, validation of types other than numbers and strings, regular expressions
+on other types, a Date's `defaultValueString`, `<fetchIndex>` under old tools.
 
 ## Mapping models
 
@@ -418,10 +444,13 @@ explained, which ADR 0230 shows equivalent; it refuses transient relationships (
   with `_ent`, `_pk`, `_opt`, then from the root entity down each entity's attributes, to-one
   relationships (`_Z<KEY>`, `_Z<number>_<KEY>` for a destination with subentities, the name) and
   to-many relationships, each by UTF-8 name, plain before ordered, then the hidden to-ones and the
-  order keys (766 of 766 entities of the survey's models). **B**: a keyed archive of the model's
+  order keys (766 of 766 entities of the survey's models). Configuration names follow the fetch
+  request names, with `PF_DEFAULT_CONFIGURATION_NAME`, in the order of a table filled by name with
+  the default last (`omo-configuration-*`). **B**: a keyed archive of the model's
   version identifier (`version-identifier`; the string is `""` without one), then the entity and
   property version hashes ("Version hashes" above) and, per property, its user-info archive and a
-  regular expression's archives.
+  regular expression's archives; last, each fetch request's predicate archive
+  (`omo-predicate-*`).
 - **K**: per lookup table (entities by name, fetch requests, then per entity its properties,
   subentities, attributes, relationships), the keys' C indexes in slot order and a dispatch tree on
   the key's length and then, among keys of one length, the first byte position with the most
@@ -471,13 +500,21 @@ explained, which ADR 0230 shows equivalent; it refuses transient relationships (
   u64s 0, 0, its count of properties and each property's name (C), a to-one included; the entity's
   flag word gains `0x1800`, and the S section's first word 8 when any entity has constraints
   (`omo-uq-several`, `omo-uniqueness`).
-- **F**: the count of fetch request templates, then per template, between `0xBEEFCAFE` markers, a
-  76-byte record: 1 at offset 32, its entity's index at 36, 326 at 72. Templates come in the order
-  of a copy of a dictionary of their names, as in the `.mom`; their names enter C right after
-  `""`, and their lookup table follows the entities' (`omo-fr-several`, `omo-fetch-request`).
+- **F**: the count of fetch requests, then per request, between `0xBEEFCAFE` markers, a 76-byte
+  record: 1 at offset 32, its entity's index at 36, its predicate's B index at 40, its limit at
+  64, flags at 72 (326, `0x146`, for a template, `0x46` for a fetched property's). Templates come in
+  the order of a copy of a dictionary of their names, as in the `.mom`, then fetched properties' in
+  their records' order; template names enter C right after `""`, and their lookup table follows the
+  entities' (`omo-fr-several`, `omo-fetch-request`, `omo-predicate-limit`, `omo-fetched-*`).
+  Fetched property records: kind 3, flag 4 for optional, then as a relationship's up to the optionals
+  block, then 0, their index and their request's index in F; an entity's fifth range after the ten is
+  theirs, and its count in the tail includes them twice (`count + fetched`). Header word 9 and
+  P's fifth word count them.
 - **S** starts with 7 (8 added with constraints), the count of entities and the count of
-  templates, then one aligned u64 per template (its index) when there are any, then 1 and
-  `PF_DEFAULT_CONFIGURATION_NAME`.
+  templates, then one aligned u64 per template (its index) when there are any, then the count of
+  configurations and, per configuration in C's order, its C index, two aligned zero u64s, the
+  words 0 and its count of members, and their entity indexes as aligned u64s, in the file's order;
+  `PF_DEFAULT_CONFIGURATION_NAME` lists every entity (`omo-configuration-*`).
 - **S**: per entity, the C indexes of its SQL column names, in the iteration order of a hash table.
   Besides `_ent`, `_pk`, `_opt`, attributes, to-many names and to-one `_Z<KEY>` and name, a
   destination gets, for each to-many without an inverse, a hidden to-one named the source's

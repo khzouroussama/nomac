@@ -11,6 +11,9 @@ import NomacPlist
 public struct DataModel: Sendable {
     public var entities: [Entity]
     public var fetchRequests: [FetchRequest]
+    public var configurations: [Configuration] = []
+    /// `usedWithSwiftData`, which adds warnings and nothing else (coredata-experiments `model-attributes`).
+    public var isUsedWithSwiftData = false
     /// The Xcode major version of `minimumToolsVersion`, nil for `Automatic`.
     public var minimumToolsVersion: Int?
     /// `lastSavedToolsVersion` read as an integer (`9525.2` is 9525), 0 without one.
@@ -39,8 +42,10 @@ public struct DataModel: Sendable {
         model.entities = try entities.map { entity in
             var entity = entity
             let attributes = entity.properties.filter(\.isAttribute)
-            let relationships = entity.properties.filter { !$0.isAttribute }
+            let relationships = entity.properties.filter(\.isRelationship)
+            let fetched = entity.properties.filter(\.isFetched)
             entity.properties = try ModelNameOrder.sorted(attributes, by: \.name) + ModelNameOrder.sorted(relationships, by: \.name)
+                + ModelNameOrder.sorted(fetched, by: \.name)
             return entity
         }
         return model
@@ -87,11 +92,13 @@ public struct DataModel: Sendable {
     public enum Property: Sendable {
         case attribute(Attribute)
         case relationship(Relationship)
+        case fetched(FetchedProperty)
 
         public var name: String {
             switch self {
             case .attribute(let attribute): attribute.name
             case .relationship(let relationship): relationship.name
+            case .fetched(let fetched): fetched.name
             }
         }
 
@@ -100,10 +107,22 @@ public struct DataModel: Sendable {
             return false
         }
 
+        public var isRelationship: Bool {
+            if case .relationship = self { return true }
+            return false
+        }
+
+        public var isFetched: Bool {
+            if case .fetched = self { return true }
+            return false
+        }
+
+        /// Fetched properties always are.
         public var isTransient: Bool {
             switch self {
             case .attribute(let attribute): attribute.isTransient
             case .relationship(let relationship): relationship.isTransient
+            case .fetched: true
             }
         }
 
@@ -111,6 +130,7 @@ public struct DataModel: Sendable {
             switch self {
             case .attribute(let attribute): attribute.renamingIdentifier
             case .relationship(let relationship): relationship.renamingIdentifier
+            case .fetched(let fetched): fetched.renamingIdentifier
             }
         }
 
@@ -118,6 +138,7 @@ public struct DataModel: Sendable {
             switch self {
             case .attribute(let attribute): attribute.versionHashModifier
             case .relationship(let relationship): relationship.versionHashModifier
+            case .fetched(let fetched): fetched.versionHashModifier
             }
         }
 
@@ -125,6 +146,7 @@ public struct DataModel: Sendable {
             switch self {
             case .attribute(let attribute): attribute.isIndexedBySpotlight
             case .relationship(let relationship): relationship.isIndexedBySpotlight
+            case .fetched: false
             }
         }
 
@@ -132,6 +154,7 @@ public struct DataModel: Sendable {
             switch self {
             case .attribute(let attribute): attribute.isStoredInTruth
             case .relationship(let relationship): relationship.isStoredInTruth
+            case .fetched: false
             }
         }
     }
@@ -192,6 +215,22 @@ public struct DataModel: Sendable {
     public struct FetchRequest: Sendable {
         public var name: String
         public var entity: String
+        var predicate: PredicateSyntax?
+        public var fetchLimit = 0
+    }
+
+    public struct FetchedProperty: Sendable {
+        public var name: String
+        public var isOptional: Bool
+        public var renamingIdentifier: String?
+        public var versionHashModifier: String?
+        public var request: FetchRequest
+    }
+
+    /// `<configuration>`: its name and its entities, in the file's order.
+    public struct Configuration: Sendable {
+        public var name: String
+        public var members: [String]
     }
 
     /// `NSAttributeType`, with the names the model file uses.
@@ -271,6 +310,7 @@ extension DataModel {
         versionIdentifier = root["userDefinedModelVersionIdentifier"] ?? ""
         minimumToolsVersion = try Self.majorVersion(root["minimumToolsVersion"] ?? "Automatic", path: path)
         lastSavedToolsVersion = root["lastSavedToolsVersion"].map(ModelElement.integerValue) ?? 0
+        isUsedWithSwiftData = root.flag("usedWithSwiftData")
         sourceLanguage = root["sourceLanguage"]
         entities = []
         fetchRequests = []
@@ -279,8 +319,14 @@ extension DataModel {
             case "entity":
                 entities.append(try Entity(child, path: path))
             case "fetchRequest":
-                try child.check(["name", "entity"], path: path)
-                fetchRequests.append(FetchRequest(name: try child.required("name", path: path), entity: try child.required("entity", path: path)))
+                fetchRequests.append(try FetchRequest(child, path: path))
+            case "configuration":
+                try child.check(["name", "usedWithCloudKit"], path: path)
+                configurations.append(Configuration(name: try child.required("name", path: path), members: try child.children.map { member in
+                    guard member.name == "memberEntity" else { throw ModelElement.unobserved("<\(member.name)> in a configuration", path: path) }
+                    try member.check(["name"], path: path)
+                    return try member.required("name", path: path)
+                }))
             case "elements":
                 continue
             default:
@@ -288,6 +334,13 @@ extension DataModel {
             }
         }
         droppingUnresolvedInverses()
+        if let configuration = configurations.first(where: { $0.members.contains { member in !entities.contains { $0.name == member } } }) {
+            throw NomacError("configuration \(configuration.name) names an entity that is not in the model", path: path)
+        }
+        // Only small tables are observed: their order does not depend on how they are copied.
+        guard configurations.count < 6 else {
+            throw ModelElement.unobserved("more than 5 configurations", path: path)
+        }
     }
 
     /// An `inverseName` that names no relationship of the destination or its parents counts as
@@ -297,7 +350,7 @@ extension DataModel {
         func isRelationship(_ name: String, of entityName: String) -> Bool {
             var entity = byName[entityName]
             while let current = entity {
-                if let property = current.properties.first(where: { $0.name == name }) { return !property.isAttribute }
+                if let property = current.properties.first(where: { $0.name == name }) { return property.isRelationship }
                 entity = current.parentName.flatMap { byName[$0] }
             }
             return false
@@ -327,30 +380,72 @@ extension DataModel {
     ]
 }
 
+extension DataModel.FetchRequest {
+    init(_ element: ModelElement, path: String) throws {
+        try element.check(["name", "entity", "predicateString", "fetchLimit"], path: path)
+        guard element.children.isEmpty else {
+            throw ModelElement.unobserved("<\(element.children[0].name)> in a fetch request", path: path)
+        }
+        name = try element.required("name", path: path)
+        entity = try element.required("entity", path: path)
+        predicate = try element["predicateString"].map(PredicateSyntax.init)
+        fetchLimit = try element.integer("fetchLimit", path: path) ?? 0
+    }
+}
+
+extension DataModel.FetchedProperty {
+    init(_ element: ModelElement, path: String) throws {
+        try element.check(["name", "optional", "elementID", "versionHashModifier", "transient", "syncable"], path: path)
+        guard element.children.count == 1, element.children[0].name == "fetchRequest" else {
+            throw ModelElement.unobserved("a fetched property without one <fetchRequest>", path: path)
+        }
+        name = try element.required("name", path: path)
+        isOptional = element.flag("optional")
+        renamingIdentifier = element["elementID"]
+        versionHashModifier = element["versionHashModifier"]
+        request = try DataModel.FetchRequest(element.children[0], path: path)
+    }
+}
+
 extension DataModel.Entity {
-    /// The fetch indexes momc makes of the entity: indexed attributes (`by<Name>Index`, or the
-    /// attribute's name with legacy indexes), then the older compound index, then the file's
-    /// fetch indexes (wikipedia's Cache: byDateIndex, then compoundIndex). Whether they mix with
-    /// fetch index elements, and the names of further compound indexes, are not observed.
-    func indexes(legacy: Bool) throws -> [(name: String, elements: [(property: String, ascending: Bool)])] {
+    /// A fetch index momc makes of the entity.
+    struct IndexSpec {
+        var name: String
+        var elements: [(property: String, ascending: Bool)]
+        var isCompound: Bool
+    }
+
+    /// The fetch indexes momc makes of the entity: the file's fetch indexes, indexed properties
+    /// (`by<Name>Index`, or the property's name with legacy indexes), then the older compound
+    /// indexes (`compoundIndex`, `compoundIndex1`; `a_b` with legacy indexes)
+    /// (coredata-experiments `compound-*`; wikipedia's Cache).
+    func indexes(legacy: Bool) throws -> [IndexSpec] {
         let indexed = properties.compactMap { property -> String? in
             switch property {
             case .attribute(let attribute): attribute.isIndexed ? attribute.name : nil
             case .relationship(let relationship): relationship.isIndexed ? relationship.name : nil
+            case .fetched: nil
             }
         }
-        if !fetchIndexes.isEmpty, !indexed.isEmpty || !compoundIndexes.isEmpty {
-            throw NomacError("entity \(name) mixes fetch indexes with indexed attributes or compound indexes, which is not observed yet (BACKLOG B-257)")
+        if legacy, !fetchIndexes.isEmpty {
+            throw NomacError("entity \(name) has fetch indexes and an old minimumToolsVersion, which is not observed yet (BACKLOG B-257)")
         }
-        guard compoundIndexes.count <= 1 else {
-            throw NomacError("entity \(name) has several compound indexes, whose names are not observed yet (BACKLOG B-257)")
+        if legacy {
+            // A compound index of one property is that property's index, once (`compound-legacy-*`).
+            var single = indexed
+            for properties in compoundIndexes where properties.count == 1 && !single.contains(properties[0]) {
+                single.append(properties[0])
+            }
+            return single.map { IndexSpec(name: $0, elements: [($0, true)], isCompound: false) }
+                + compoundIndexes.filter { $0.count > 1 }.map { properties in
+                    IndexSpec(name: properties.joined(separator: "_"), elements: properties.map { ($0, true) }, isCompound: true)
+                }
         }
-        if legacy, !compoundIndexes.isEmpty {
-            throw NomacError("entity \(name) has compound indexes and an old minimumToolsVersion, which is not observed yet (BACKLOG B-257)")
-        }
-        return indexed.map { (legacy ? $0 : "by" + $0.prefix(1).uppercased() + $0.dropFirst() + "Index", [($0, true)]) }
-            + compoundIndexes.map { ("compoundIndex", $0.map { ($0, true) }) }
-            + fetchIndexes.map { ($0.name, $0.elements) }
+        return fetchIndexes.map { IndexSpec(name: $0.name, elements: $0.elements, isCompound: false) }
+            + indexed.map { IndexSpec(name: "by" + $0.prefix(1).uppercased() + $0.dropFirst() + "Index", elements: [($0, true)], isCompound: false) }
+            + compoundIndexes.enumerated().map { number, properties in
+                IndexSpec(name: "compoundIndex" + (number == 0 ? "" : String(number)), elements: properties.map { ($0, true) }, isCompound: true)
+            }
     }
 
     init(_ element: ModelElement, path: String) throws {
@@ -382,6 +477,8 @@ extension DataModel.Entity {
                 properties.append(.attribute(try DataModel.Attribute(child, path: path)))
             case "relationship":
                 properties.append(.relationship(try DataModel.Relationship(child, path: path)))
+            case "fetchedProperty":
+                properties.append(.fetched(try DataModel.FetchedProperty(child, path: path)))
             case "uniquenessConstraints":
                 for constraint in child.children {
                     uniquenessConstraints.append(try constraint.values(of: "uniquenessConstraint", item: "constraint", path: path))
@@ -410,11 +507,19 @@ extension DataModel.Attribute {
                            "regularExpressionString"],
                           path: path)
         name = try element.required("name", path: path)
-        let typeName = try element.required("attributeType", path: path)
-        guard let type = DataModel.AttributeType(fileName: typeName) else {
-            throw ModelElement.unobserved("attributeType \"\(typeName)\"", path: path)
+        // Only a transient attribute may have no type (coredata-experiments `undefined-transient`);
+        // momc fails on others, saying "must have a defined type".
+        if let typeName = element["attributeType"] {
+            guard let type = DataModel.AttributeType(fileName: typeName) else {
+                throw ModelElement.unobserved("attributeType \"\(typeName)\"", path: path)
+            }
+            self.type = type
+        } else {
+            guard element.flag("transient") else {
+                throw NomacError("attribute \(name) must have a defined type", path: path)
+            }
+            type = .undefined
         }
-        self.type = type
         isOptional = element.flag("optional")
         isTransient = element.flag("transient")
         defaultValue = element["defaultValueString"]
@@ -526,6 +631,15 @@ final class ModelElement {
         if rest.first == "-" || rest.first == "+" { rest = rest.dropFirst() }
         let magnitude = Int(rest.prefix { $0.isASCII && $0.isNumber }) ?? 0
         return negative ? -magnitude : magnitude
+    }
+
+    /// `NSString.boolValue`: leading blanks, a sign and zeros, then one of `YyTt1-9`
+    /// (coredata-experiments `boolean-defaults`: `0.5` is false, `01` and `T` are true).
+    static func booleanValue(_ text: String) -> Bool {
+        var rest = Substring(text).drop { $0 == " " || $0 == "\t" }
+        if rest.first == "-" || rest.first == "+" { rest = rest.dropFirst() }
+        rest = rest.drop { $0 == "0" }
+        return rest.first.map { "YyTt123456789".contains($0) } ?? false
     }
 
     func integer(_ attribute: String, path: String) throws -> Int? {

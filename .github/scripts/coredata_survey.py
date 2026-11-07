@@ -5,7 +5,7 @@ The models come from the repositories of the coverage survey (feature_survey.py,
 sparse-checked out at the survey's commits under one directory. Nothing read or written here enters
 the repository: observations stay outside it.
 
-    coredata_survey.py features <repositories>                  what the versions use, B-257's list
+    coredata_survey.py features <repositories>                  what the versions use, as BACKLOG B-257 counts it
     coredata_survey.py observe <repositories> <observations>    momc's outputs for every model (Mac)
     coredata_survey.py compare <repositories> <observations> <nomac> [substring]
 
@@ -20,6 +20,7 @@ import base64
 import hashlib
 import json
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -109,7 +110,7 @@ def same_file(name, ours, theirs):
     if name.endswith(".omo"):
         try:
             return compare.canonical(ours) == compare.canonical(theirs) is not None
-        except Exception:
+        except (IndexError, ValueError, UnicodeDecodeError, struct.error):
             return False
     if name.endswith("VersionInfo.plist"):
         return compare.same_values(ours, theirs)
@@ -161,7 +162,6 @@ def run_compare(root, observations, nomac, only):
             reasons[(kind, reason)].append(path)
     for (kind, reason), paths in sorted(reasons.items(), key=lambda item: (item[0][0], -len(item[1]))):
         print(f"{len(paths):5} {len({p.relative_to(root).parts[0] for p in paths}):4}  {kind}: {reason}  e.g. {paths[0].relative_to(root)}")
-    (observations / "compare.json").parent.mkdir(exist_ok=True)
     (observations.parent / "compare.json").write_text(json.dumps([[k, r, str(p)] for k, r, p in results], indent=0))
 
 

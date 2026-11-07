@@ -8,12 +8,13 @@ B-255–B-258 and B-270–B-279, ADRs 0270–0279. `nomac momc` (`Sources/NomacC
 
 Survey-driven: every Core Data model of the coverage survey's repositories, 365 models in 267
 repositories (10 of 277 repositories did not fetch), compared with Xcode 27.0's momc file by file
-with `coredata_survey.py`. At main 85c5aab0: 146 same, 207 refused, 11 different. Now: 327 same, 37
-refused, 0 different. Next are the refusals, most common first (next actions).
+with `coredata_survey.py`. At main 85c5aab0: 146 same, 207 refused, 11 different. Batch 1: 327, 37, 0.
+Batch 2: 352 same, 12 refused (11 binary `elements`, 1 derived attribute), 0 different, and 1 model
+momc itself fails on. The binary format is the next item.
 
 ## Just finished
 
-- Bugs no corpus model showed, each one a model nomac wrote differently from momc:
+- Batch 1, bugs no corpus model showed, each one a model nomac wrote differently from momc:
   - subentity dictionaries: nomac linked them in Swift `Dictionary` order, which also varied from
     run to run; the rule is in docs/formats/foundation-collections.md (302 of 302);
   - the order of versions at 7, 12 and 20 versions (a copied table);
@@ -26,26 +27,41 @@ refused, 0 different. Next are the refusals, most common first (next actions).
     no relationship counts as none;
   - `minimumToolsVersion="Automatic"` acts as an old Xcode for files last saved by builds 2 to
     11116, and `syncable` marks everything without the attribute up to Xcode 10.0.
-- Features: see B-257 "Done"; in the `.omo` too (docs/formats/coredata.md).
-- Code generation: no `sourceLanguage`, the only version without a current one, `.Name` classes,
-  transformables of a module, the input's letters in typealiases (B-258).
+- Batch 2: configurations, fetch requests with predicates and limits (`PredicateSyntax`, observed
+  forms only), fetched properties and their hash, every shape of compound index, Boolean defaults
+  as `NSString.boolValue`, transient attributes without a type, SwiftData warnings, Objective-C
+  categories that refer to other classes.
 - Earlier: B-258's generator; B-255 (version hashes through Core Data's public API); `nomac momc`
   (all 84 corpus `.mom` files identical); `nomac mapc` (B-270); the `.omo` mapped (B-256).
 
 ## Next actions
 
-1. Refusals of `coredata_survey.py compare`, most repositories first: binary `elements` models (the
-   same `XDPMModel` archive `MappingModel` reads, 10 models), configurations (notes below), compound
-   indexes under old tools, fetched properties, fetch request predicates and limits, the rest.
-2. Fetch the 10 repositories that failed and add them to the measure.
-3. Mapping models of the survey's repositories (`*.xcmappingmodel` are checked out, not measured).
-4. B-271: corpus builds on Linux through the momc and mapc launchers; a run of `nomac verify --build`.
+`coredata_survey.py compare` lists these, most repositories first:
 
-Configurations, observed so far: `NSConfigurations` is a mutable dictionary of names to `NSSet`s of
-entities, whose order is a Foundation table of the entities' names (9 of 9 for one model). In the
-`.omo`, S lists each configuration and `PF_DEFAULT_CONFIGURATION_NAME` in the order of a table of
-their names, sorted before inserting, each with its C index, five zero words, its count of members
-and their indexes as u64s.
+1. Binary `elements` models: 11 models in 10 repositories, 17 versions, the largest refusal. Each
+   `.xcdatamodel` holds `elements` (a keyed archive of `XDPMModel`, as `MappingModel` reads) and
+   `layout`, no `contents`; momc compiles them. Entities are `XDPMEntity`, properties `XDPMAttribute`
+   and `XDPMRelationship`, fetch requests `XDPMFetchRequest` (`_entity`, `_fetchedProperty`, `_name`,
+   `_predicateString`, under `XD_PSK_fetchRequestsArray`). Stereotype keys these models use, to map
+   onto `DataModel` or refuse: `XD_PSK_` entityClassName, classMapping, elementID, isAbstract, userInfo,
+   versionHashModifier, fetchRequestsArray; `XD_PPSK_` elementID, isIndexed, isOptional, isSpotlightIndexed,
+   isStoredInTruthFile, isTransient, userInfo, versionHashModifier; `XD_PAttK_` attributeType,
+   allowsExternalBinaryDataStorage, defaultValueAsString, minValueString, maxValueString,
+   regularExpressionString, valueTransformerName; `XD_PRK_` deleteRule, destination,
+   inverseRelationship, isToMany, maxCount, minCount, ordered; `XDPMCompoundIndexes`,
+   `XDPMUniquenessConstraints`; `_modelVersionIdentifier` and `_configurationsByName` on the model.
+   An inventory script is `b257/xd2.py` in the scratch below. Compare with `coredata_survey.py compare`.
+2. Derived attributes (1 model, LeitnerBox).
+3. Fetch the 10 repositories that failed (`survey/fetch_models.py`; GitHub was timing out) and add them
+   to the measure; `observe` only runs on models it has not recorded.
+4. Mapping models of the survey's repositories (`*.xcmappingmodel` are checked out, not measured).
+5. B-271: corpus builds on Linux through the momc and mapc launchers.
+
+Scratch, outside the repository, in `~/nomac-out/wt-scratch/coredata`: `survey/` holds the checked-out
+models (`repos/`), momc's outputs (`obs/`), the last comparison (`compare.json`) and `diff.py`,
+`omodiff.py`, `rawdiff.py`, which show what differs in one model; `b257/vary.py <script>` compiles
+variations of a model with momc and prints what changes in the `.mom` and `.omo`. Models are compared
+at those paths, since momc's order of versions depends on them.
 
 ## How to reproduce
 

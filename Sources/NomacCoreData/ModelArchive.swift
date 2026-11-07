@@ -173,6 +173,7 @@ final class ArchivedDecimal: KeyedArchivable {
 final class ManagedObjectModel: KeyedArchivable {
     private var entities: ArchivedCollection!
     private var fetchRequestTemplates: ArchivedCollection?
+    private var configurations: ArchivedCollection?
     private let versionIdentifiers: ArchivedCollection
 
     init(_ model: DataModel, module: String?) throws {
@@ -201,10 +202,20 @@ final class ManagedObjectModel: KeyedArchivable {
                 guard let entity = described[request.entity] else {
                     throw NomacError("fetch request \(request.name) names the entity \(request.entity), which is not in the model")
                 }
-                return (request.name, .object(FetchRequest(entity: entity)))
+                return (request.name, .object(FetchRequest(request, entity: entity, context: context)))
             }
             let order = try FoundationHashTable.inserting(requests.map(\.0)).copied().keys
             fetchRequestTemplates = .dictionary(.mutableDictionary, requests, order: order)
+        }
+        // A dictionary of the names in order, of sets in the order of a table of their entities'
+        // names, whose hash is their name's (coredata-experiments `configuration-*`).
+        if !model.configurations.isEmpty {
+            let entries = try model.configurations.map { configuration -> (String, ArchivedItem) in
+                let names = try FoundationHashTable.created(with: configuration.members).keys
+                return (configuration.name, .object(ArchivedCollection(.set, objects: names.map { .object(described[$0]!) })))
+            }
+            let order = try FoundationHashTable.inserting(try ModelNameOrder.sorted(model.configurations.map(\.name), by: { $0 })).keys
+            configurations = .dictionary(.mutableDictionary, entries, order: order)
         }
     }
 
@@ -212,6 +223,9 @@ final class ManagedObjectModel: KeyedArchivable {
 
     func encode(to archiver: KeyedArchiver) throws {
         try archiver.encode(entities, forKey: "NSEntities")
+        if let configurations {
+            try archiver.encode(configurations, forKey: "NSConfigurations")
+        }
         try archiver.encode(fetchRequestTemplates, forKey: "NSFetchRequestTemplates")
         try archiver.encode(versionIdentifiers, forKey: "NSVersionIdentifiers")
         archiver.encode(ModelArchive.compilerToolVersion, forKey: "CDMCompilerToolVersion")
@@ -301,6 +315,11 @@ final class EntityDescription: KeyedArchivable {
                     throw NomacError("relationship \(source.name).\(relationship.name) names the entity \(relationship.destination), which is not in the model")
                 }
                 description = try RelationshipDescription(relationship, entity: self, destination: destination, marksUnsyncable: marksUnsyncable)
+            case .fetched(let fetched):
+                guard let destination = entities[fetched.request.entity] else {
+                    throw NomacError("fetched property \(source.name).\(fetched.name) names the entity \(fetched.request.entity), which is not in the model")
+                }
+                description = FetchedPropertyDescription(fetched, entity: self, destination: destination, context: context)
             }
             described[property.name] = description
             entries.append((property.name, .object(description)))
@@ -308,7 +327,12 @@ final class EntityDescription: KeyedArchivable {
         let order = try FoundationHashTable.inserting(source.properties.map(\.name)).copied().keys
         properties = .dictionary(.mutableDictionary, entries, order: order)
         let indexes = try source.indexes(legacy: legacyIndexes)
-        fetchIndexes = indexes.map { FetchIndexDescription(name: $0.name, elements: $0.elements, entity: legacyIndexes ? nil : self) }
+        // Legacy indexes have no entity unless the entity has compound indexes, and legacy compound
+        // indexes a mutable name (`compound-legacy-*`, `indexed-tools-*`).
+        fetchIndexes = indexes.map {
+            FetchIndexDescription(name: $0.name, hasMutableName: legacyIndexes && $0.isCompound, elements: $0.elements,
+                                  entity: legacyIndexes && !indexes.contains(where: \.isCompound) ? nil : self)
+        }
         // Indexes of several attributes only: one with a relationship is left out (wikipedia's
         // WMFArticle and ReadingListEntry).
         let attributes = Set(source.properties.compactMap { if case .attribute(let a) = $0 { a.name } else { nil } })
@@ -451,7 +475,7 @@ final class AttributeDescription: KeyedArchivable {
         case .integer16, .integer32, .integer64: number = .integer(ModelElement.integerValue(text), bits: 64)
         case .double: number = Double(text).map { .double($0) }
         case .float: number = Float(text).map { .float($0) }
-        case .boolean: number = ["YES": true, "1": true, "NO": false, "0": false][text].map { .boolean($0) }
+        case .boolean: number = .boolean(ModelElement.booleanValue(text))
         default: return nil
         }
         guard let number else {
@@ -581,13 +605,28 @@ enum PropertyFlags {
     }
 }
 
+/// `NSMutableString`, as a legacy compound index's name.
+final class ArchivedMutableString: KeyedArchivable {
+    private let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var archivedClassNames: [String] { ["NSMutableString", "NSString", "NSObject"] }
+
+    func encode(to archiver: KeyedArchiver) throws {
+        archiver.encodeText(text, forKey: "NS.string")
+    }
+}
+
 final class FetchIndexDescription: KeyedArchivable {
-    private let name: String
+    private let name: ArchivedItem
     private var elements: [FetchIndexElementDescription] = []
     private weak var entity: EntityDescription?
 
-    init(name: String, elements: [(property: String, ascending: Bool)], entity: EntityDescription?) {
-        self.name = name
+    init(name: String, hasMutableName: Bool, elements: [(property: String, ascending: Bool)], entity: EntityDescription?) {
+        self.name = hasMutableName ? .object(ArchivedMutableString(name)) : .string(name)
         self.entity = entity
         self.elements = elements.map { FetchIndexElementDescription(property: $0.property, ascending: $0.ascending, index: self) }
     }
@@ -595,7 +634,7 @@ final class FetchIndexDescription: KeyedArchivable {
     var archivedClassNames: [String] { ["NSFetchIndexDescription", "NSObject"] }
 
     func encode(to archiver: KeyedArchiver) throws {
-        try archiver.encode(name, forKey: "NSIndexName")
+        try archiver.encode(name as ArchivedItem?, forKey: "NSIndexName")
         try archiver.encode(ArchivedCollection(.array, objects: elements.map { .object($0) }), forKey: "NSIndexElements")
         try archiver.encode(entity, forKey: "NSEntity")
         try archiver.encode(nil as ArchivedItem?, forKey: "NSPartialIndexPredicate")
@@ -625,30 +664,68 @@ final class FetchIndexElementDescription: KeyedArchivable {
 
 final class FetchRequest: KeyedArchivable {
     private unowned let entity: EntityDescription
+    private let predicate: KeyedArchivable?
+    private let limit: Int
 
-    init(entity: EntityDescription) {
+    init(_ request: DataModel.FetchRequest, entity: EntityDescription, context: ArchiveContext) {
         self.entity = entity
+        predicate = request.predicate.map { Predicate.of($0, context: context) }
+        limit = request.fetchLimit
     }
 
     var archivedClassNames: [String] { ["NSFetchRequest", "NSPersistentStoreRequest", "NSObject"] }
 
-    /// A template without predicate, sort or limits, as the model file's `<fetchRequest name entity/>`
-    /// gives it (fetch-request experiment and BubbleTeaFinder's): flags 30.
+    /// A template as the model file's `<fetchRequest>` gives it (coredata-experiments
+    /// `fetch-request`, `predicates`, BubbleTeaFinder's): flags 30.
     func encode(to archiver: KeyedArchiver) throws {
         try archiver.encode(nil as ArchivedItem?, forKey: "NSValuesToGroupBy")
         try archiver.encode(nil as ArchivedItem?, forKey: "NSHavingPredicate")
         archiver.encodeInt32(0, forKey: "NSFetchOffset")
         try archiver.encode(nil as ArchivedItem?, forKey: "NSValuesToFetch")
         archiver.encodeConditional(entity, forKey: "NSEntity")
-        try archiver.encode(nil as ArchivedItem?, forKey: "NSPredicate")
+        try archiver.encode(predicate, forKey: "NSPredicate")
         try archiver.encode(nil as ArchivedItem?, forKey: "NSSortDescriptors")
-        archiver.encodeInt32(0, forKey: "NSFetchLimit")
+        archiver.encodeInt32(limit, forKey: "NSFetchLimit")
         archiver.encodeInt32(0, forKey: "NSBatchSize")
         try archiver.encode(nil as ArchivedItem?, forKey: "NSRelationshipKeyPathsForPrefetching")
         archiver.encodeInteger(0, forKey: "NSResultType")
         archiver.encodeInteger(0, forKey: "NSAllocationType")
         archiver.encode(true, forKey: "NSHasFetchRequestFlags")
         archiver.encodeInteger(30, forKey: "NSFetchRequestFlags")
+    }
+}
+
+final class FetchedPropertyDescription: KeyedArchivable {
+    private let source: DataModel.FetchedProperty
+    private unowned let entity: EntityDescription
+    private let request: FetchRequest
+
+    init(_ source: DataModel.FetchedProperty, entity: EntityDescription, destination: EntityDescription, context: ArchiveContext) {
+        self.source = source
+        self.entity = entity
+        request = FetchRequest(source.request, entity: destination, context: context)
+    }
+
+    var archivedClassNames: [String] { ["NSFetchedPropertyDescription", "NSPropertyDescription", "NSObject"] }
+
+    /// `_P` as other properties', and 4 for read-only (coredata-experiments `fetched-*`).
+    func encode(to archiver: KeyedArchiver) throws {
+        if source.isOptional {
+            archiver.encode(true, forKey: "NSIsOptional")
+        }
+        archiver.encode(true, forKey: "NSIsReadOnly")
+        archiver.encode(true, forKey: "NSIsTransient")
+        try archiver.encode(source.renamingIdentifier ?? source.name, forKey: "NSRenamingIdentifier")
+        try archiver.encode(source.name, forKey: "NSPropertyName")
+        archiver.encodeConditional(entity, forKey: "NSEntity")
+        if let modifier = source.versionHashModifier {
+            try archiver.encode(modifier, forKey: "NSVersionHashModifier")
+        }
+        archiver.encodeInt32(4 | PropertyFlags.value(isOptional: source.isOptional, isTransient: true, isIndexedBySpotlight: false, isStoredInTruth: false, isOrdered: false,
+                                                     allowsCloudEncryption: false, hasValidation: false, hasUserInfo: false,
+                                                     hasVersionHashModifier: source.versionHashModifier != nil), forKey: "_P")
+        try archiver.encode(request, forKey: "NSFetchRequest")
+        try archiver.encode(source.request.entity, forKey: "_NSFetchRequestEntityName")
     }
 }
 
@@ -669,6 +746,33 @@ final class Predicate: KeyedArchivable {
         self.left = left
         self.right = right
         comparison = MatchingOperator()
+    }
+
+    private init(left: Expression, right: Expression, comparison: KeyedArchivable) {
+        self.left = left
+        self.right = right
+        self.comparison = comparison
+    }
+
+    /// A `predicateString`'s objects (coredata-experiments `predicates`).
+    static func of(_ syntax: PredicateSyntax, context: ArchiveContext) -> KeyedArchivable {
+        switch syntax {
+        case .and(let parts):
+            return CompoundPredicate(type: 1, parts: parts.map { of($0, context: context) })
+        case .comparison(let keyPath, let comparison, let value):
+            let right: Expression
+            switch value {
+            // Not the 64-bit numbers of defaults and validation bounds (`predicates`).
+            case .integer(let integer): right = .constant(.integer(integer, bits: 32))
+            case .string(let text): right = .string(text)
+            case .variable(let name): right = .variable(name)
+            case .maximum(let path):
+                right = .function("max:", argument: .keyPath(path, operand: context.evaluatedObject))
+            }
+            let kind: KeyedArchivable = comparison == .equal || comparison == .notEqual
+                ? EqualityOperator(type: comparison.rawValue) : ComparisonOperator(type: comparison.rawValue)
+            return Predicate(left: .keyPath(keyPath, operand: context.evaluatedObject), right: right, comparison: kind)
+        }
     }
 
     var archivedClassNames: [String] { ["NSComparisonPredicate", "NSPredicate", "NSObject"] }
@@ -698,6 +802,40 @@ final class ComparisonOperator: KeyedArchivable {
     }
 }
 
+final class CompoundPredicate: KeyedArchivable {
+    private let type: Int
+    private let parts: [KeyedArchivable]
+
+    init(type: Int, parts: [KeyedArchivable]) {
+        self.type = type
+        self.parts = parts
+    }
+
+    var archivedClassNames: [String] { ["NSCompoundPredicate", "NSPredicate", "NSObject"] }
+
+    func encode(to archiver: KeyedArchiver) throws {
+        try archiver.encode(ArchivedCollection(.array, objects: parts.map { .object($0) }), forKey: "NSSubpredicates")
+        archiver.encodeInteger(type, forKey: "NSCompoundPredicateType")
+    }
+}
+
+final class EqualityOperator: KeyedArchivable {
+    private let type: Int
+
+    init(type: Int) {
+        self.type = type
+    }
+
+    var archivedClassNames: [String] { ["NSEqualityPredicateOperator", "NSPredicateOperator", "NSObject"] }
+
+    func encode(to archiver: KeyedArchiver) throws {
+        archiver.encodeInteger(type, forKey: "NSOperatorType")
+        archiver.encodeInteger(0, forKey: "NSModifier")
+        archiver.encode(type == 5, forKey: "NSNegate")
+        archiver.encodeInteger(0, forKey: "NSOptions")
+    }
+}
+
 final class MatchingOperator: KeyedArchivable {
     var archivedClassNames: [String] { ["NSMatchingPredicateOperator", "NSStringPredicateOperator", "NSPredicateOperator", "NSObject"] }
 
@@ -714,8 +852,11 @@ final class Expression: KeyedArchivable {
         case evaluatedObject
         case constant(ArchivedNumber)
         case stringConstant(String)
+        case classConstant(String)
         case keyPath(String, operand: Expression)
         case keyPathSpecifier(String)
+        case variable(String)
+        case function(String, operand: Expression, argument: Expression)
     }
 
     let kind: Kind
@@ -731,12 +872,21 @@ final class Expression: KeyedArchivable {
 
     static func string(_ text: String) -> Expression { Expression(.stringConstant(text)) }
 
+    static func variable(_ name: String) -> Expression { Expression(.variable(name)) }
+
+    /// `max:(a)` and the like, sent to `_NSPredicateUtilities`.
+    static func function(_ selector: String, argument: Expression) -> Expression {
+        Expression(.function(selector, operand: Expression(.classConstant("_NSPredicateUtilities")), argument: argument))
+    }
+
     static func keyPath(_ path: String, operand: Expression) -> Expression { Expression(.keyPath(path, operand: operand)) }
 
     var archivedClassNames: [String] {
         switch kind {
         case .evaluatedObject: ["NSSelfExpression", "NSExpression", "NSObject"]
-        case .constant, .stringConstant: ["NSConstantValueExpression", "NSExpression", "NSObject"]
+        case .constant, .stringConstant, .classConstant: ["NSConstantValueExpression", "NSExpression", "NSObject"]
+        case .variable: ["NSVariableExpression", "NSExpression", "NSObject"]
+        case .function: ["NSFunctionExpression", "NSExpression", "NSObject"]
         case .keyPath: ["NSKeyPathExpression", "NSFunctionExpression", "NSExpression", "NSObject"]
         case .keyPathSpecifier: ["NSKeyPathSpecifierExpression", "NSExpression", "NSObject"]
         }
@@ -751,16 +901,27 @@ final class Expression: KeyedArchivable {
             try archiver.encode(.number(number), forKey: "NSConstantValue")
         case .stringConstant(let text):
             archiver.encodeInteger(0, forKey: "NSExpressionType")
-            try archiver.encode(text, forKey: "NSConstantValue")
+            try archiver.encode(.stringObject(StringObject(text)), forKey: "NSConstantValue")
+        case .classConstant(let name):
+            archiver.encodeInteger(0, forKey: "NSExpressionType")
+            try archiver.encode(.stringObject(StringObject(name)), forKey: "NSConstantValueClassName")
+        case .variable(let name):
+            archiver.encodeInteger(2, forKey: "NSExpressionType")
+            try archiver.encode(.stringObject(StringObject(name)), forKey: "NSVariable")
+        case .function(let selector, let operand, let argument):
+            archiver.encodeInteger(4, forKey: "NSExpressionType")
+            try archiver.encode(selector, forKey: "NSSelectorName")
+            try archiver.encode(operand, forKey: "NSOperand")
+            try archiver.encode(ArchivedCollection(.mutableArray, objects: [.object(argument)]), forKey: "NSArguments")
         case .keyPath(let path, let operand):
             archiver.encodeInteger(3, forKey: "NSExpressionType")
-            try archiver.encode("valueForKey:", forKey: "NSSelectorName")
+            try archiver.encode(path.contains(".") ? "valueForKeyPath:" : "valueForKey:", forKey: "NSSelectorName")
             try archiver.encode(operand, forKey: "NSOperand")
             let specifier = Expression(.keyPathSpecifier(path))
             try archiver.encode(ArchivedCollection(.mutableArray, objects: [.object(specifier)]), forKey: "NSArguments")
         case .keyPathSpecifier(let path):
             archiver.encodeInteger(10, forKey: "NSExpressionType")
-            try archiver.encode(path, forKey: "NSKeyPath")
+            try archiver.encode(.stringObject(StringObject(path)), forKey: "NSKeyPath")
         }
     }
 }

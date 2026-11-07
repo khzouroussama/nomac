@@ -367,6 +367,8 @@ final class EntityMapping: KeyedArchivable {
                 entity = store.source.entity(relationship.destination)
             case .attribute?:
                 throw refuse("a key path ending on an attribute (mapc crashes)")
+            case .fetched?:
+                throw refuse("a key path through a fetched property")
             case nil:
                 last = nil
                 entity = nil

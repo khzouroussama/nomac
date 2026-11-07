@@ -110,9 +110,10 @@ enum OptimizedModel {
             switch property {
             case .attribute(let attribute): attribute.isTransient ? 1 : 0
             case .relationship(let relationship): !relationship.isToMany ? 2 : relationship.isOrdered ? 4 : 3
+            case .fetched: 5
             }
         }
-        return (0..<5).flatMap { index in
+        return (0..<6).flatMap { index in
             chain(entity, byName).flatMap { owner in
                 owner.properties.sorted { Array($0.name.utf8).lexicographicallyPrecedes(Array($1.name.utf8)) }
                     .filter { group($0) == index }.map { Member(property: $0, group: index, owner: owner.name) }
@@ -157,7 +158,11 @@ enum OptimizedModel {
         let requests = try FoundationHashTable.inserting(model.fetchRequests.map(\.name)).copied().keys
             .map { name in model.fetchRequests.first { $0.name == name }! }
         for request in requests { _ = names(request.name) }
-        _ = names("PF_DEFAULT_CONFIGURATION_NAME")
+        // Each configuration and the default one, by name with the default last, in the order of a
+        // table of their names; the default lists every entity (`omo-configuration-*`).
+        let defaultConfiguration = "PF_DEFAULT_CONFIGURATION_NAME"
+        let configurationOrder = try FoundationHashTable.inserting(try ModelNameOrder.sorted(model.configurations.map(\.name), by: { $0 }) + [defaultConfiguration]).keys
+        for name in configurationOrder { _ = names(name) }
         _ = blobs(try KeyedArchiver.archive(item: .string(model.versionIdentifier)))
 
         // Lookup tables: the entities, then per entity its properties, its subentities when it has
@@ -170,7 +175,7 @@ enum OptimizedModel {
             tables.append(all.map(\.name))
             if let subentities = children[entity.name] { tables.append(subentities.map(\.name)) }
             tables.append(all.filter(\.isAttribute).map(\.name))
-            tables.append(all.filter { !$0.isAttribute }.map(\.name))
+            tables.append(all.filter(\.isRelationship).map(\.name))
         }
 
         struct Record {
@@ -180,12 +185,15 @@ enum OptimizedModel {
             var defaultValue: (wide: Bool, value: UInt64)?
             /// The data table's archives of a regular expression's predicate and warning code.
             var regularExpression: (predicate: Int, warning: Int)?
+            /// A fetched property's request, in the F section.
+            var fetchRequest = 0
             var inverse: Int?
             var renaming: Int?
             var minimum: UInt64?, maximum: UInt64?
         }
         var records: [Record] = []
         var recordIndex: [String: Int] = [:]
+        var fetchedRequests: [DataModel.FetchRequest] = []
         var entityRecords: [(modifier: Int, name: Int, hash: Int, className: Int, uname: Int, properties: [Int], indexes: [[Int]], constraints: [[Int]], userInfo: Int)] = []
         func marked(_ entries: [(String, String)], hasSyncable: Bool) -> [(String, String)] {
             EntityDescription.markingUnsyncable(entries, hasSyncable: hasSyncable, marks: model.marksUnsyncable)
@@ -225,6 +233,10 @@ enum OptimizedModel {
                 }
                 if case .relationship(let relationship) = member.property {
                     record.userInfo = try userInfoBlob(marked(relationship.userInfo, hasSyncable: relationship.hasSyncable), &blobs)
+                }
+                if case .fetched(let fetched) = member.property {
+                    record.fetchRequest = requests.count + fetchedRequests.count
+                    fetchedRequests.append(fetched.request)
                 }
                 if case .attribute(let attribute) = member.property {
                     record.userInfo = try userInfoBlob(marked(attribute.userInfo, hasSyncable: attribute.hasSyncable), &blobs)
@@ -293,6 +305,12 @@ enum OptimizedModel {
         for member in inherited {
             entityRecords[member.entity].properties[member.position] = recordIndex[member.record]!
         }
+        // Predicates are archives after everything else in B (`omo-predicates`).
+        func predicateBlob(_ request: DataModel.FetchRequest) throws -> Int {
+            guard let predicate = request.predicate else { return 0 }
+            return blobs(try KeyedArchiver.archive(Predicate.of(predicate, context: ArchiveContext())))
+        }
+        let requestBlobs = try (requests + fetchedRequests).map(predicateBlob)
         for index in records.indices {
             // On the destination or its parents (coredata-experiments `inverse-inherited`).
             guard case .relationship(let relationship) = records[index].property, let inverse = relationship.inverseName else { continue }
@@ -378,7 +396,8 @@ enum OptimizedModel {
         header["P"] = out.position
         out.align(4)
         let attributeCount = records.filter(\.property.isAttribute).count
-        out.u32(attributeCount, 0, records.count - attributeCount, 0, 0)
+        let relationshipCount = records.filter(\.property.isRelationship).count
+        out.u32(attributeCount, 0, relationshipCount, 0, fetchedRequests.count)
         for record in records {
             let start = out.position
             switch record.property {
@@ -412,6 +431,10 @@ enum OptimizedModel {
                 out.u32(record.userInfo, record.index, entityIndex[relationship.destination] ?? 0)
                 if let inverse = record.inverse { out.u32(1, inverse) } else { out.u32(0) }
                 out.u32(relationship.maxCount, relationship.minCount, relationship.deleteRule.rawValue)
+            case .fetched(let fetched):
+                out.u32(0x40, 3, fetched.isOptional ? 4 : 0, record.modifier, record.hash, record.entity, record.name, 0)
+                optionals(record.renaming, nil, nil)
+                out.u32(0, record.index, record.fetchRequest)
             }
             out.set(out.position - start, at: start)
         }
@@ -457,16 +480,18 @@ enum OptimizedModel {
                 }
             }
             let sizes = (0..<5).map { group in all.filter { $0.group == group }.count }
+            let fetched = all.filter { $0.group == 5 }.count
             let (persistent, transient, toOne, toMany, ordered) = (sizes[0], sizes[1], sizes[2], sizes[3], sizes[4])
             let attributes = persistent + transient, relationships = toOne + toMany + ordered
             let ranges = [(0, count), (0, attributes), (attributes, relationships), (0, persistent), (attributes, relationships),
                           (persistent, transient), (attributes, toOne), (attributes + toOne, toMany), (attributes + toOne + toMany, ordered),
-                          (attributes + toOne, toMany + ordered)] + [(Int, Int)](repeating: (count, 0), count: 5) + [(0, persistent), (persistent, 0)]
+                          (attributes + toOne, toMany + ordered)] + [(Int, Int)](repeating: (attributes + relationships, 0), count: 4)
+                + [(attributes + relationships, fetched), (0, persistent), (persistent, 0)]
             out.u64(ranges.flatMap { [UInt64($0.0), UInt64($0.1)] })
             let external = entity.properties.contains { if case .attribute(let attribute) = $0 { attribute.allowsExternalBinaryDataStorage } else { false } }
             let attributesTable = firstTable[entity.name]! + (children[entity.name] == nil ? 1 : 2)
             let storage = all.filter { !$0.property.isTransient }.reduce(0) { $0 | storageFlags($1.property) }
-            var tail = [0, count, 0, 0, 0xC | (entity.isAbstract ? 1 : 0) | (external ? 0x100 : 0) | (record.constraints.isEmpty ? 0 : 0x1800) | storage]
+            var tail = [0, count + fetched, 0, 0, 0xC | (entity.isAbstract ? 1 : 0) | (external ? 0x100 : 0) | (record.constraints.isEmpty ? 0 : 0x1800) | storage]
             tail += [Int](repeating: 0, count: 18) + [record.uname, 0, 0, 0, record.indexes.count]
             out.u32(tail)
             out.u64(record.indexes.flatMap { $0.map { UInt64($0) } })
@@ -485,10 +510,14 @@ enum OptimizedModel {
 
         header["F"] = out.position
         out.align(4)
-        out.u32(requests.count)
-        // Per template, between markers: 1 and its entity's index (`omo-fr-several`).
-        for request in requests {
-            out.u32([0xBEEF_CAFE, 76] + [Int](repeating: 0, count: 6) + [1, entityIndex[request.entity] ?? 0] + [Int](repeating: 0, count: 8) + [326, 0xBEEF_CAFE])
+        let allRequests = requests + fetchedRequests
+        out.u32(allRequests.count)
+        // Per request, between markers: 1, its entity's index, its predicate's archive, its limit
+        // and flags, 0x100 for a template (`omo-fr-several`, `omo-predicates`, `omo-fetched-*`).
+        for (index, request) in allRequests.enumerated() {
+            let flags = index < requests.count ? 0x146 : 0x46
+            out.u32([0xBEEF_CAFE, 76] + [Int](repeating: 0, count: 6) + [1, entityIndex[request.entity] ?? 0, requestBlobs[index]]
+                + [Int](repeating: 0, count: 5) + [request.fetchLimit, 0, flags, 0xBEEF_CAFE])
         }
         out.marks()
 
@@ -497,8 +526,14 @@ enum OptimizedModel {
         let constrained = entities.contains { !$0.uniquenessConstraints.isEmpty }
         out.u32(7 | (constrained ? 8 : 0), entities.count, requests.count)
         if !requests.isEmpty { out.u64(requests.indices.map { UInt64($0) }) }
-        out.u32(1, names("PF_DEFAULT_CONFIGURATION_NAME"), 0, 0, 0, 0, 0, entities.count)
-        out.u64(entities.indices.map { UInt64($0) })
+        out.u32(configurationOrder.count)
+        for name in configurationOrder {
+            let members = model.configurations.first { $0.name == name }?.members.map { entityIndex[$0]! } ?? Array(entities.indices)
+            out.u32(names(name))
+            out.u64([0, 0])
+            out.u32(0, members.count)
+            out.u64(members.map { UInt64($0) })
+        }
         out.u32(0, 0, 0, 0, 0, 1, 0, 1)
         out.u64([UInt64](repeating: 0, count: entities.count))
         for columns in columnLists {
@@ -509,9 +544,9 @@ enum OptimizedModel {
         }
         out.u32(0, 0)
 
-        let values = [header["S"]!, header["E"]!, entities.count, header["P"]!, records.count, attributeCount, 0, records.count - attributeCount, 0, 0,
+        let values = [header["S"]!, header["E"]!, entities.count, header["P"]!, records.count, attributeCount, 0, relationshipCount, 0, fetchedRequests.count,
                       header["K"]!, tables.count, header["B"]!, blobs.items.count, header["U"]!, strings.items.count, header["C"]!,
-                      names.items.count, header["F"]!, requests.count, requests.count, indexCount, elementCount]
+                      names.items.count, header["F"]!, allRequests.count, requests.count, indexCount, elementCount]
         for (index, value) in values.enumerated() { out.set(value, at: headerAt + 4 * index) }
         return out.bytes
     }
@@ -536,7 +571,7 @@ enum OptimizedModel {
         switch attribute.type {
         case .integer16, .integer32: return (false, UInt64(UInt32(truncatingIfNeeded: integer(text))))
         case .integer64: return (true, UInt64(bitPattern: Int64(integer(text))))
-        case .boolean: return (false, text == "YES" || text == "1" ? 1 : 0)
+        case .boolean: return (false, ModelElement.booleanValue(text) ? 1 : 0)
         case .double: return (true, (Double(text) ?? 0).bitPattern)
         case .float: return (false, UInt64((Float(text) ?? 0).bitPattern))
         case .string: return (false, UInt64(strings(text)))

@@ -76,8 +76,14 @@ def sorting_column_lists(data):
     offset += 12
     if requests:
         offset = (offset + 7) // 8 * 8 + 8 * requests
-    entities = u32(offset + 28)
-    offset = (offset + 32 + 7) // 8 * 8 + 8 * entities + 32
+    configurations = u32(offset)
+    offset += 4
+    for _ in range(configurations):
+        offset = (offset + 4 + 7) // 8 * 8 + 16
+        members = u32(offset + 4)
+        offset = (offset + 8 + 7) // 8 * 8 + 8 * members
+    entities = u32((u32(64) + 3) // 4 * 4 + 4)
+    offset += 32
     offset = (offset + 7) // 8 * 8 + 8 * entities if entities else offset
     for _ in range(entities):
         offset += 20
