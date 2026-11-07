@@ -541,6 +541,8 @@ def measure(root, work, entry):
         save(root, result)
         subprocess.run(["pkill", "-9", "-f", str(run)], check=False)
         subprocess.run(["bash", "-c", f"chmod -R u+w {run} 2>/dev/null; rm -rf {run}"], check=False)
+        # `nomac list` keeps resolved packages under the account's home, which $HOME does not move.
+        shutil.rmtree(SHARED_HOME / "Library" / "Developer" / "Xcode" / "DerivedData", ignore_errors=True)
         for path in out.glob("*.log"):
             subprocess.run(["gzip", "-f", str(path)], check=False)
         outcome = "IPA" if result["ipa"] else "no-app" if result.get("noApp") else f"not-measured: {result['notMeasured']}" if cut_short(result) else stop_label(result)
@@ -633,16 +635,15 @@ def preflight(root, work):
 
 
 def pending_projects(root, manifest, wanted):
+    attempts = {result["repository"]: result for result in attempts_of(root)}
     pending = []
     for entry in manifest["projects"]:
         name = identifier(entry["repository"])
         if wanted and entry["repository"] not in wanted and name not in wanted:
             continue
-        path = root / "results" / f"{name}.json"
-        if not wanted and path.exists():
-            done = json.loads(path.read_text())
-            if "finished" in done and (not done.get("notMeasured") or done["notMeasured"] == OVER_BUDGET):
-                continue
+        done = attempts.get(entry["repository"])
+        if not wanted and done and (not done.get("notMeasured") or done["notMeasured"] == OVER_BUDGET):
+            continue
         pending.append(entry)
     return pending
 
@@ -799,6 +800,23 @@ def has_remote_packages(root, result):
     return any(feature["id"].startswith(("pbxproj:XCRemoteSwiftPackageReference", "package:resolved")) for feature in features)
 
 
+def read_list_log(root, result):
+    """`nomac list` resolves packages when the manifest names no scheme, so a failure there can be the
+    network, which says nothing about the project."""
+    reason = result.get("notMeasured")
+    if reason == "timed out: nomac list" and has_remote_packages(root, result):
+        result["notMeasured"] = "scheme: timed out resolving packages"
+        return
+    if result.get("stopped") != "scheme" or reason:
+        return
+    try:
+        text = gzip.open(Path(root) / "results" / result["id"] / "list.log.gz", "rt", errors="replace").read()
+    except OSError:
+        return
+    if (NETWORK.search(text) or PACKAGES_CUT.search(text)) and not NOT_THE_NETWORK.search(text):
+        result["notMeasured"] = "scheme: packages cut by the network"
+
+
 def read_archive_log(root, result):
     """An archive that ended before its build began, in a project with remote packages, was still
     cloning them, which is the network and not the project. nomac's output reaches a file in blocks, so
@@ -824,6 +842,7 @@ def attempts_of(root):
     attempts = [result for result in found if "finished" in result]
     for result in attempts:
         read_archive_log(root, result)
+        read_list_log(root, result)
     return attempts
 
 
@@ -832,7 +851,7 @@ def cut_short(result):
     machine lacks a tool, the run stopped for disk, or the network cut it (`with_network_retries`
     records that as "<step>: <reason>"). An install that ran and failed is not one of these."""
     reason = result.get("notMeasured") or ""
-    return reason in ("GitHub did not answer", "stopped for disk space") or reason.startswith(("clone: ", "deps: ", "archive: ", "this machine has no "))
+    return reason in ("GitHub did not answer", "stopped for disk space") or reason.startswith(("clone: ", "deps: ", "scheme: ", "archive: ", "this machine has no "))
 
 
 def stop_label(result):

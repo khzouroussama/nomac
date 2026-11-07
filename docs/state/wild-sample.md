@@ -58,9 +58,9 @@ Then:
 Read these with the numbers:
 
 - Only what says nothing about nomac or the project is not measured: what the network cut (an
-  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`), an archive of a project
-  with remote packages that timed out or failed on the network before its build began, since it was
-  still cloning them, a tool the test machine lacks (`this machine has no <tool>`), and a project the
+  attempt whose reason reads `<step>: <message>`, or `GitHub did not answer`), `nomac list` or an
+  archive of a project with remote packages that timed out or failed on the network before its build
+  began, since it was still cloning them, a tool the test machine lacks (`this machine has no <tool>`), and a project the
   run's own stop for disk ended. Those count
   in no share, and `report` prints how many, why, and the worst-case bounds they leave. Every other
   failure counts as stopped until a verdict by hand moves it, so a share here errs low: `pod install`
@@ -69,14 +69,18 @@ Read these with the numbers:
   and clones again in later rounds.
 - `report`, not `results.log`, says what counts. The run started at 03:52 is older than the tool and
   package rules, so its `results.log` says `stopped at install, this machine has no <tool>` and
-  `stopped at archive, timed out` for projects that `report` counts as not measured. It takes a timed
-  out archive again in later rounds, but not one that failed on packages, which needs `run <owner/name>`.
+  `stopped at archive, timed out`, and `stopped at scheme`, for projects that `report` counts as not
+  measured.
 - `ComputeTargetDependencyGraph` in `archive.log` marks the build's start. nomac's output reaches a
   file in blocks, so a build that began and wrote under one block before hanging would read as still
   cloning, which is unlikely in an hour. A hang before the build with no remote packages stays a stop.
-- `mozilla-mobile/focus-ios`'s first attempt is void: the manifest named the wrong folder for its
-  `./checkout.sh`, since fixed. `scratch/rerun_after.sh` takes it again once the driver's `END` line is
-  written; if that line is there and it has no later attempt, run `run mozilla-mobile/focus-ios`.
+- Two drivers run one after the other. When the first writes `END`, `scratch/rerun_after.sh` starts the
+  corrected copy in `/work/driver-next`, which takes again everything not measured, including what
+  the first would not retry: packages the network cut at the scheme or archive step, and
+  `mozilla-mobile/focus-ios`, whose first attempt is void because the manifest named the wrong folder
+  for its `./checkout.sh`, since fixed. So the run has finished at the second `END` line, or when
+  `pgrep -af wild_sample.py` in the container shows nothing. `scratch/janitor.sh` clears what `nomac
+  list` leaves under the account's home, which `$HOME` does not move.
 - `immich-app/immich` needs Flutter and `flutter` is not installed, so it stays not measured.
 - `audiokit/AudioKit` has no app to archive and is left out of the shares (`noApp`).
 - Each project's dependency commands, container and scheme come from reading its README, recorded
