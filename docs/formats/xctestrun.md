@@ -87,13 +87,15 @@ and so does a scheme with `shouldAutocreateTestPlan = "YES"`, one named after th
 
 - `__xctestrun_metadata__` `{FormatVersion: 2}`, `ContainerInfo`, `TestPlan` `{IsDefault, Name}`.
 - `CodeCoverageBuildableInfos` unless the plan's `codeCoverage` is `false`; the default, `true` and a
-  list of `targets` all gather, the list only choosing what counts in the report.
+  list of `targets` all gather, the list only choosing what counts in the report. Here each info has
+  the lists `Architectures` and `ProductPaths` where format 1 has `Architecture` and `ProductPath`.
 - `TestConfigurations`: one per plan configuration, `{IsEnabled: true, Name, TestTargets}`, the
   targets in the plan's order, without those with `enabled: false` (which still build). An
   autocreated plan has one configuration, `Test Scheme Action`, holding the scheme's test arguments
   and variables, and gathers coverage.
 
-An entry is as in format 1 without `RunOrder` and `TestInteropMode`, with `ClangProfileDataDirectoryPath`
+An entry is as in format 1 without `RunOrder` and, in a plan file's but not an autocreated plan's, without
+`TestInteropMode`, with `ClangProfileDataDirectoryPath`
 when the plan gathers, `XCODE_TEST_PLAN_NAME` in `TestingEnvironmentVariables` and in
 `UITargetAppEnvironmentVariables`. A plan does not take the scheme's own arguments and variables
 (`xctestrun-plan-launch-env`). A configuration's option replaces the same option of `defaultOptions`

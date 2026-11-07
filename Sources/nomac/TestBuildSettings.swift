@@ -8,9 +8,11 @@ import NomacProject
 
 /// What a `build-for-testing` built, from the targets' build settings, for the `.xctestrun`.
 enum TestBuildSettings {
-    /// A UI test target's build copies the platform's `XCTRunner.app`, which an SDK that an older
-    /// nomac installed lacks; Swift Build's own error ("not a directory") names no next step.
-    static func checkRunner(targets: [WorkspaceTarget], inspector: BuildSettingsInspector, request: SettingsRequest) async throws {
+    /// What would stop the `.xctestrun` or the build, before building: a test plan nomac cannot read
+    /// or an option it does not know, and a UI test target's `XCTRunner.app`, which an SDK that an
+    /// older nomac installed lacks and whose absence Swift Build reports with no next step.
+    static func check(scheme: XcodeScheme?, targets: [WorkspaceTarget], inspector: BuildSettingsInspector, request: SettingsRequest) async throws {
+        for plan in scheme?.testPlans ?? [] { _ = try XCTestPlan(path: plan.path, isDefault: plan.isDefault) }
         for target in targets where try await inspector.session.evaluate("$(PRODUCT_TYPE)", targetGUID: target.guid, request: request) == "com.apple.product-type.bundle.ui-testing" {
             let runner = try await inspector.session.evaluate("$(PLATFORM_DIR)", targetGUID: target.guid, request: request) + "/Developer/Library/Xcode/Agents/XCTRunner.app"
             guard FileSystem.isDirectory(runner) else {
@@ -60,15 +62,24 @@ enum TestBuildSettings {
             products[index].targetApplicationPath = targetNames[try await value("TEST_TARGET_NAME", target)]
         }
         let identifiers = targetIdentifiers(workspace)
+        // A scheme or plan names a target by identifier, its name there possibly stale or missing
+        // (home-assistant's WatchApp scheme has no BlueprintName).
+        func builtName(identifier: String, otherwise name: String) -> String { built.first { identifiers[$0.guid] == identifier }?.name ?? name }
         var plans = try scheme.testPlans.map { try XCTestPlan(path: $0.path, isDefault: $0.isDefault) }
         if plans.isEmpty, scheme.autocreatesTestPlan {
-            let testables = scheme.testables.map { XCTestPlan.Target(name: $0.targetName, identifier: $0.targetID) }
+            let testables = scheme.testables.map { XCTestPlan.Target(name: builtName(identifier: $0.targetID, otherwise: $0.targetName), identifier: $0.targetID) }
             plans = [XCTestPlan(autocreatedFor: scheme.name, testables: testables, arguments: scheme.testArguments, environment: scheme.testEnvironment)]
+        }
+        for planIndex in plans.indices {
+            for targetIndex in plans[planIndex].targets.indices {
+                let target = plans[planIndex].targets[targetIndex]
+                plans[planIndex].targets[targetIndex].name = builtName(identifier: target.identifier, otherwise: target.name)
+            }
         }
         var expandedPlans: [XCTestPlan] = []
         for plan in plans {
             expandedPlans.append(try await plan.expandingVariables { text, identifier in
-                guard let target = targets.first(where: { identifiers[$0.guid] == identifier }) else { return text }
+                guard let target = built.first(where: { identifiers[$0.guid] == identifier }) else { return text }
                 return try await inspector.session.evaluate(text, targetGUID: target.guid, request: request)
             })
         }
@@ -96,12 +107,17 @@ enum TestBuildSettings {
                                                                      sources: pif.compileSources(targetGUID: target.guid)))
             }
         }
+        let testableNames = (scheme.testables + scheme.testPlanTestables).map { builtName(identifier: $0.targetID, otherwise: $0.targetName) }
+        let testProducts = Set(products.filter { $0.kind == .unitTest || $0.kind == .uiTest }.map(\.name))
+        for name in testableNames where !testProducts.contains(name) {
+            FileHandle.standardError.write(Data("warning: the .xctestrun leaves out the test target \(name.isEmpty ? "without a name" : name): no test bundle of this build has that name (a package's test target is not implemented, BACKLOG B-408)\n".utf8))
+        }
         let containerFolder = workspace.directory
         let projectFile = try await value("PROJECT_FILE_PATH", first)
         let description = TestBuildDescription(
             schemeName: scheme.name, containerName: workspace.name, projectName: try await value("PROJECT_NAME", first),
             projectPath: projectFile.hasPrefix(containerFolder + "/") ? String(projectFile.dropFirst(containerFolder.count + 1)) : projectFile,
-            products: products, testables: (scheme.testables + scheme.testPlanTestables).map(\.targetName),
+            products: products, testables: testableNames,
             arguments: scheme.testArguments, environment: scheme.testEnvironment,
             sdkName: try await value("SDK_NAME", first),
             architecture: (try await value("ARCHS", first)).split(separator: " ").first.map(String.init) ?? "",
