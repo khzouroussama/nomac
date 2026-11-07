@@ -65,10 +65,28 @@ enum TestBuildSettings {
         // A scheme or plan names a target by identifier, its name there possibly stale or missing
         // (home-assistant's WatchApp scheme has no BlueprintName).
         func builtName(identifier: String, otherwise name: String) -> String { built.first { identifiers[$0.guid] == identifier }?.name ?? name }
+        // What a testable sets in the scheme file; an autocreated scheme's tests run in parallel
+        // (`xctestrun-no-scheme`).
+        func planned(_ testable: XcodeScheme.BuildEntry) -> XCTestPlan.Target {
+            let options = scheme.testableOptions[testable.targetID]
+            let skipped = options?.skippedTests ?? []
+            let selected = options?.selectedTests ?? []
+            return XCTestPlan.Target(name: builtName(identifier: testable.targetID, otherwise: testable.targetName), identifier: testable.targetID,
+                                     parallelizable: scheme.isAutocreated || options?.parallelizable == true ? true : nil,
+                                     inProcessParallelizable: options?.parallelizable == false ? false : nil,
+                                     skippedTests: skipped.isEmpty ? nil : skipped, selectedTests: selected.isEmpty ? nil : selected,
+                                     testExecutionOrdering: options?.isRandomlyOrdered == true ? "random" : nil)
+        }
+        var testables = scheme.testables.map(planned)
+        if scheme.isAutocreated {
+            // Its UI test bundles come first, whatever the targets' order, names and identifiers
+            // (`xctestrun-no-scheme`, `-no-scheme-reversed`, `-no-scheme-renamed`, `-no-scheme-swapped-ids`).
+            let uiTests = Set(products.filter { $0.kind == .uiTest }.map(\.name))
+            testables = testables.filter { uiTests.contains($0.name) } + testables.filter { !uiTests.contains($0.name) }
+        }
         var plans = try scheme.testPlans.map { try XCTestPlan(path: $0.path, isDefault: $0.isDefault) }
-        if plans.isEmpty, scheme.autocreatesTestPlan {
-            let testables = scheme.testables.map { XCTestPlan.Target(name: builtName(identifier: $0.targetID, otherwise: $0.targetName), identifier: $0.targetID) }
-            plans = [XCTestPlan(autocreatedFor: scheme.name, testables: testables, arguments: scheme.testArguments, environment: scheme.testEnvironment)]
+        if plans.isEmpty, scheme.autocreatesTestPlan || scheme.isAutocreated {
+            plans = [XCTestPlan(autocreatedFor: scheme.name, testables: testables, arguments: scheme.testArguments, environment: scheme.testEnvironment, options: scheme.testOptions)]
         }
         for planIndex in plans.indices {
             for targetIndex in plans[planIndex].targets.indices {
@@ -121,7 +139,8 @@ enum TestBuildSettings {
             arguments: scheme.testArguments, environment: scheme.testEnvironment,
             sdkName: try await value("SDK_NAME", first),
             architecture: (try await value("ARCHS", first)).split(separator: " ").first.map(String.init) ?? "",
-            coverage: coverage, coverageReportTargets: scheme.coverageReportTargets, plans: expandedPlans)
+            coverage: coverage, coverageReportTargets: scheme.coverageReportTargets, plans: expandedPlans,
+            options: scheme.testOptions, testableOptions: Dictionary(testables.map { ($0.name, $0) }) { first, _ in first })
         return (description, buildFolder)
     }
 

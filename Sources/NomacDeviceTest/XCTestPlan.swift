@@ -51,16 +51,23 @@ public struct XCTestPlan: Sendable {
         public var identifier: String
         public var isEnabled: Bool
         public var parallelizable: Bool?
+        /// A scheme's testable with `parallelizable = "NO"` (`xctestrun-scheme-parallel-no`).
+        public var inProcessParallelizable: Bool?
         public var skippedTests: [String]?
         public var selectedTests: [String]?
+        /// A scheme's testable has this on its own; a plan file has it per configuration.
+        public var testExecutionOrdering: String?
 
-        public init(name: String, identifier: String, isEnabled: Bool = true, parallelizable: Bool? = nil, skippedTests: [String]? = nil, selectedTests: [String]? = nil) {
+        public init(name: String, identifier: String, isEnabled: Bool = true, parallelizable: Bool? = nil, inProcessParallelizable: Bool? = nil, skippedTests: [String]? = nil,
+                    selectedTests: [String]? = nil, testExecutionOrdering: String? = nil) {
             self.name = name
             self.identifier = identifier
             self.isEnabled = isEnabled
             self.parallelizable = parallelizable
+            self.inProcessParallelizable = inProcessParallelizable
             self.skippedTests = skippedTests
             self.selectedTests = selectedTests
+            self.testExecutionOrdering = testExecutionOrdering
         }
     }
 
@@ -93,16 +100,18 @@ public struct XCTestPlan: Sendable {
     /// `testRepetitionMode` values observed.
     static let repetitionModes: Set<String> = ["retryOnFailure"]
 
-    /// The plan Xcode makes of a scheme with `shouldAutocreateTestPlan`, named as the scheme: its
-    /// one configuration carries the scheme's test arguments and variables, and it gathers coverage
-    /// (`xctestrun-autocreated-plan`, `-env`; the rule for coverage: loader-experiments `coverage-autocreated-plan`).
-    public init(autocreatedFor scheme: String, testables: [Target], arguments: [String], environment: [String: String]) {
+    /// The plan Xcode makes of a scheme with `shouldAutocreateTestPlan` or autocreated itself, named
+    /// as the scheme: its one configuration carries the scheme's test arguments, variables and
+    /// `options`, and it gathers coverage (`xctestrun-autocreated-plan`, `-env`,
+    /// `-scheme-lists-autocreated`, `-no-scheme`; the rule for coverage: loader-experiments
+    /// `coverage-autocreated-plan`).
+    public init(autocreatedFor scheme: String, testables: [Target], arguments: [String], environment: [String: String], options: [String: String] = [:]) {
         name = scheme
         isDefault = true
-        configurations = [Configuration(name: "Test Scheme Action", options: [
+        configurations = [Configuration(name: "Test Scheme Action", options: options.mapValues(Value.string).merging([
             "environmentVariableEntries": .array(environment.sorted { $0.key < $1.key }.map { .object(["key": .string($0.key), "value": .string($0.value)]) }),
             "commandLineArgumentEntries": .array(arguments.map { .object(["argument": .string($0)]) }),
-        ])]
+        ]) { $1 })]
         targets = testables
         coverage = .all
         isAutocreated = true

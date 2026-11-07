@@ -78,10 +78,14 @@ public struct TestBuildDescription: Sendable {
     public var coverageReportTargets: Set<String>?
     /// The scheme's test plans; with none, its testables make one file of format 1.
     public var plans: [XCTestPlan]
+    /// Format 1: the Test action's language, region and attachment lifetimes, by plan option name.
+    public var options: [String: String]
+    /// Format 1: what the Test action sets on each testable, by name.
+    public var testableOptions: [String: XCTestPlan.Target]
 
     public init(schemeName: String, containerName: String, projectName: String, projectPath: String, products: [Product], testables: [String],
                 arguments: [String], environment: [String: String], sdkName: String, architecture: String, coverage: [CoverageProduct] = [],
-                coverageReportTargets: Set<String>? = nil, plans: [XCTestPlan] = []) {
+                coverageReportTargets: Set<String>? = nil, plans: [XCTestPlan] = [], options: [String: String] = [:], testableOptions: [String: XCTestPlan.Target] = [:]) {
         self.schemeName = schemeName
         self.containerName = containerName
         self.projectName = projectName
@@ -95,6 +99,8 @@ public struct TestBuildDescription: Sendable {
         self.coverage = coverage
         self.coverageReportTargets = coverageReportTargets
         self.plans = plans
+        self.options = options
+        self.testableOptions = testableOptions
     }
 }
 
@@ -136,9 +142,13 @@ public enum XCTestRunWriter {
         if !build.coverage.isEmpty { metadata["CodeCoverageBuildableInfos"] = coverageInformation(build, reported: build.coverageReportTargets, plural: false) }
         var top: [String: PropertyListValue] = ["__xctestrun_metadata__": .dictionary(metadata)]
         let shared = SharedValues(build)
+        var options = build.options.mapValues(XCTestPlan.Value.string)
+        options["commandLineArgumentEntries"] = .array(build.arguments.map { .object(["argument": .string($0)]) })
         for (order, name) in build.testables.enumerated() {
             guard let product = shared.testProducts.first(where: { $0.name == name }) else { continue }
             var entry = self.entry(product, build: build, shared: shared, arguments: build.arguments, environment: build.environment, testing: [:], gathersCoverage: !build.coverage.isEmpty)
+            apply(options, to: &entry)
+            if let target = build.testableOptions[name] { apply(target, to: &entry) }
             entry["RunOrder"] = .integer(order)
             entry["TestInteropMode"] = .string(interoperability)
             top[name] = .dictionary(entry)
@@ -166,9 +176,7 @@ public enum XCTestRunWriter {
                 var entry = self.entry(product, build: build, shared: shared, arguments: [], environment: [:], testing: ["XCODE_TEST_PLAN_NAME": .string(plan.name)],
                                        gathersCoverage: plan.coverage != .off)
                 apply(configuration.options, to: &entry)
-                if let parallelizable = target.parallelizable { entry["ParallelizationEnabled"] = .boolean(parallelizable) }
-                if let skipped = target.skippedTests { entry["SkipTestIdentifiers"] = .array(skipped.map { .string($0) }) }
-                if let selected = target.selectedTests { entry["OnlyTestIdentifiers"] = .array(selected.map { .string($0) }) }
+                apply(target, to: &entry)
                 if plan.isAutocreated { entry["TestInteropMode"] = .string(interoperability) }
                 if product.kind == .uiTest, case .dictionary(var variables)? = entry["UITargetAppEnvironmentVariables"] {
                     variables["XCODE_TEST_PLAN_NAME"] = .string(plan.name)
@@ -222,6 +230,15 @@ public enum XCTestRunWriter {
         if let format = options["preferredScreenCaptureFormat"]?.string { entry["PreferredScreenCaptureFormat"] = .string(format) }
         if let lifetime = options["uiTestingScreenshotsLifetime"]?.string { entry["SystemAttachmentLifetime"] = .string(lifetime) }
         if let lifetime = options["userAttachmentLifetime"]?.string { entry["UserAttachmentLifetime"] = .string(lifetime) }
+    }
+
+    /// A plan's test target or a scheme's testable in its entry.
+    static func apply(_ target: XCTestPlan.Target, to entry: inout [String: PropertyListValue]) {
+        if let parallelizable = target.parallelizable { entry["ParallelizationEnabled"] = .boolean(parallelizable) }
+        if let inProcess = target.inProcessParallelizable { entry["InProcessParallelizationEnabled"] = .boolean(inProcess) }
+        if let skipped = target.skippedTests { entry["SkipTestIdentifiers"] = .array(skipped.map { .string($0) }) }
+        if let selected = target.selectedTests { entry["OnlyTestIdentifiers"] = .array(selected.map { .string($0) }) }
+        if let ordering = target.testExecutionOrdering { entry["TestExecutionOrdering"] = .string(ordering) }
     }
 
     /// The arguments of a language and a region (`xctestrun-plan-languages`): Xcode's two

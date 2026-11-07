@@ -174,6 +174,48 @@ import Testing
         #expect(entry["ClangProfileDataDirectoryPath"] == .string("__DERIVEDDATA__/Build/ProfileData"))
     }
 
+    /// `xctestrun-scheme-lists`, `-scheme-args-language`, `-scheme-parallel-no`.
+    @Test func aSchemesOptionsInFormat1() {
+        var build = XCTestRunTests.build
+        build.arguments = ["-TestArgument"]
+        build.options = ["language": "ar", "region": "EG", "uiTestingScreenshotsLifetime": "keepNever", "userAttachmentLifetime": "keepAlways"]
+        build.testableOptions = [
+            "AppTests": .init(name: "AppTests", identifier: "T1", parallelizable: true, skippedTests: ["CounterTests/testNext()"], testExecutionOrdering: "random"),
+            "AppUITests": .init(name: "AppUITests", identifier: "T2", inProcessParallelizable: false, selectedTests: ["AppUITests/testIncrement()"]),
+        ]
+        let top = dictionary(XCTestRunWriter.value(build))
+        let unit = dictionary(top["AppTests"]!)
+        let ui = dictionary(top["AppUITests"]!)
+        let localization = ["-AppleLanguages", "(ar)", "-AppleTextDirection", "YES", "-AppleLocale", "ar_EG"]
+        #expect(unit["CommandLineArguments"] == .array((["-TestArgument"] + localization).map { .string($0) }))
+        #expect(ui["UITargetAppCommandLineArguments"] == .array(localization.map { .string($0) }))
+        #expect(unit["TestLanguage"] == .string("ar"))
+        #expect(unit["TestRegion"] == .string("EG"))
+        #expect(unit["SystemAttachmentLifetime"] == .string("keepNever"))
+        #expect(unit["UserAttachmentLifetime"] == .string("keepAlways"))
+        #expect(unit["ParallelizationEnabled"] == .boolean(true))
+        #expect(unit["SkipTestIdentifiers"] == .array([.string("CounterTests/testNext()")]))
+        #expect(unit["TestExecutionOrdering"] == .string("random"))
+        #expect(unit["InProcessParallelizationEnabled"] == nil)
+        #expect(ui["InProcessParallelizationEnabled"] == .boolean(false))
+        #expect(ui["ParallelizationEnabled"] == nil)
+        #expect(ui["OnlyTestIdentifiers"] == .array([.string("AppUITests/testIncrement()")]))
+    }
+
+    /// `xctestrun-scheme-lists-autocreated`: the same values in the one configuration.
+    @Test func anAutocreatedPlanCarriesTheSchemesOptions() {
+        var build = XCTestRunTests.build
+        let plan = XCTestPlan(autocreatedFor: "App", testables: [.init(name: "AppTests", identifier: "T1", skippedTests: ["CounterTests/testNext()"], testExecutionOrdering: "random")],
+                              arguments: [], environment: [:], options: ["language": "de", "region": "DE", "userAttachmentLifetime": "keepAlways"])
+        build.plans = [plan]
+        let entry = entries(build, plan)[0]
+        #expect(entry["TestLanguage"] == .string("de"))
+        #expect(entry["CommandLineArguments"] == .array(["-AppleLanguages", "(de)", "-AppleTextDirection", "NO", "-AppleLocale", "de_DE"].map { .string($0) }))
+        #expect(entry["UserAttachmentLifetime"] == .string("keepAlways"))
+        #expect(entry["SkipTestIdentifiers"] == .array([.string("CounterTests/testNext()")]))
+        #expect(entry["TestExecutionOrdering"] == .string("random"))
+    }
+
     @Test func aSanitizerOrAnUnknownOptionStopsWithItsName() throws {
         #expect(throws: (any Error).self) { try plan(document(configurations: #"[{"id": "11111111-2222-3333-4444-555555555555", "name": "C", "options": {"addressSanitizer": {"enabled": true}}}]"#)) }
         #expect(throws: (any Error).self) { try plan(document(defaults: #"{"testRepetitionMode": "fixedIterations"}"#)) }

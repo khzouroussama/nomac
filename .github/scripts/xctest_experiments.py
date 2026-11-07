@@ -261,7 +261,7 @@ def pbxproj(prefix, team, profile, variant):
                    + "".join(f"\t\t\t\t{IDS[k + '.product']},\n" for k in keys)
                    + "\t\t\t);\n\t\t\tname = Products;\n\t\t\tsourceTree = \"<group>\";\n\t\t};\n")
     objects.append(target("app", "App", "com.apple.product-type.application", tuple(k + ".dependency" for k in libraries), package=variant.get("package")))
-    objects.append(target("tests", "AppTests", "com.apple.product-type.bundle.unit-test", ("tests.dependency",)))
+    objects.append(target("tests", "AppTests", "com.apple.product-type.bundle.unit-test", () if variant.get("no_test_dependency") else ("tests.dependency",)))
     objects.append(target("uitests", "AppUITests", "com.apple.product-type.bundle.ui-testing", ("uitests.dependency",)))
     if libraries:
         objects.append(target("kit", "Kit", "com.apple.product-type.framework"))
@@ -278,7 +278,7 @@ def pbxproj(prefix, team, profile, variant):
                    + (f"\t\t\tpackageReferences = (\n\t\t\t\t{IDS['package.reference']},\n\t\t\t);\n" if variant.get("package") else "") +
                    f"\t\t\tpreferredProjectObjectVersion = 77;\n\t\t\tproductRefGroup = {IDS['products']};\n"
                    f"\t\t\tprojectDirPath = \"\";\n\t\t\tprojectRoot = \"\";\n\t\t\ttargets = (\n"
-                   + "".join(f"\t\t\t\t{IDS[k + '.target']},\n" for k in (libraries + keys[:3] if variant.get("libraries_first") else keys))
+                   + "".join(f"\t\t\t\t{IDS[k + '.target']},\n" for k in (libraries + keys[:3] if variant.get("libraries_first") else keys[::-1] if variant.get("targets_reversed") else keys))
                    + "\t\t\t);\n\t\t};\n")
     objects.append(configuration_list("project", project_settings))
     objects.append(configuration_list("app", app_settings))
@@ -315,8 +315,11 @@ def arguments(values, disabled=None):
 def scheme(variant):
     unit = [] if variant.get("no_unit") else [("tests", "AppTests", "AppTests.xctest")]
     ui = [] if variant.get("no_ui") else [("uitests", "AppUITests", "AppUITests.xctest")]
-    testables = "".join(f'<TestableReference skipped = "NO">{buildable(k, n, p)}</TestableReference>'
-                        for k, n, p in unit + ui)
+    def testable(key, name, product):
+        attributes = variant.get("testable_attributes", {}).get(name, "")
+        lists = variant.get("testable_lists", {}).get(name, "")
+        return f'<TestableReference skipped = "NO"{attributes}>{buildable(key, name, product)}{lists}</TestableReference>'
+    testables = "".join(testable(k, n, p) for k, n, p in unit + ui)
     coverage = ' codeCoverageEnabled = "YES"' if variant.get("coverage") else ""
     coverage_targets = ""
     if variant.get("coverage_targets"):
@@ -324,6 +327,7 @@ def scheme(variant):
         coverage_targets = f'<CodeCoverageTargets>{buildable("app", "App", "App.app")}</CodeCoverageTargets>'
     if variant.get("autocreated_plan"):
         coverage += ' shouldAutocreateTestPlan = "YES"'
+    coverage += variant.get("test_action_attributes", "")
     use_launch = "NO" if variant.get("test_env") or variant.get("test_args") else "YES"
     plans = "".join(f'<TestPlanReference reference = "container:{name}.xctestplan"{" default = " + chr(34) + "YES" + chr(34) if index == 0 else ""}/>'
                     for index, name in enumerate(["App"] + list(variant.get("more_plans", {}))))
@@ -386,7 +390,8 @@ def write_project(directory, prefix, team, profile, mixed, variant=None):
         (directory / "AppTests/SwiftTestingTests.swift").write_text(SWIFT_TESTING)
     (directory / "AppUITests/AppUITests.swift").write_text(UI_SOURCE)
     (directory / "App.xcodeproj/project.pbxproj").write_text(pbxproj(prefix, team, profile, variant))
-    (directory / "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme").write_text(scheme(variant))
+    if not variant.get("no_scheme"):
+        (directory / "App.xcodeproj/xcshareddata/xcschemes/App.xcscheme").write_text(scheme(variant))
     if variant.get("test_plan"):
         (directory / "App.xctestplan").write_text(test_plan(variant.get("plan")))
         for name, plan in variant.get("more_plans", {}).items():
@@ -401,6 +406,14 @@ def write_project(directory, prefix, team, profile, mixed, variant=None):
             (directory / path).write_text(source)
     if variant.get("broken"):
         (directory / "App/Broken.swift").write_text('let broken: Int = ""\n')
+    if variant.get("swap_test_ids"):
+        project = directory / "App.xcodeproj/project.pbxproj"
+        first, second = IDS["tests.target"], IDS["uitests.target"]
+        project.write_text(project.read_text().replace(first, "SWAPPED").replace(second, first).replace("SWAPPED", second))
+    if variant.get("rename_ui"):
+        project = directory / "App.xcodeproj/project.pbxproj"
+        project.write_text(project.read_text().replace("AppUITests", variant["rename_ui"]))
+        (directory / "AppUITests").rename(directory / variant["rename_ui"])
 
 
 def environment():
@@ -415,10 +428,10 @@ def scrub(text, device):
 OFFLINE = ["sandbox-exec", "-p", '(version 1)(allow default)(deny network-outbound (remote ip))']
 
 
-def build_for_testing(work, out, signed=True):
+def build_for_testing(work, out, signed=True, scheme_name="App"):
     derived = work / "DerivedData"
     command = ([sys.executable, str(KEYCHAIN)] if signed else OFFLINE) + [
-        "xcodebuild", "build-for-testing", "-project", "App.xcodeproj", "-scheme", "App", "-destination", "generic/platform=iOS",
+        "xcodebuild", "build-for-testing", "-project", "App.xcodeproj", "-scheme", scheme_name, "-destination", "generic/platform=iOS",
         "-derivedDataPath", str(derived)] + (["-IDEPackageSupportDisableManifestSandbox=YES"] if (work / "Pkg").exists() else [])
     result = subprocess.run(command, cwd=work, env=environment(), capture_output=True, text=True)
     out.mkdir(parents=True, exist_ok=True)
@@ -450,12 +463,12 @@ def product_files(products):
                   if ".swiftmodule" not in str(p) and ".dSYM" not in str(p) and (not p.is_symlink() or p.is_file()))
 
 
-def compare_nomac(nomac, work, out):
+def compare_nomac(nomac, work, out, scheme_name="App"):
     """`nomac build ... build-for-testing` on the same project, against Xcode's capture in `out`: its
     status, its `.xctestrun` byte for byte, and its products' file names."""
     derived = work / "NomacDerivedData"
     shutil.rmtree(derived, ignore_errors=True)
-    result = subprocess.run([nomac, "build", "-project", "App.xcodeproj", "-scheme", "App", "-destination", "generic/platform=iOS",
+    result = subprocess.run([nomac, "build", "-project", "App.xcodeproj", "-scheme", scheme_name, "-destination", "generic/platform=iOS",
                              "-derivedDataPath", str(derived), "--developer-dir", DEVELOPER_DIR, "build-for-testing"],
                             cwd=work, env=environment(), capture_output=True, text=True)
     (out / "nomac-stdout.txt").write_text(scrub(result.stdout, None))
@@ -570,6 +583,25 @@ XCTESTRUN_VARIANTS = {
                                   "App/Assets.xcassets/Red.colorset/Contents.json": '{"colors":[{"idiom":"universal"}],"info":{"author":"xcode","version":1}}\n',
                                   "App/Plain.h": "int plain(void);\n", "App/Notes.txt": "notes\n"}},
     "autocreated-plan": {"autocreated_plan": True},
+    "no-scheme": {"no_scheme": True},
+    "no-scheme-reversed": {"no_scheme": True, "targets_reversed": True},
+    "no-scheme-renamed": {"no_scheme": True, "rename_ui": "ABUITests"},
+    "no-scheme-swapped-ids": {"no_scheme": True, "swap_test_ids": True},
+    "no-scheme-own-bundle": {"no_scheme": True, "unhosted": True, "no_test_dependency": True, "scheme_name": "AppTests"},
+    "scheme-args-language": {"test_args": ["-TestArgument"], "test_action_attributes": ' language = "ar" region = "EG"'},
+    "scheme-parallel-no": {"testable_attributes": {"AppTests": ' parallelizable = "NO"'}, "test_action_attributes": ' language = "" region = "" systemAttachmentLifetime = "keepNever"'},
+    "scheme-parallel-no-autocreated": {"autocreated_plan": True, "testable_attributes": {"AppTests": ' parallelizable = "NO"'}},
+    "scheme-selected-no-whitelist": {"testable_lists": {"AppUITests": '<SelectedTests><Test Identifier = "AppUITests/testIncrement()"/></SelectedTests>'}},
+    "scheme-thread-sanitizer": {"test_action_attributes": ' enableThreadSanitizer = "YES"'},
+    "scheme-ub-sanitizer": {"test_action_attributes": ' enableUBSanitizer = "YES"'},
+    "scheme-lists": {"testable_lists": {"AppTests": '<SkippedTests><Test Identifier = "CounterTests/testNext()"/></SkippedTests>',
+                                        "AppUITests": '<SelectedTests><Test Identifier = "AppUITests/testIncrement()"/></SelectedTests>'},
+                     "testable_attributes": {"AppUITests": ' useTestSelectionWhitelist = "YES"', "AppTests": ' parallelizable = "YES" testExecutionOrdering = "random"'},
+                     "test_action_attributes": ' language = "de" region = "DE" systemAttachmentLifetime = "keepAlways" userAttachmentLifetime = "keepAlways"'},
+    "scheme-lists-autocreated": {"autocreated_plan": True, "testable_lists": {"AppTests": '<SkippedTests><Test Identifier = "CounterTests/testNext()"/></SkippedTests>',
+                                                                              "AppUITests": '<SelectedTests><Test Identifier = "AppUITests/testIncrement()"/></SelectedTests>'},
+                                 "testable_attributes": {"AppUITests": ' useTestSelectionWhitelist = "YES"', "AppTests": ' parallelizable = "YES" testExecutionOrdering = "random"'},
+                                 "test_action_attributes": ' language = "de" region = "DE" systemAttachmentLifetime = "keepAlways" userAttachmentLifetime = "keepAlways"'},
     "autocreated-plan-env": {"autocreated_plan": True, "test_env": {"TEST_VARIABLE": "1"}, "test_args": ["-TestArgument"]},
     "plan-launch-env": {"test_plan": True, "launch_env": {"LAUNCH_VARIABLE": "1"}, "launch_args": ["-LaunchArgument"], "plan": {"default": {"codeCoverage": False}}},
     "plan-expansion": {"test_plan": True, "plan": {"default": {"codeCoverage": False, "targetForVariableExpansion": container_target("app", "App"),
@@ -636,10 +668,10 @@ def main():
             work = arguments.work / experiment
             write_project(work, arguments.bundle_prefix, arguments.team, arguments.profile, False, variant)
             if not arguments.compare_only:
-                build_for_testing(work, arguments.output / experiment, signed=False)
+                build_for_testing(work, arguments.output / experiment, signed=False, scheme_name=variant.get("scheme_name", "App"))
             if arguments.nomac:
                 print(experiment, flush=True)
-                compare_nomac(arguments.nomac, work, arguments.output / experiment)
+                compare_nomac(arguments.nomac, work, arguments.output / experiment, scheme_name=variant.get("scheme_name", "App"))
             shutil.rmtree(work / "DerivedData", ignore_errors=True)
             continue
         if experiment.startswith("xcresult-"):

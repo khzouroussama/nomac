@@ -64,6 +64,23 @@ import NomacTestSupport
         }
     }
 
+    /// `xctest_experiments.py` `xctestrun-scheme-parallel-no`: an empty language is none.
+    @Test func readsTheTestActionsOptions() async throws {
+        let directory = try TemporaryDirectory()
+        var project = Self.project
+        project.schemes = ["Options": Self.scheme(testables: [("AppTests", "AppTests", false)])
+            .replacingOccurrences(of: "<TestAction buildConfiguration = \"Debug\"", with: "<TestAction buildConfiguration = \"Debug\" language = \"\" region = \"DE\" systemAttachmentLifetime = \"keepNever\"")
+            .replacingOccurrences(of: "<TestableReference skipped = \"NO\"", with: "<TestableReference skipped = \"NO\" parallelizable = \"NO\" testExecutionOrdering = \"random\"")
+            .replacingOccurrences(of: "</TestableReference>", with: "<SkippedTests><Test Identifier = \"A/b()\"></Test></SkippedTests></TestableReference>")]
+        let scheme = try #require(try await project.schemes(in: directory.path).first { $0.name == "Options" })
+        #expect(scheme.testOptions == ["region": "DE", "uiTestingScreenshotsLifetime": "keepNever"])
+        let options = try #require(scheme.testableOptions[project.targetID("AppTests")])
+        #expect(options.parallelizable == false)
+        #expect(options.isRandomlyOrdered)
+        #expect(options.skippedTests == ["A/b()"])
+        #expect(options.selectedTests.isEmpty)
+    }
+
     /// A test plan Xcode autocreates for a scheme's testables, skipped ones included, gathers
     /// coverage; without testables there is none, and a test plan of the scheme decides
     /// (pocket-casts' `Pocket Casts Prototype Build`).

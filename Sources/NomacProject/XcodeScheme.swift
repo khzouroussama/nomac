@@ -116,6 +116,19 @@ public struct XcodeScheme: Sendable, Equatable {
     /// (`xctest_experiments.py` `xctestrun-test-env`, `xctestrun-launch-env`).
     public var testArguments: [String] = []
     public var testEnvironment: [String: String] = [:]
+    /// The Test action's language, region and attachment lifetimes, by the name of a test plan's
+    /// option; an empty language or region is none (`xctest_experiments.py` `xctestrun-scheme-lists`,
+    /// `-scheme-parallel-no`).
+    public var testOptions: [String: String] = [:]
+    /// What the Test action sets on each of its testables, by the target's identifier.
+    public var testableOptions: [String: TestableOptions] = [:]
+
+    public struct TestableOptions: Sendable, Equatable {
+        public var parallelizable: Bool?
+        public var isRandomlyOrdered = false
+        public var skippedTests: [String] = []
+        public var selectedTests: [String] = []
+    }
 
     /// A shell script execution action (`ShellScriptAction`). Its `shellToInvoke` is not kept:
     /// xcodebuild runs every action with `/bin/sh`.
@@ -487,6 +500,18 @@ extension XcodeWorkspace {
             }
             scheme.testArguments = arguments?.arguments.filter(\.enabled).map(\.name) ?? []
             scheme.testEnvironment = Dictionary((variables ?? []).filter(\.enabled).map { ($0.variable, $0.value) }) { $1 }
+            let testAction = parsed.testAction
+            let options = ["language": testAction?.language, "region": testAction?.region, "uiTestingScreenshotsLifetime": testAction?.systemAttachmentLifetime?.rawValue,
+                           "userAttachmentLifetime": testAction?.userAttachmentLifetime?.rawValue]
+            scheme.testOptions = options.compactMapValues { $0 }.filter { !$0.value.isEmpty }
+            for testable in listed where !testable.skipped {
+                guard let identifier = testable.buildableReference.blueprintIdentifier else { continue }
+                scheme.testableOptions[identifier] = XcodeScheme.TestableOptions(
+                    parallelizable: testable.parallelization == .swiftTestingOnly ? nil : testable.parallelization == .all,
+                    isRandomlyOrdered: testable.randomExecutionOrdering,
+                    skippedTests: testable.skippedTests.map(\.identifier),
+                    selectedTests: testable.selectedTests.map(\.identifier))
+            }
             schemes.append(scheme)
         }
         return schemes

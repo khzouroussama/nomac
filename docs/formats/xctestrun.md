@@ -123,6 +123,37 @@ Not implemented, so nomac stops with the option's name (B-408): `addressSanitize
 into `Variant-ASan` and adds `SanitizerOptions` to the configuration; `threadSanitizerEnabled`, which
 fails for iOS devices in Xcode's own build; other repetition modes.
 
+## What a scheme sets on its tests
+
+Whether in format 1 or an autocreated plan (`xctestrun-scheme-lists`, `-scheme-lists-autocreated`,
+`-scheme-args-language`, `-scheme-parallel-no`, `-scheme-parallel-no-autocreated`,
+`-scheme-selected-no-whitelist`):
+
+| In the scheme | In the entry |
+|---|---|
+| Test action `language`, `region` | `TestLanguage`, `TestRegion`, and the arguments of a plan's language after the scheme's own (an empty value is none) |
+| `systemAttachmentLifetime`, `userAttachmentLifetime` | `SystemAttachmentLifetime`, `UserAttachmentLifetime` |
+| testable `parallelizable = "YES"` | `ParallelizationEnabled` true |
+| testable `parallelizable = "NO"` | `InProcessParallelizationEnabled` false, not `ParallelizationEnabled` |
+| testable `testExecutionOrdering = "random"` | `TestExecutionOrdering` `random` |
+| `<SkippedTests>` | `SkipTestIdentifiers` |
+| `<SelectedTests>`, with or without `useTestSelectionWhitelist` | `OnlyTestIdentifiers` |
+
+`enableUBSanitizer` on the Test action changes neither the file nor the build's flags
+(`-scheme-ub-sanitizer`). `enableThreadSanitizer` fails Xcode's build for a device with
+`clang: error: unsupported option '-fsanitize=thread' for target 'arm64-apple-ios18.0'`, exit status
+65 (`-scheme-thread-sanitizer`); nomac does not stop on it yet (B-408).
+
+## A scheme Xcode autocreates
+
+A project with no scheme file gets format 2, as with `shouldAutocreateTestPlan`: `<scheme>_<scheme>_...`,
+the configuration `Test Scheme Action`, coverage gathered, and `ParallelizationEnabled` true on every
+target (`xctestrun-no-scheme`, and `-no-scheme-own-bundle` for a test bundle's own scheme).
+
+Its UI test bundle comes before its unit test bundle, whatever the targets' order, names and identifiers
+(`-no-scheme-reversed`, `-no-scheme-renamed`, `-no-scheme-swapped-ids`). Each had one bundle of each kind:
+the order among several of one kind is not observed, and nomac keeps the project's.
+
 ## What the build products are
 
 `build-for-testing` builds what `build` builds for the scheme's testing entries and its
