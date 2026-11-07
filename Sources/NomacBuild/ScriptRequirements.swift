@@ -29,6 +29,8 @@ enum ScriptRequirements {
     static let machineArchitecture = "build:script=machine-architecture"
     static let prebuiltUploadSymbols = "build:script=crashlytics-upload-symbols"
     static let sentryReactNativeXcode = "build:script=sentry-cli-react-native-xcode"
+    /// With it true, sentry-xcode.sh and sentry-xcode-debug-files.sh bundle and upload nothing through sentry-cli (@sentry/react-native 8.34.0).
+    static let sentryUploadSwitch = "SENTRY_DISABLE_AUTO_UPLOAD"
 
     static func feature(_ command: String) -> String { "build:script-command=\(command)" }
 
@@ -47,12 +49,23 @@ enum ScriptRequirements {
             .unverified(bsdSedInPlace, "BSD sed's `sed -i ''`, which GNU sed reads as a script and fails on: write `sed -i.bak … && rm …bak` or `perl -pi -e …`, which both systems run alike"),
             .unverified(machineArchitecture, "the script picks a tool by the machine's architecture (`uname -m`, `arch`): arm64 on a Mac, aarch64 or x86_64 on Linux; make sure the Linux branch names a tool built for Linux (ADR 0182)"),
             .unverified(prebuiltUploadSymbols, "Crashlytics' `upload-symbols`, a macOS executable: skip the upload off macOS or upload with a tool built for Linux (ADR 0182)"),
-            .unverified(sentryReactNativeXcode, "`sentry-cli react-native xcode`, which sentry-cli's Linux build lacks (`error: unrecognized subcommand 'xcode'`, the RN sweep's expo-with-sentry) and which runs the script it is given, the JavaScript bundling, itself: build with `SENTRY_DISABLE_AUTO_UPLOAD=true` in the environment, with which `sentry-xcode.sh` runs the bundling directly and uploads no source maps (`SENTRY_ALLOW_FAILURE=true` would let the build go on without the bundle)"),
+            .unverified(sentryReactNativeXcode, "`sentry-cli react-native xcode`, which sentry-cli's Linux build lacks (`error: unrecognized subcommand 'xcode'`, the RN sweep's expo-with-sentry) and which runs the script it is given, the JavaScript bundling, itself: this script has no `\(sentryUploadSwitch)` to skip it, so call the bundling directly on Linux"),
+            .verified(ProjectFixes.sentryAutoUpload.feature, "sentry-xcode.sh 8.34.0 run with and without the switch: it bundles and never calls sentry-cli", "adr:0184"),
         ]
     }
 
     static let commandPosition = #"(?:^\s*|[|;&(`]\s*|\$\(\s*|\b(?:then|do|else|xcrun|exec|env|time|sudo)\s+|[\w./${}"-]*/)"#
     static let shells: Set<String> = ["sh", "bash", "zsh", "dash", "ksh"]
+
+    /// Whether a run-script phase of `workspace`, or a script one calls, has a finding of `feature`.
+    static func runs(_ feature: String, in workspace: XcodeWorkspace) -> Bool {
+        let container = workspace.isImplicit ? (workspace.path as NSString).deletingLastPathComponent : workspace.path
+        let base = (container as NSString).deletingLastPathComponent
+        let index = scriptIndex([base, (base as NSString).deletingLastPathComponent + "/node_modules"])
+        return workspace.allProjects.contains { project in
+            scan(project: project, base: base, index: index).contains { $0.0 == feature }
+        }
+    }
 
     /// The findings of every run-script phase of `project` and of the scripts they call, each as
     /// (feature, file, object). `index` finds a script by name when its path holds settings this
@@ -92,7 +105,9 @@ enum ScriptRequirements {
                 if matches(#"\bsed\b[^\n|;]*\s-i\s*(''|"")"#, line) { findings.append((bsdSedInPlace, file, location)) }
                 if matches(#"\buname\s+-[a-z]*m\b|(?:^|[|;&(`]\s*|\$\(\s*)arch(?=[\s)`]|$)"#, line) { findings.append((machineArchitecture, file, location)) }
                 if matches(#"upload-symbols\b"#, line) { findings.append((prebuiltUploadSymbols, file, location)) }
-                if matches(#"(?i)sentry[\w-]*["\\]*\s+react-native\s+xcode\b"#, line) { findings.append((sentryReactNativeXcode, file, location)) }
+                if matches(#"(?i)sentry[\w-]*["\\]*\s+react-native\s+xcode\b"#, line) {
+                    findings.append((text.contains(sentryUploadSwitch) ? ProjectFixes.sentryAutoUpload.feature : sentryReactNativeXcode, file, location))
+                }
             }
             for path in referencedScripts(text) {
                 for resolved in resolve(path, directory: directory, podsRoot: podsRoot, index: index) where seen.insert(resolved).inserted {

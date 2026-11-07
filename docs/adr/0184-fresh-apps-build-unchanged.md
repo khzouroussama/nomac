@@ -33,13 +33,14 @@ projects.
 **Separate.** All of it lives in `Sources/NomacBuild/ProjectFixes/`, with a table of `ProjectFix`
 entries as data: the tool, the exact change or the rule, why, when to drop it, and any upstream issue.
 The build code has one entry point, `ProjectFixRun`, and nothing else in it knows a tool. The table has
-three entries.
+four entries.
 
 | Fix | Change |
 |---|---|
 | `expo-autolinking-scan` | In memory, in `expo-modules-autolinking/build/platforms/apple/apple.js`: `if (process.platform !== 'darwin') {` is read as `if (process.platform !== 'darwin' && process.platform !== 'linux') {` |
 | `mach-o-tool-linux-build` | A rule for any setting whose value is a Mach-O executable: the one fitting ELF executable of the same name, in a sibling of its folder |
 | `macro-plugin-from-package` | ADR 0151's rule, moved under the same reporting: a Mach-O macro plugin is built from the Swift package beside it |
+| `sentry-auto-upload` | A rule for any script that runs `sentry-cli react-native xcode` and reads `SENTRY_DISABLE_AUTO_UPLOAD`: script phases run with it true, as a setting nomac synthesizes, unless the command line or the environment names it. Added on 2026-11-07, from the sweep's expo-with-sentry |
 
 **Documented.** docs/PROJECT-COMPATIBILITY.md says what each fix does in plain words and how to turn
 it off, and what a project may have to change itself, with which of those `nomac check` reports. A test

@@ -63,7 +63,7 @@ import Testing
     }
 
     @Test func everyFixSaysWhatWhyAndWhenToDropIt() {
-        #expect(ProjectFixes.all.map(\.id) == ["expo-autolinking-scan", "mach-o-tool-linux-build", "macro-plugin-from-package"])
+        #expect(ProjectFixes.all.map(\.id) == ["expo-autolinking-scan", "mach-o-tool-linux-build", "macro-plugin-from-package", "sentry-auto-upload"])
         for fix in ProjectFixes.all {
             #expect(!fix.tool.isEmpty)
             #expect(!fix.why.isEmpty)

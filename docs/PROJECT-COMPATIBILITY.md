@@ -85,6 +85,20 @@ exist, and stops with the original error. There is no switch for a single fix, a
 - **Upstream issue:** none.
 - **To turn it off:** `--no-project-fixes`.
 
+### `sentry-auto-upload`: Sentry's bundling script runs without its upload
+
+- **What it changes:** when a script phase runs `sentry-cli react-native xcode` from a script that reads
+  `SENTRY_DISABLE_AUTO_UPLOAD`, as `@sentry/react-native`'s `sentry-xcode.sh` does, script phases run
+  with `SENTRY_DISABLE_AUTO_UPLOAD=true`. The script then bundles the JavaScript itself.
+- **What you should know:** this build uploads no source maps or debug files to Sentry. The source map
+  is still written, so upload it afterwards with `sentry-cli sourcemaps upload`, which the Linux build has.
+- **Why:** sentry-cli's Linux build has no `react-native xcode` (`error: unrecognized subcommand
+  'xcode'`), and that command is what runs the bundling and the upload.
+- **When it goes away:** when sentry-cli's Linux build has `react-native xcode`.
+- **Upstream issue:** none.
+- **To turn it off:** `--no-project-fixes`. Setting `SENTRY_DISABLE_AUTO_UPLOAD` yourself, on the
+  command line or in the environment, also leaves it to you.
+
 ### Not fixes, but you should know
 
 To run a project's scripts as a Mac would, a Linux build provides what macOS provides. These are the
@@ -125,7 +139,7 @@ and exported. Read the list rather than the exit status.
 | BSD `sed -i ''` | `build:script=sed-in-place-bsd` | Write `sed -i.bak … && rm …bak`, which both systems run |
 | A script picks a tool by `uname -m` or `arch` | `build:script=machine-architecture` | Make sure its Linux branch names a Linux tool |
 | Crashlytics' `upload-symbols` | `build:script=crashlytics-upload-symbols` | Skip the upload off macOS, or use a Linux tool |
-| `sentry-cli react-native xcode` | `build:script=sentry-cli-react-native-xcode` | Build with `SENTRY_DISABLE_AUTO_UPLOAD=true` |
+| `sentry-cli react-native xcode` in a script that has no `SENTRY_DISABLE_AUTO_UPLOAD` | `build:script=sentry-cli-react-native-xcode` | Call the bundling directly on Linux; `sentry-xcode.sh` needs nothing (`sentry-auto-upload` above) |
 | A deployment target older than Xcode 27's SDK supports | `build:setting=deployment-target-below-minimum` | Raise it; the report gives the Podfile `post_install` for CocoaPods' targets |
 | Metal shaders | `metal:shader` | nomac has no Metal compiler yet (B-241) |
 

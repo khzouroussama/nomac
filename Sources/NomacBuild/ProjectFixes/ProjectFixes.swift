@@ -55,7 +55,16 @@ public enum ProjectFixes {
         upstream: nil,
         feature: BuildDomain.macroPluginPackage)
 
-    public static let all = [expoAutolinkingScan, machOToolLinuxBuild, macroPluginFromPackage]
+    public static let sentryAutoUpload = ProjectFix(
+        id: "sentry-auto-upload",
+        tool: "a script that runs `sentry-cli react-native xcode` unless SENTRY_DISABLE_AUTO_UPLOAD is true (@sentry/react-native's sentry-xcode.sh)",
+        change: .rule("script phases run with SENTRY_DISABLE_AUTO_UPLOAD=true: the script bundles the JavaScript itself, and this build uploads no source maps or debug files to Sentry"),
+        why: "sentry-cli's Linux build has no `react-native xcode`, the command that runs the bundling and the upload (\"error: unrecognized subcommand 'xcode'\")",
+        dropWhen: "sentry-cli's Linux build has `react-native xcode`",
+        upstream: nil,
+        feature: "build:project-fix=sentry-auto-upload")
+
+    public static let all = [expoAutolinkingScan, machOToolLinuxBuild, macroPluginFromPackage, sentryAutoUpload]
 
     /// The text of a fix's change for people.
     static func plain(_ change: ProjectFix.Change) -> String {
@@ -98,6 +107,14 @@ public struct ProjectFixRun: Sendable {
         notes += tools.notes.map { "note: project fix \(id): \($0)" }
         warnings += tools.warnings
         applied += tools.applied.map { (id, $0) }
+
+        let upload = ProjectFixes.sentryAutoUpload
+        if commandLine[ScriptRequirements.sentryUploadSwitch] == nil, ProcessInfo.processInfo.environment[ScriptRequirements.sentryUploadSwitch] == nil,
+           ScriptRequirements.runs(upload.feature, in: workspace) {
+            synthesized[ScriptRequirements.sentryUploadSwitch] = "true"
+            notes.append("note: project fix \(upload.id): sentry-cli's Linux build has no `react-native xcode`; building with \(ScriptRequirements.sentryUploadSwitch)=true, so no source maps or debug files go to Sentry from this build")
+            applied.append((upload.id, "\(ScriptRequirements.sentryUploadSwitch)=true; nothing uploaded to Sentry"))
+        }
     }
 
     public mutating func builtMacroPlugins(_ targets: [String]) {

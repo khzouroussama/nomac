@@ -14,7 +14,7 @@ These say the most about an app nomac has not seen.
 
 | Set | What is counted | Result | Measured |
 |---|---|---|---|
-| React Native and Expo sweep: 106 public Expo examples and open-source apps, unmodified (corpus/rn-sweep.json) | Install, `nomac check`, build, archive and export an IPA on Linux | Partial: round 2 stopped at 61 of the 106 apps. 49 reach an IPA; 8 stop on the app's own errors; 3 stop at the build (a compile error, a nomac refusal, a tool without that Linux subcommand); 1 did not install. | 2026-11-03, `.github/scripts/rn_sweep.py`, nomac a9b571ab and ad202e5b; docs/state/rn-sweep.md |
+| React Native and Expo sweep: 106 public Expo examples and open-source apps, unmodified (corpus/rn-sweep.json) | Install, `nomac check`, build, archive and export an IPA on Linux | Partial: round 2 stopped at 61 of the 106 apps. 49 reach an IPA; 8 stop on the app's own errors; 3 stop at the build (a compile error, a nomac refusal, a tool without that Linux subcommand); 1 did not install. Round 3, every app on the 27.0.5 release, began on 2026-11-07; nothing from it is counted yet. | 2026-11-03, `.github/scripts/rn_sweep.py`, nomac a9b571ab and ad202e5b; docs/state/rn-sweep.md |
 | Holdout: 19 open-source apps never used for development | Project loading: the PIF, `-list` and every build setting as Xcode 27.0 gives them | 19 of 19 apps identical; 3,509 of 3,514 settings identical, the other 5 equivalent (B-015) | 2026-11-03, docs/state/loader.md |
 
 ## The 20 apps nomac was developed against (corpus/)

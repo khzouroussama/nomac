@@ -42,6 +42,16 @@ Next actions:
 
 1. Take nomac's failures as the run finds them, fix them generally, and keep docs/PROGRESS.md's line
    true, with the date and the nomac version.
+   - `expo-with-sentry`: nomac's project fix `sentry-auto-upload` is on this branch, after 27.0.5, so the
+     run on the release still stops there. It was observed on sentry-xcode.sh 8.34.0 itself, not yet in a
+     whole app's Linux build: build that app with main's nomac (or `SENTRY_DISABLE_AUTO_UPLOAD=true` on the
+     release's command line), then name that build in `ScriptRequirements.entries`' evidence.
+   - `expo-with-router-menus` (`cannot find type 'RCTView'`, `AppContext` has no `reactBridge`, in
+     react-native-ios-utilities): probably the app's own, as the package predates Expo 57. Build it with
+     Xcode 27.0 and record it under `failsWithXcode` if it fails the same way.
+   - `expo-with-router-tv` (B-265, a constraint naming a view outside the view's subtree): read its
+     SplashScreen.storyboard from the kept checkout, with the nibs workstream's ranking.
+   - `expo-with-rsc` is the app's own: `npm` ERESOLVE on react-server-dom-webpack's peer `react`, on any machine.
 2. `rn_sweep.py report` pasted here when the run ends, each class routed to its workstream.
 3. B-043.
 

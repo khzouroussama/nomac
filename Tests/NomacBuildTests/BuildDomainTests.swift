@@ -1,6 +1,7 @@
 import Foundation
 import NomacCore
 import NomacEnvelope
+import NomacProject
 import NomacTestSupport
 import Testing
 @testable import NomacBuild
@@ -239,9 +240,29 @@ import Testing
             """#, to: "ios/App.xcodeproj/project.pbxproj")
         try directory.writeExactly("#!/bin/bash\nREACT_NATIVE_XCODE_WITH_SENTRY=\"\\\"$SENTRY_CLI_EXECUTABLE\\\" react-native xcode $ARGS \\\"$REACT_NATIVE_XCODE\\\"\"\n",
                                    to: "node_modules/@sentry/react-native/scripts/sentry-xcode.sh")
-        let uses = try BuildDomain().scan(directory.path + "/ios/App.xcodeproj", options: CheckOptions()).uses.filter { $0.feature == ScriptRequirements.sentryReactNativeXcode }
-        #expect(uses.count == 1)
-        #expect(uses.first?.file == directory.path + "/node_modules/@sentry/react-native/scripts/sentry-xcode.sh")
+        let script = "node_modules/@sentry/react-native/scripts/sentry-xcode.sh"
+        let scan = try BuildDomain().scan(directory.path + "/ios/App.xcodeproj", options: CheckOptions())
+        #expect(scan.uses.filter { $0.feature == ScriptRequirements.sentryReactNativeXcode }.map(\.file) == [directory.path + "/" + script])
+        #expect(scan.uses.filter { $0.feature == ProjectFixes.sentryAutoUpload.feature }.isEmpty)
+        let workspace = try XcodeWorkspace.load(path: directory.path + "/ios/App.xcodeproj")
+        #expect(!ScriptRequirements.runs(ProjectFixes.sentryAutoUpload.feature, in: workspace))
+
+        try directory.writeExactly("#!/bin/bash\nWITH_SENTRY=\"\\\"$SENTRY_CLI_EXECUTABLE\\\" react-native xcode \\\"$REACT_NATIVE_XCODE\\\"\"\nif [ \"$SENTRY_DISABLE_AUTO_UPLOAD\" == true ]; then exit 0; fi\n",
+                                   to: script)
+        let fixed = try BuildDomain().scan(directory.path + "/ios/App.xcodeproj", options: CheckOptions())
+        #expect(fixed.uses.filter { $0.feature == ScriptRequirements.sentryReactNativeXcode }.isEmpty)
+        #expect(fixed.uses.filter { $0.feature == ProjectFixes.sentryAutoUpload.feature }.map(\.file) == [directory.path + "/" + script])
+        #expect(ScriptRequirements.runs(ProjectFixes.sentryAutoUpload.feature, in: workspace))
+
+        var overrides: [String: String] = [:], synthesized: [String: String] = [:]
+        let run = try ProjectFixRun(workspace: workspace, commandLine: [:], scratch: directory.path + "/scratch", overrides: &overrides, synthesized: &synthesized)
+        #expect(synthesized[ScriptRequirements.sentryUploadSwitch] == "true")
+        #expect(run.summary().contains { $0.contains("sentry-auto-upload") })
+        var chosen: [String: String] = [:]
+        let told = try ProjectFixRun(workspace: workspace, commandLine: [ScriptRequirements.sentryUploadSwitch: "false"], scratch: directory.path + "/scratch",
+                                     overrides: &overrides, synthesized: &chosen)
+        #expect(chosen[ScriptRequirements.sentryUploadSwitch] == nil)
+        #expect(!told.summary().contains { $0.contains("sentry-auto-upload") })
     }
 
     /// Xcode 27.0 fails a target older than its SDK's minimum (a self-written library at 12.0 and 14.9).
