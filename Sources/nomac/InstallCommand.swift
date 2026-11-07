@@ -5,6 +5,7 @@ import NomacCore
 import NomacDevice
 import NomacPackaging
 import NomacSDK
+import NomacSigning
 
 /// `nomac install`, `nomac uninstall` and `nomac launch`: an app on a device through usbmuxd and
 /// lockdownd.
@@ -153,9 +154,29 @@ func bundleIdentifier(of path: String) throws -> String? {
     return dictionary["CFBundleIdentifier"] as? String
 }
 
+/// What `nomac device check` reports about the app of an IPA (`Payload/<App>.app`), from its Info.plist
+/// and embedded profile: what an ad hoc export gets told without a device being asked.
+func ipaProblems(_ path: String, device: String, at date: Date) throws -> [String] {
+    func file(_ name: String, in entries: [ZipArchive.Entry]) -> [UInt8]? {
+        entries.first { entry in
+            let components = entry.name.split(separator: "/")
+            return components.count == 3 && components[0] == "Payload" && components[1].hasSuffix(".app") && components[2] == name
+        }.map { $0.contents }
+    }
+    let entries = try ZipArchive(path: path).entries
+    guard let information = file("Info.plist", in: entries) else { return [] }
+    guard let profile = file("embedded.mobileprovision", in: entries) else {
+        return ["the app has no embedded.mobileprovision: an app signed ad hoc installs on no device; sign it with a development identity and profile"]
+    }
+    let bundleIdentifier = (try PropertyListSerialization.propertyList(from: Data(information), format: nil) as? [String: Any])?["CFBundleIdentifier"] as? String
+    return InstallCheck.problems(profile: try ProvisioningProfile(bytes: profile, path: path), bundleIdentifier: bundleIdentifier, device: device, at: date)
+}
+
 func ipaBytes(_ path: String, device: String) throws -> [UInt8] {
     guard FileSystem.isDirectory(path) else {
         guard let bytes = FileSystem.contents(atPath: path) else { throw NomacError("cannot read the IPA", path: path) }
+        let problems = try ipaProblems(path, device: device, at: Date())
+        guard problems.isEmpty else { throw NomacError("the device would refuse the app", path: path, notes: problems) }
         return [UInt8](bytes)
     }
     for warning in try InstallCheck.warnings(app: path) {

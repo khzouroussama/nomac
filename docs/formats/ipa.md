@@ -58,7 +58,11 @@ Without a team in the archive the export stops with status 70 ("No Team Found in
 any `teamID` in the options lets an ad-hoc export continue. An item whose signature has
 entitlements stops it too (`"App.app" requires a provisioning profile.`, status 70); both
 messages and their notes are compared by `compare-export` (`refusals` experiment). An empty
-entitlements dictionary does not (`entitlements-empty`, every method; expo-default's app). An
+entitlements dictionary does not (`entitlements-empty`, every method; expo-default's app). The method
+names `development`, `ad-hoc` and `app-store` give the same export as `debugging`, `release-testing`
+and `app-store-connect`, whose name `ExportOptions.plist` holds; xcodebuild logs `Command line name
+"development" is deprecated. Use "debugging" instead.` and nomac warns the same (observed with an ad
+hoc archive, 2026-11-07). An
 archive whose app lacks `CFBundleSupportedPlatforms`, `DTPlatformName`, `MinimumOSVersion` and
 `UIDeviceFamily` is taken for a macOS one (methods `developer-id`, `mac-application`).
 `validation` only accepts `destination` `upload`.

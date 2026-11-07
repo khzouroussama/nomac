@@ -336,6 +336,30 @@ import Testing
         ])
     }
 
+    /// xcodebuild takes the old names, logging that they are deprecated, and gives the same export
+    /// with the new name in `ExportOptions.plist` (observed with an ad hoc archive, 2026-11-07).
+    @Test(arguments: [("development", "debugging"), ("ad-hoc", "release-testing")])
+    func deprecatedMethodNames(old: String, current: String) throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-export")
+        let archive = try Self.archive(in: temporary.path)
+        let options = temporary.path + "/options.plist"
+        try FileSystem.write(Data(Self.options.replacingOccurrences(of: "release-testing", with: old).utf8), to: options)
+        try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
+        let written = try #require(FileManager.default.contents(atPath: temporary.path + "/out/ExportOptions.plist"))
+        #expect(String(decoding: written, as: UTF8.self).contains("<string>\(current)</string>"))
+        #expect(!String(decoding: written, as: UTF8.self).contains("<string>\(old)</string>"))
+    }
+
+    @Test func anExportWithoutACertificateSaysWhatToSet() throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-export")
+        let archive = try Self.archive(in: temporary.path)
+        let options = temporary.path + "/options.plist"
+        try FileSystem.write(Data("<plist version=\"1.0\"><dict><key>method</key><string>debugging</string></dict></plist>".utf8), to: options)
+        #expect(throws: NomacError("exportArchive exports without signingCertificate are not supported yet (BACKLOG B-302)", notes: [ArchiveExporter.signingNote], exitStatus: 70)) {
+            try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
+        }
+    }
+
     @Test func refusesItemsWithEntitlements() throws {
         let temporary = try TemporaryDirectory(prefix: "nomac-export")
         let archive = try Self.archive(in: temporary.path)
@@ -346,6 +370,7 @@ import Testing
         try FileSystem.write(Data(Self.options.utf8), to: options)
         #expect(throws: NomacError("exportArchive \"App.app\" requires a provisioning profile.", notes: [
             "Enable development signing and select a provisioning profile in the Signing & Capabilities editor.",
+            ArchiveExporter.signingNote,
         ], exitStatus: 70)) {
             try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
         }

@@ -172,6 +172,19 @@ public enum BuildOperation {
 }
 
 /// Answers Swift Build's questions while it plans. Tools it probes run as they are.
+/// True the first time it is asked.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func first() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        defer { done = true }
+        return !done
+    }
+}
+
 final class PlanningDelegate: SWBPlanningOperationDelegate, Sendable {
     let signing: SigningMaterial?
     /// Target names by GUID, which Xcode's provisioning errors name.
@@ -198,9 +211,15 @@ final class PlanningDelegate: SWBPlanningOperationDelegate, Sendable {
         #else
         let identity = LinuxSigning.identity(for: requested)
         #endif
-        return Self.provisioning(signingIdentity: identity, entitlementsFile: provisioningSourceData.projectEntitlementsFile,
-                                 entitlements: provisioningSourceData.projectEntitlements, targetName: targetNames[targetGUID] ?? "")
+        let inputs = Self.provisioning(signingIdentity: identity, entitlementsFile: provisioningSourceData.projectEntitlementsFile,
+                                       entitlements: provisioningSourceData.projectEntitlements, targetName: targetNames[targetGUID] ?? "")
+        if !inputs.errors.isEmpty, signingHint.first() { FileHandle.standardError.write(Data((Self.signingHintText + "\n").utf8)) }
+        return inputs
     }
+
+    /// Beside Xcode's refusal, whose next step is an editor nomac does not have.
+    static let signingHintText = "note: to sign for a device, pass --keychain, --provisioning-profiles and CODE_SIGN_STYLE=Manual with PROVISIONING_PROFILE_SPECIFIER (docs/INSTALL-ON-IPHONE.md); to build without a device, CODE_SIGN_ENTITLEMENTS= signs ad hoc without the entitlements"
+    private let signingHint = OnceFlag()
 
     /// What Xcode 27.0 answers for `CODE_SIGN_IDENTITY=-`: identity `-`, shown as "Sign to Run
     /// Locally", with no entitlements (retro-rampage's `Engine` and `build_experiments.py`'s

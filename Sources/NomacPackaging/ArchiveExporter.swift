@@ -10,6 +10,11 @@ import NomacSigning
 public enum ArchiveExporter {
     /// The methods xcodebuild accepts, in the order its error message lists them.
     static let methods = ["app-store-connect", "release-testing", "enterprise", "debugging", "validation"]
+    /// Names xcodebuild still takes, logging that they are deprecated: the same export under the
+    /// new name, which `ExportOptions.plist` holds (observed with an ad hoc archive, 2026-11-07).
+    static let deprecatedMethods = ["development": "debugging", "ad-hoc": "release-testing", "app-store": "app-store-connect"]
+    /// What to do about an archive's ad hoc signature, for an export that needs another.
+    static let signingNote = "to install on a device, set signingStyle to manual, signingCertificate to \"Apple Development\" and provisioningProfiles in the export options and pass --keychain (docs/INSTALL-ON-IPHONE.md); signingCertificate \"-\" signs ad hoc, which installs on no device"
 
     /// The `--preserve-metadata` list of the export's codesign invocations (its Packaging.log).
     static let preservedMetadata: Set<String> = ["identifier", "flags", "runtime", "launch-constraints", "library-constraints"]
@@ -39,6 +44,10 @@ public enum ArchiveExporter {
               case .dictionary(var options) = try PropertyListValue.parseXML(optionsData, path: optionsPath) else {
             throw NomacError("exportArchive the export options are not a dictionary", path: optionsPath, exitStatus: 70)
         }
+        if case .string(let name)? = options["method"], let current = deprecatedMethods[name] {
+            FileHandle.standardError.write(Data("warning: Command line name \"\(name)\" is deprecated. Use \"\(current)\" instead.\n".utf8))
+            options["method"] = .string(current)
+        }
         let given = options
         let methodValue = options["method"] ?? .string("debugging")
         guard case .string(let method) = methodValue, methods.contains(method) else {
@@ -50,7 +59,7 @@ public enum ArchiveExporter {
             throw NomacError("exportArchive uploading to App Store Connect (method validation, destination upload) is not supported", exitStatus: 70)
         }
         guard case .string(let certificate)? = options["signingCertificate"] else {
-            throw NomacError("exportArchive exports without signingCertificate are not supported yet (BACKLOG B-302)", exitStatus: 70)
+            throw NomacError("exportArchive exports without signingCertificate are not supported yet (BACKLOG B-302)", notes: [signingNote], exitStatus: 70)
         }
         if method == "app-store-connect" {
             // Ignored for the App Store: no manifest.plist, and gone from ExportOptions.plist
@@ -180,6 +189,7 @@ public enum ArchiveExporter {
                try PropertyListValue.parseXML(Data(entitlements), path: item) != .dictionary([:]) {
                 throw NomacError("exportArchive \"\((item as NSString).lastPathComponent)\" requires a provisioning profile.", notes: [
                     "Enable development signing and select a provisioning profile in the Signing & Capabilities editor.",
+                    signingNote,
                 ], exitStatus: 70)
             }
         }

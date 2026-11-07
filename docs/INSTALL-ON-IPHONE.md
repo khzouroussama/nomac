@@ -147,6 +147,22 @@ nomac stop <bundle identifier> --device <UDID>        # SIGTERM; --signal KILL
 nomac uninstall <bundle identifier> --device <UDID>
 ```
 
+## A project set up for automatic signing
+
+Most projects are (`CODE_SIGN_STYLE=Automatic`, a team), and automatic signing asks Apple's services,
+which nomac does not. What you get on Linux without the arguments of step 6, measured on a small
+project:
+
+- `nomac build` and `nomac archive` succeed and sign the app **ad hoc**, which is enough to check
+  that it builds but installs on no device. `nomac install` and `nomac run` say so.
+- With entitlements in the project (push, App Groups), they stop with `requires a provisioning
+  profile`. `CODE_SIGN_ENTITLEMENTS=` on the command line builds it ad hoc without them.
+- `nomac export` stops without `signingCertificate` in the export options, and says what to set.
+  `signingCertificate` `-` gives an ad hoc IPA, which `nomac install` refuses for the same reason.
+
+To install, pass `--keychain`, `--provisioning-profiles`, `CODE_SIGN_STYLE=Manual` and the settings
+`nomac signing check` prints (step 6). The project's files stay as they are.
+
 ## When it fails
 
 Every message below says the next step too.
@@ -162,9 +178,9 @@ Every message below says the next step too.
   come back. To forget an earlier decision: Settings > General > Transfer or Reset iPhone > Reset >
   Reset Location & Privacy.
 - `Developer Mode is off`: step 1.
-- `the device would refuse the app`: `nomac device check` lists why (not signed for a device, the
-  profile lacks the device or the bundle identifier, an entitlement the profile does not grant,
-  an expired profile).
+- `the device would refuse the app`: it lists why (not signed for a device, the profile lacks the
+  device or the bundle identifier, an expired profile); for a `.app`, `nomac device check` also
+  compares its entitlements with the profile's.
 - The iPhone says Untrusted Developer when you open the app: on the iPhone, Settings > General >
   VPN & Device Management, select your certificate and trust it.
 - The app starts and closes at once: an app built with the iOS 27 SDK needs the scene lifecycle
