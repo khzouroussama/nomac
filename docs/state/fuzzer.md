@@ -7,17 +7,25 @@ with Xcode's, and the loader fixes it leads to. Branch `loader/fuzz`, worktree
 
 ## Current step
 
-Fixing generator 2's differences from the top of run 2's ranking (51 projects):
+Run 2's nine differences on generator 2 are fixed: PIF key order (5 projects), per-user build
+locations (2), `wasCreatedForAppExtension` schemes (1), synchronized members' phases (1). All four of
+the cases checked again are identical. That is fitted to those seeds: the number to publish comes
+from run 3 on seeds 500000+.
 
-| Projects | Class | State |
-|---|---|---|
-| 5 | PIF key order: `PROVISIONING_PROFILE_SPECIFIER` beside `PROVISIONING_PROFILE[sdk=...]` | fixed |
-| 2 | Per-user `BuildLocationStyle` and `DerivedDataLocationStyle` move the build folders | rule observed (`workspace-locations-*`), not in nomac yet |
-| 1 | A shared scheme for a watch app: Xcode also lists an autocreated scheme of that name | not analysed |
-| 1 | A `.vsh` synchronized member in no phase in Xcode, in Sources in nomac | `synchronized-phases-all` written |
+Run 3 runs unattended: log `~/nomac-out/scratch-fuzz/run3-500000.log`, output
+`~/nomac-out/scratch-fuzz/run3-500000`, binary `~/nomac-out/scratch-fuzz/bin-2`. When it has stopped,
+`fuzz_experiments.py findings --out <output>` writes the ranking; add the row to docs/PROGRESS.md
+and fix from the top. Delete `~/nomac-out/scratch-fuzz` when that is done.
 
-Run 1's one difference (seed 300048: xcodebuild fails with 64 on a scheme whose name a UI test bundle
-and a referenced project's framework share, nomac prints a block) is the known case of `same-name-destinations`.
+Next:
+1. Run 1's seed 300048: xcodebuild fails with 64 on a scheme whose name a UI test bundle and a
+   referenced project's framework share, nomac prints a block. `same-name-destinations` documents
+   64 for two platforms; decide whether `nomac verify` treats this as equivalent.
+2. loader/coverage's `list: scheme only in nomac (unit target)` on seeds 91000+, 1 of 20. Probably
+   B-090 (which scheme tests a unit bundle changes from run to run); its case is gone, so wait for it
+   to appear in a run here.
+3. Generator 2 still leaves out `application.watchapp` and `watchkit-extension` (19 survey projects),
+   `PBXTargetDependency.productRef` (24) and `XCSwiftPackageProductDependency` plugins (12).
 
 ## How to work
 

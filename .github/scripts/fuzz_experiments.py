@@ -2145,17 +2145,17 @@ def write_workspace_files(path, files, user):
     if not files:
         return
     shared = path / "xcshareddata"
-    if files["checks"]:
+    if files.get("checks"):
         shared.mkdir(parents=True, exist_ok=True)
         (shared / "IDEWorkspaceChecks.plist").write_bytes(plist_bytes({"IDEDidComputeMac32BitWarning": True}))
-    if files["settings"]:
+    if files.get("settings"):
         shared.mkdir(parents=True, exist_ok=True)
         (shared / "WorkspaceSettings.xcsettings").write_bytes(plist_bytes(files["settings"]))
-    if files["user_settings"]:
+    if files.get("user_settings"):
         folder = path / "xcuserdata" / f"{user}.xcuserdatad"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "WorkspaceSettings.xcsettings").write_bytes(plist_bytes(files["user_settings"]))
-    if files["resolved"]:
+    if files.get("resolved"):
         folder = shared / "swiftpm"
         folder.mkdir(parents=True, exist_ok=True)
         document = {"object": {"pins": []}, "version": 1} if files["resolved"] == 1 else {"pins": [], "version": files["resolved"]}
