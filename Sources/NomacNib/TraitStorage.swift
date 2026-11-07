@@ -34,7 +34,7 @@ struct SizeClasses: Equatable {
     /// regular in portrait and compact-height in landscape, regular-width on the larger ones
     /// (nib-experiments `sb-vo-all-*`).
     static func device(_ id: String, landscape: Bool) -> SizeClasses {
-        if id.hasPrefix("ipad") { return SizeClasses(horizontal: 2, vertical: 2) }
+        if id.lowercased().hasPrefix("ipad") { return SizeClasses(horizontal: 2, vertical: 2) }
         guard landscape else { return SizeClasses(horizontal: 1, vertical: 2) }
         let regularWidth: Set = ["retina5_5", "retina6_1", "retina6_3", "retina6_5", "retina6_7", "retina6_9"]
         return SizeClasses(horizontal: regularWidth.contains(id) ? 2 : 1, vertical: 1)

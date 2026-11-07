@@ -40,21 +40,24 @@ public enum XIBCompiler {
     /// a storyboard sizes its scenes' views by them (`StoryboardCompiler.deviceSizes`).
     static let devices: Set<String> = ["retina3_5", "retina6_72", "retina4_0", "retina4_7", "retina5_5", "retina5_9", "retina6_0", "retina6_1",
                                        "retina6_12", "retina6_3", "retina6_5", "retina6_7", "retina6_9", "ipad9_7", "ipad11_0rounded",
-                                       "ipad12_9rounded"]
+                                       "ipad12_9rounded", "ipad10_9rounded", "iPad13_0rounded", "ipad7_9", "ipad12_9", "ipad10_5", "ipad11_0"]
     /// `<document>` attributes and the values observed (`tools-version-*`, `use-safe-areas`,
     /// `no-trait-collections`, `launch-screen`, `system-version-*`, `header-instantiation-direct`,
     /// `sb-instantiation-direct`); a nil value means any, observed with two or three.
     static let documentAttributes: [String: Set<String>?] = [
-        "type": ["com.apple.InterfaceBuilder3.CocoaTouch.XIB"], "version": ["3.0"], "toolsVersion": nil, "systemVersion": nil,
-        "targetRuntime": ["iOS.CocoaTouch"], "propertyAccessControl": ["none"], "useAutolayout": ["YES"],
+        "type": ["com.apple.InterfaceBuilder3.CocoaTouch.XIB", "com.apple.InterfaceBuilder3.CocoaTouch.iPad.XIB"], "version": ["3.0"], "toolsVersion": nil, "systemVersion": nil,
+        "targetRuntime": ["iOS.CocoaTouch", "iOS.CocoaTouch.iPad"], "propertyAccessControl": ["none"], "useAutolayout": ["YES"],
         "useTraitCollections": ["YES"], "useSafeAreas": ["YES"], "launchScreen": ["YES"], "colorMatched": ["YES"],
-        "customObjectInstantitationMethod": ["direct"],
+        "customObjectInstantitationMethod": ["direct"], "promptedForUpgradeToXcode5": ["NO"],
     ]
-    /// `<capability>` names observed in `<dependencies>` (`capabilities`).
+    /// `<capability>` names observed in `<dependencies>` (`capabilities`, `header-capability-*`).
     static let capabilities: Set<String> = ["documents saved in the Xcode 8 format", "Safe area layout guides",
                                             "System colors in document resources", "Named colors", "Constraints to layout margins",
                                             "Image references", "Aspect ratio constraints", "Stack View standard spacing",
-                                            "collection view cell content view", "Constraints with non-1.0 multipliers"]
+                                            "collection view cell content view", "Constraints with non-1.0 multipliers",
+                                            "Alignment constraints with different attributes", "Alignment constraints to the first baseline",
+                                            "Navigation items with more than one left or right bar item", "Map view configurations", "Segues with Peek and Pop",
+                                            "System colors in document", "iOS 13.0 system colors", "Baseline standard spacing"]
 
     /// The font files of a xib's or storyboard's `<customFonts>`, in document order, which ibtool writes
     /// as the partial Info.plist's `UIAppFonts` (nib-experiments `custom-fonts*`, `sb-custom-fonts`).
@@ -135,6 +138,12 @@ struct DocumentCompiler {
     var colorMatched = true
     /// Whether the document is in an `.lproj` folder, whose texts are localizable (`label-lproj`).
     var localizable: Bool { (path as NSString).deletingLastPathComponent.hasSuffix(".lproj") }
+    /// Whether a storyboard's scenes' views get layout guides: not with a development version before
+    /// Xcode 5 (`sb-header-development-4200` to `-4800`) or without Auto Layout (`sb-noauto*`).
+    var addsSceneLayoutGuides = true
+    /// The autoresizing mask of a view without one: flexible right and bottom, without Auto Layout
+    /// flexible top and bottom, whatever the view (`auto-*-unmasked`, `noauto-*`, `sb-noauto-unmasked`).
+    var defaultAutoresizingMask = NibView.defaultAutoresizingMask
     /// Whether the document is a storyboard, whose sRGB and gray colors' components keep 10
     /// significant digits, but for named colors (nib-experiments `sb-precise-*` against `precise-*`,
     /// `sb-cw-*`; the corpus's catalog colors), and which walks its connections otherwise.
@@ -228,7 +237,7 @@ struct DocumentCompiler {
         var topLevel: [NibArchivable] = []
         for child in document.children {
             switch child.name {
-            case "device", "dependencies", "resources", "accessibilityOverrides":
+            case "device", "dependencies", "resources", "accessibilityOverrides", "simulatedMetricsContainer":
                 try headerElement(child)
             case "designables":
                 try designables(child)
@@ -371,6 +380,7 @@ struct DocumentCompiler {
     mutating func header(_ document: XIBElement, attributes allowed: [String: Set<String>?]) throws {
         guard document.name == "document" else { throw unsupported("<\(document.name)> as a document") }
         colorMatched = document.attributes["colorMatched"] == "YES"
+        if document.attributes["useAutolayout"] != "YES" { defaultAutoresizingMask = 40 }
         for (name, value) in document.attributes {
             guard let values = allowed[name] else { throw unsupported("the \(name) attribute of <document>") }
             if let values, !values.contains(value) { throw unsupported("\(name)=\"\(value)\"") }
@@ -405,7 +415,7 @@ struct DocumentCompiler {
     /// `<customFonts>`, the font files IB found a document's named fonts in, which change no nib; the
     /// partial Info.plist lists them (`customFontFiles`; `custom-fonts*`, `sb-custom-fonts`).
     func customFonts(_ element: XIBElement) throws {
-        try check(element, attributes: ["key"], children: ["array"])
+        try check(element, attributes: ["key"], children: ["array", "mutableArray"])
         try value(element, "key", in: ["customFonts"])
         for array in element.children {
             try check(array, attributes: ["key"], children: ["string"])
@@ -432,23 +442,14 @@ struct DocumentCompiler {
         case "accessibilityOverrides":
             try check(element, attributes: ["isEnabled", "dynamicTypePreference"], children: [])
         case "simulatedMetricsContainer":
-            // Xcode 8's default simulated metrics change no storyboard's nibs, with or without a
-            // <device>, its scenes' frames matching its screen or not (`sb-metrics-*`, round 62).
-            try check(element, attributes: ["key"], children: ["simulatedStatusBarMetrics", "simulatedOrientationMetrics", "simulatedScreenMetrics"])
+            // Xcode 8's default simulated metrics, which the reader removes but for a `nil` status
+            // bar, change no nibs, with or without a <device>, its scenes' frames matching its
+            // screen or not (`sb-metrics-*`, round 62; `header-metrics-container*`).
+            try check(element, attributes: ["key"], children: ["nil"])
             try value(element, "key", in: ["defaultSimulatedMetrics"])
-            for metrics in element.children {
-                try check(metrics, attributes: ["key", "type"], children: [])
-                switch metrics.name {
-                case "simulatedStatusBarMetrics":
-                    try value(metrics, "key", in: ["statusBar"])
-                    guard metrics.attributes["type"] == nil else { throw unsupported("simulated status bar metrics of a type") }
-                case "simulatedOrientationMetrics":
-                    try value(metrics, "key", in: ["orientation"])
-                    guard metrics.attributes["type"] == nil else { throw unsupported("simulated orientation metrics of a type") }
-                default:
-                    try value(metrics, "key", in: ["destination"])
-                    try value(metrics, "type", in: ["retina4_7.fullscreen", "retina4"])
-                }
+            for child in element.children {
+                try check(child, attributes: ["key"], children: [])
+                try value(child, "key", in: ["statusBar"])
             }
         default:
             break
@@ -470,13 +471,18 @@ struct DocumentCompiler {
                 try check(child, attributes: ["name", "minToolsVersion"], children: [])
                 try value(child, "name", in: XIBCompiler.capabilities)
             case "development":
-                // Xcode 5's development version changes nothing (`development-xcode-5100`).
-                try check(child, attributes: ["version", "identifier"], children: [])
+                // A development version from 5000 changes nothing (`header-development-*`,
+                // `development-xcode-5100`); before it a scene's view has no layout guides
+                // (`sb-header-development-4200` to `-4800`: `DocumentCompiler.addsSceneLayoutGuides`).
+                try check(child, attributes: ["version", "defaultVersion", "identifier"], children: [])
                 try value(child, "identifier", in: ["xcode"])
-                try value(child, "version", in: ["5100"])
+                try value(child, "version", in: ["4200", "4600", "4800", "5000", "5100", "5200", "6000", "6100", "6300", "6400", "7000", "7200", "7400", "8000", "11000"])
+                try value(child, "defaultVersion", in: ["4200", "4600"])
             default:
-                try check(child, attributes: ["identifier", "version"], children: [])
+                // `defaultVersion` changes nothing (`header-default-version-*`).
+                try check(child, attributes: ["identifier", "version", "defaultVersion"], children: [])
                 try value(child, "identifier", in: ["iOS"])
+                try value(child, "defaultVersion", in: ["1280", "1296", "1536", "1552", "1792", "1808", "2048"])
                 guard let text = child.attributes["version"] else { continue }
                 guard let version = Int(text), version >= 2048 else {
                     throw NomacError("nomac does not compile documents whose <deployment version=\"\(text)\"> is before iOS 8.0 (ibtool writes nib bundles) yet (BACKLOG B-263)",
@@ -544,7 +550,7 @@ struct DocumentCompiler {
             : Self.controlAttributes[element.name] ?? []
         try check(element, attributes: Self.viewAttributes + kindAttributes + ["customClass", "customModule", "customModuleProvider"],
                   children: Set(["rect", "autoresizingMask", "subviews", "point", "color", "constraints", "connections",
-                                 "freeformSimulatedSizeMetrics", "nil", "edgeInsets", "directionalEdgeInsets", "viewLayoutGuide", "simulatedNavigationBarMetrics",
+                                 "freeformSimulatedSizeMetrics", "nil", "edgeInsets", "directionalEdgeInsets", "viewLayoutGuide",
                                  "userDefinedRuntimeAttributes", "accessibility", "gestureRecognizers", "attributedString"]
                                 + (isLabel ? ["fontDescription", "string", "variation", "attributedString", "size"] : [])
                                 + (imageView ? ["imageReference", "preferredSymbolConfiguration"] : [])
@@ -605,12 +611,12 @@ struct DocumentCompiler {
             throw unsupported("a view of no size at 0, 0")
         }
         flags.contentStretch = try contentStretch(element)
-        var mask = NibView.defaultAutoresizingMask
+        var mask = defaultAutoresizingMask
         var hasMask = false
         for child in element.children {
             switch (child.name, child.attributes["key"]) {
             case ("rect", "frame"), ("rect", "contentStretch"), ("point", "canvasLocation"), ("subviews", nil), ("color", "backgroundColor"), ("constraints", nil),
-                 ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _), ("simulatedNavigationBarMetrics", _),
+                 ("viewLayoutGuide", "safeArea"), ("connections", nil), ("freeformSimulatedSizeMetrics", _), ("nil", _),
                  ("fontDescription", "fontDescription"), ("color", "textColor"), ("color", "highlightedColor"), ("string", "text"), ("string", "placeholder"),
                  ("color", "shadowColor") where isLabel, ("size", "shadowOffset") where isLabel,
                  ("color", "separatorColor") where isTable, ("color", "sectionIndexBackgroundColor") where isTable,
@@ -646,7 +652,7 @@ struct DocumentCompiler {
             }
         }
         if flags.doesNotTranslateAutoresizingMask {
-            mask = NibView.defaultAutoresizingMask
+            mask = defaultAutoresizingMask
         }
         guard let id = element.attributes["id"] else { throw unsupported("a view without an id") }
         var subviews: [NibView] = []
@@ -724,7 +730,7 @@ struct DocumentCompiler {
             var label = try self.label(element)
             let variations = try element.children(named: "variation").map { variation in
                 try check(variation, attributes: ["key"], children: ["fontDescription"])
-                return (try sizeClasses(variation), try font(variation).font)
+                return (try sizeClasses(variation), try font(variation))
             }
             if !variations.isEmpty {
                 traitStorages.append(TraitStorage(object: view, keyPath: string("font"), variations: variations.map { ($0.0, .object($0.1)) },
@@ -1026,16 +1032,6 @@ struct DocumentCompiler {
             try check(child, attributes: ["key"], children: [])
             try value(child, "key", in: ["simulatedTopBarMetrics", "simulatedBottomBarMetrics", "simulatedStatusBarMetrics"])
         }
-        for child in element.children(named: "simulatedNavigationBarMetrics") {
-            try check(child, attributes: ["key", "prompted", "translucent", "barStyle"], children: [])
-            try value(child, "key", in: ["simulatedTopBarMetrics"])
-            try value(child, "barStyle", in: ["black"])
-        }
-        // A controller's simulated tab bar and toolbar change nothing either (round 112, `sb-sim-*`).
-        for child in element.children.filter({ ["simulatedTabBarMetrics", "simulatedToolbarMetrics"].contains($0.name) }) {
-            try check(child, attributes: ["key", "translucent"], children: [])
-            try value(child, "key", in: ["simulatedBottomBarMetrics"])
-        }
     }
 
     /// The controls whose actions are observed (`act-*`, `ev-*`, `tf-action`, `sw-action`).
@@ -1221,9 +1217,10 @@ struct DocumentCompiler {
             }
             return nil
         }
-        var classModule = element.attributes["customModule"]
+        // An empty module or provider is none (`header-custom-*`).
+        var classModule = element.attributes["customModule"].flatMap { $0.isEmpty ? nil : $0 }
         switch element.attributes["customModuleProvider"] {
-        case nil:
+        case nil, "":
             break
         case "target":
             guard let module else { throw unsupported("customModuleProvider=\"target\" without --module") }
@@ -1334,19 +1331,30 @@ extension DocumentCompiler {
     mutating func resizeToDevice(_ views: [NibView], document: XIBElement) throws {
         guard deploymentTarget.major < 17, !views.isEmpty else { return }
         let size: (width: Double, height: Double)
-        if let device = document.children(named: "device").first {
+        if let device = Self.sizingDevice(of: document) {
             guard let id = device.attributes["id"], !["retina3_5", "retina6_72"].contains(id), let portrait = StoryboardCompiler.deviceSizes[id] else {
                 throw unsupported("top-level views without freeform metrics on the device \(device.attributes["id"] ?? "") for iOS before 17")
             }
             size = device.attributes["orientation"] == "landscape" ? (portrait.height, portrait.width) : portrait
         } else {
-            guard document.attributes["useTraitCollections"] == "YES" else {
-                throw unsupported("top-level views without freeform metrics, a device or trait collections for iOS before 17")
-            }
-            size = StoryboardCompiler.sizeWithoutDevice
+            size = Self.sizeWithoutDevice(document)
         }
         for view in views {
             try resize(view, to: size, keepingOrigin: true)
         }
     }
 }
+
+    /// The document's `<device>`, unless ibtool knows no such device, as if the document named none
+    /// (`header-device-ipad12_9-*`, `-ipad10_5-*`, `-ipad11_0-*`).
+    static func sizingDevice(of document: XIBElement) -> XIBElement? {
+        document.children(named: "device").first { StoryboardCompiler.deviceSizes[$0.attributes["id"] ?? ""] != nil }
+    }
+
+    /// The size of what a document without a device sizes: 600 x 600 with trait collections, and
+    /// without them IB's default device of its runtime (`header-traitless-*`, `sb-header-traitless-*`,
+    /// `header-deviceless-*`, `sb-header-deviceless-*`, `sb-deployment-*`).
+    static func sizeWithoutDevice(_ document: XIBElement) -> (width: Double, height: Double) {
+        if document.attributes["useTraitCollections"] == "YES" { return StoryboardCompiler.sizeWithoutDevice }
+        return document.attributes["targetRuntime"] == "iOS.CocoaTouch.iPad" ? (820, 1180) : StoryboardCompiler.sizeWithoutDeviceOrTraitCollections
+    }

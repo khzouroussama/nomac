@@ -1263,6 +1263,29 @@ A `UIColor`, with the fallback class `NSColor` (`gray-*`, `rgb-*`, `system-*`, `
   writer shares the objects it held twice, not equal values.
 - Segues (`<segue>` in a controller's `<connections>`, kind `show` or `presentation`, with an
   `identifier`; ibtool warns about a segue without one, which nomac refuses) are templates in
+## Older documents
+
+What Xcode 6 to 8 saved changes no nib, on any view or controller, with a device or without, at 27.0 and
+below 17 (rounds 120 to 122; the reader drops them, other values stay and are refused): `<animations/>`
+(`animations-*`), `<simulatedStatusBarMetrics>`, `<simulatedOrientationMetrics>`, `<simulatedScreenMetrics>` of the
+types observed and the top and bottom bars' metrics (`old-*`, `old-no-device-*`, `sb-old-*`), the capabilities
+`header-capability-*`, `defaultVersion` of `<deployment>` (`header-default-version-*`), a `<development>` version
+from 5000 (`header-development-*`), `promptedForUpgradeToXcode5`, a `<simulatedMetricsContainer>` in a xib
+(`header-metrics-container*`), `<mutableArray>` for a custom font's names (`header-fonts-mutable`), and an empty
+`customModule` or `customModuleProvider`, which is none (`header-custom-*`). What does change:
+
+- A `<development>` version under 5000 (4200, 4600, 4800) gives a scene's view no layout guides
+  (`sb-header-development-*`); so does a document without `useAutolayout` (`sb-noauto*`).
+- Without `useAutolayout` a view without an `<autoresizingMask>` has flexible top and bottom margins, mask 40,
+  in place of 36, whatever its kind (`noauto-*` against `auto-*-unmasked`, `sb-noauto-unmasked`).
+- `iOS.CocoaTouch.iPad` and `CocoaTouch.iPad.XIB` compile as the iPhone runtime and type, but for what is sized
+  without a device: below 17 without trait collections 820 x 1180, not 393 x 852 (`header-traitless-*`,
+  `sb-header-traitless-*`), and a storyboard with trait collections 600 x 600 at any target
+  (`sb-header-deviceless-*`).
+- Devices ibtool knows besides those of "Inputs nomac compiles": `ipad10_9rounded` (820 x 1180), `iPad13_0rounded`
+  (1032 x 1376), `ipad7_9` (744 x 1133). `ipad12_9`, `ipad10_5` and `ipad11_0` are as no device
+  (`header-device-*`, `sb-header-device-*`).
+
   their source's controller nib, under `UIStoryboardSegueTemplates` (an `NSArray`, after
   `UIStoryboardIdentifier`): `UIStoryboardShowSegueTemplate` (`UIIdentifier`,
   `UIDestinationViewControllerIdentifier` the destination's nib name, `UIActionName`

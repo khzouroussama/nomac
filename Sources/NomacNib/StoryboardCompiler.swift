@@ -46,7 +46,7 @@ public enum StoryboardCompiler {
         "retina3_5": (393, 852), "retina6_72": (393, 852), "retina4_0": (320, 568), "retina4_7": (375, 667), "retina5_5": (414, 736), "retina5_9": (375, 812),
         "retina6_0": (390, 844), "retina6_1": (414, 896), "retina6_12": (393, 852), "retina6_3": (402, 874), "retina6_5": (414, 896),
         "retina6_7": (430, 932), "retina6_9": (440, 956), "ipad9_7": (768, 1024), "ipad11_0rounded": (834, 1210),
-        "ipad12_9rounded": (1024, 1366),
+        "ipad12_9rounded": (1024, 1366), "ipad10_9rounded": (820, 1180), "iPad13_0rounded": (1032, 1376), "ipad7_9": (744, 1133),
     ]
 }
 
@@ -80,15 +80,18 @@ extension DocumentCompiler {
             }
         }
         let initial = document.attributes["initialViewController"]
-        if let device = document.children(named: "device").first {
+        if let device = Self.sizingDevice(of: document) {
             let id = device.attributes["id"] ?? "retina6_12"
             let size = StoryboardCompiler.deviceSizes[id]!
             let landscape = device.attributes["orientation"] == "landscape" && !["retina3_5", "retina6_72"].contains(id)
             sceneSize = landscape ? (size.height, size.width) : size
             deviceSizeClasses = SizeClasses.device(id, landscape: landscape)
-        } else if deploymentTarget.major < 17 {
-            sceneSize = document.attributes["useTraitCollections"] == "YES" ? StoryboardCompiler.sizeWithoutDevice
-                : StoryboardCompiler.sizeWithoutDeviceOrTraitCollections
+        } else if deploymentTarget.major < 17 || (document.attributes["targetRuntime"] == "iOS.CocoaTouch.iPad" && document.attributes["useTraitCollections"] == "YES") {
+            // An iPad document with trait collections is sized at any target (`sb-header-deviceless-ipad`).
+            sceneSize = Self.sizeWithoutDevice(document)
+        }
+        addsSceneLayoutGuides = document.attributes["useAutolayout"] == "YES" && !document.children(named: "dependencies").flatMap { $0.children(named: "development") }.contains {
+            Int($0.attributes["version"] ?? "") ?? 5000 < 5000
         }
         usesSafeAreas = document.attributes["useSafeAreas"] == "YES"
         let controllers = try scenes.map { try sceneController($0, initial: initial) }
@@ -1002,8 +1005,10 @@ extension DocumentCompiler {
         }
     }
 
-    /// A navigation controller of a root and a bar, with its title, identifier and toolbar.
-    mutating func navigationController(_ navigation: XIBElement, root: NibArchivable, bar: NibNavigationBar, swapsClass: Bool,
+    /// A navigation controller of a root and a bar, with its title, identifier, toolbar, class and
+    /// settings (`sb-navattr-*`). An identifier or a custom class makes it a class swapper, in a
+    /// container too (`sb-navattr-tab-identifier`, `sb-navattr-tab-custom`).
+    mutating func navigationController(_ navigation: XIBElement, root: NibArchivable?, bar: NibNavigationBar, swapsClass: Bool,
                                        empty: NibArray) throws -> NibNavigationController {
         let controller = NibNavigationController(root: root, bar: bar, swapsClass: swapsClass,
                                                  adjustsScrollViewInsets: try bool(navigation, "automaticallyAdjustsScrollViewInsets", default: true))
@@ -1187,7 +1192,7 @@ extension DocumentCompiler {
         // A scene's view keeps its origin, a device resizing it only (`sb-view-at-*`, round 63).
         guard let frame = view.frame else { throw unsupportedScene("a scene's view without a frame") }
         var layoutGuides: [NibView] = []
-        if !view.kind.isTableView, !view.kind.isCollection, !usesSafeAreas || !layoutGuideIDs.isEmpty {
+        if addsSceneLayoutGuides, !view.kind.isTableView, !view.kind.isCollection, !usesSafeAreas || !layoutGuideIDs.isEmpty {
             layoutGuides = NibView.viewControllerLayoutGuides(for: view)
             if let viewID = element.attributes["id"] {
                 for (id, (guide, y)) in zip(layoutGuideIDs, zip(layoutGuides, [0, frame.height])) {

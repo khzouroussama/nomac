@@ -7093,6 +7093,416 @@ TRAITS_ROUND["label-animations"] = constrained(label().replace("</label>", "    
 TRAITS_ROUND["root-animations"] = constrained("", "").replace("<subviews", "<animations/>\n            <subviews", 1)
 EXPERIMENTS.update(TRAITS_ROUND)
 STORYBOARDS["sb-animations-view"] = storyboard(scene(view_extra="                        <animations/>\n"))
+# Round 120: what Xcode 6 to 8 saved in documents and later ones dropped: `<animations/>` anywhere and
+# simulated metrics of the status bar, orientation and screen on views and controllers, at 27.0 and
+# below 17, where a device resizes top-level views. Each against a document without the element.
+OLD_METRICS = {
+    "status-bar": '<simulatedStatusBarMetrics key="statusBar"/>',
+    "status-bar-old-key": '<simulatedStatusBarMetrics key="simulatedStatusBarMetrics"/>',
+    "status-bar-light": '<simulatedStatusBarMetrics key="simulatedStatusBarMetrics" statusBarStyle="lightContent"/>',
+    "status-bar-black": '<simulatedStatusBarMetrics key="statusBar" statusBarStyle="blackOpaque"/>',
+    "orientation": '<simulatedOrientationMetrics key="orientation"/>',
+    "orientation-old-key": '<simulatedOrientationMetrics key="simulatedOrientationMetrics"/>',
+    "orientation-landscape": '<simulatedOrientationMetrics key="simulatedOrientationMetrics" orientation="landscapeRight"/>',
+    "screen": '<simulatedScreenMetrics key="simulatedDestinationMetrics"/>',
+    "screen-destination": '<simulatedScreenMetrics key="destination"/>',
+    "screen-retina4": '<simulatedScreenMetrics key="simulatedDestinationMetrics" type="retina4"/>',
+    "screen-retina47": '<simulatedScreenMetrics key="simulatedDestinationMetrics" type="retina47"/>',
+    "screen-retina55": '<simulatedScreenMetrics key="destination" type="retina55"/>',
+    "screen-ipad": '<simulatedScreenMetrics key="simulatedDestinationMetrics" type="iPad"/>',
+    "top-bar": '<simulatedNavigationBarMetrics key="simulatedTopBarMetrics" prompted="NO"/>',
+    "top-bar-translucent": '<simulatedNavigationBarMetrics key="simulatedTopBarMetrics" translucent="NO" prompted="NO"/>',
+    "bottom-tab": '<simulatedTabBarMetrics key="simulatedBottomBarMetrics"/>',
+    "bottom-tool": '<simulatedToolbarMetrics key="simulatedBottomBarMetrics"/>',
+    "bottom-tool-black": '<simulatedToolbarMetrics key="simulatedBottomBarMetrics" barStyle="black" translucent="NO"/>',
+}
+OLD_XIB = xib(f'''        <view contentMode="scaleToFill" id="iN0-l3-epB">
+            <rect key="frame" x="0" y="0" width="320" height="568"/>
+            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+            <subviews>
+{subview("sss-ss-ss1", (10, 20, 100, 50))}            </subviews>
+            <point key="canvasLocation" x="0" y="0"/>
+        </view>
+''')
+OLD_DEVICELESS = re.sub(r'    <device [^>]*/>\n', "", OLD_XIB)
+for target in ("27.0", "15.0"):
+    suffix = "" if target == "27.0" else "-at-15"
+    for document, family in ((OLD_XIB, "old"), (OLD_DEVICELESS, "old-no-device")):
+        EXPERIMENTS[f"{family}-base{suffix}"] = document
+        OPTIONS[f"{family}-base{suffix}"] = {"deployment": target}
+        for name, element in OLD_METRICS.items():
+            experiment = f"{family}-{name}{suffix}"
+            EXPERIMENTS[experiment] = document.replace('            <point key="canvasLocation"', f"            {element}\n" + '            <point key="canvasLocation"', 1)
+            OPTIONS[experiment] = {"deployment": target}
+    base = storyboard(scene(view_extra=SUBVIEW))
+    STORYBOARDS[f"sb-old-base{suffix}"] = base
+    OPTIONS[f"sb-old-base{suffix}"] = {"deployment": target}
+    for name, element in OLD_METRICS.items():
+        experiment = f"sb-old-{name}{suffix}"
+        STORYBOARDS[experiment] = base.replace('                    <view key="view"', f"                    {element}\n" + '                    <view key="view"', 1)
+        OPTIONS[experiment] = {"deployment": target}
+        experiment = f"sb-old-view-{name}{suffix}"
+        STORYBOARDS[experiment] = base.replace('                    </view>\n                </viewController>', f"                        {element}\n" + '                    </view>\n                </viewController>', 1)
+        OPTIONS[experiment] = {"deployment": target}
+ANIMATED = {
+    "root": OLD_XIB.replace('            <point key="canvasLocation"', '            <animations/>\n            <point key="canvasLocation"', 1),
+    "subview": OLD_XIB.replace('                </view>', '                    <animations/>\n                </view>', 1),
+    "label": constrained(subview("lll-ll-ll1", (10, 20, 100, 21), tag="label", attributes=' opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Hi" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO"').replace(
+        "                </label>", '                    <animations/>\n                    <fontDescription key="fontDescription" type="system" pointSize="17"/>\n                    <nil key="textColor"/>\n                    <nil key="highlightedColor"/>\n                </label>'), ""),
+    "button": constrained(button(children=button_state() + "\n<animations/>\n"), ""),
+    "image": constrained(subview("iii-ii-ii1", (10, 20, 100, 50), tag="imageView", attributes=' userInteractionEnabled="NO"').replace("                </imageView>", "                    <animations/>\n                </imageView>"), ""),
+    "not-empty": OLD_XIB.replace('            <point key="canvasLocation"', '            <animations>\n                <animation/>\n            </animations>\n            <point key="canvasLocation"', 1),
+}
+for name, document in ANIMATED.items():
+    EXPERIMENTS[f"animations-{name}"] = document
+STORYBOARDS["sb-animations-root"] = storyboard(scene(view_extra=SUBVIEW + "                        <animations/>\n"))
+STORYBOARDS["sb-animations-subview"] = storyboard(scene(view_extra=SUBVIEW.replace("                            </view>", "                                <animations/>\n                            </view>")))
+
+
+# Round 121: what older documents' headers add, each against a document without it: capabilities,
+# `defaultVersion`, development versions, devices, custom fonts as mutable arrays, custom modules' empty
+# providers, the iPad runtime.
+HEADER_BASE = constrained(subview("sss-ss-ss1"), "")
+HEADER_SB = storyboard(scene(view_extra=SUBVIEW))
+OLD_CAPABILITIES = {"alignment-different": "Alignment constraints with different attributes", "alignment-baseline": "Alignment constraints to the first baseline",
+                    "nav-items": "Navigation items with more than one left or right bar item", "map": "Map view configurations", "peek-pop": "Segues with Peek and Pop",
+                    "system-colors": "System colors in document", "ios13-colors": "iOS 13.0 system colors", "baseline-spacing": "Baseline standard spacing"}
+for name, capability in OLD_CAPABILITIES.items():
+    element = f'        <capability name="{capability}" minToolsVersion="8.0"/>\n    </dependencies>\n'
+    EXPERIMENTS[f"header-capability-{name}"] = HEADER_BASE.replace("    </dependencies>\n", element)
+    STORYBOARDS[f"sb-header-capability-{name}"] = HEADER_SB.replace("    </dependencies>\n", element)
+for version in (1280, 1296, 1536, 1552, 1792, 1808, 2048):
+    element = f'        <deployment defaultVersion="{version}" identifier="iOS"/>\n    </dependencies>\n'
+    EXPERIMENTS[f"header-default-version-{version}"] = HEADER_BASE.replace("    </dependencies>\n", element)
+    STORYBOARDS[f"sb-header-default-version-{version}"] = HEADER_SB.replace("    </dependencies>\n", element)
+EXPERIMENTS["header-default-version-and-version"] = HEADER_BASE.replace("    </dependencies>\n", '        <deployment version="1792" defaultVersion="1536" identifier="iOS"/>\n    </dependencies>\n')
+for version in (4600, 4800, 5000, 5100, 5200, 6000, 6100, 6300, 6400, 7000, 7200, 7400, 8000):
+    element = f'        <development version="{version}" identifier="xcode"/>\n    </dependencies>\n'
+    EXPERIMENTS[f"header-development-{version}"] = HEADER_BASE.replace("    </dependencies>\n", element)
+    STORYBOARDS[f"sb-header-development-{version}"] = HEADER_SB.replace("    </dependencies>\n", element)
+EXPERIMENTS["header-development-default"] = HEADER_BASE.replace("    </dependencies>\n", '        <development defaultVersion="4600" identifier="xcode"/>\n    </dependencies>\n')
+EXPERIMENTS["header-prompted"] = HEADER_BASE.replace('colorMatched="YES"', 'colorMatched="YES" promptedForUpgradeToXcode5="NO"')
+STORYBOARDS["sb-header-prompted"] = HEADER_SB.replace('colorMatched="YES"', 'colorMatched="YES" promptedForUpgradeToXcode5="NO"')
+for device in ("ipad12_9", "ipad10_9rounded", "iPad13_0rounded", "ipad10_5", "ipad7_9", "ipad11_0", "ipad9_7"):
+    for orientation in ("portrait", "landscape"):
+        element = f'<device id="{device}" orientation="{orientation}"'
+        EXPERIMENTS[f"header-device-{device}-{orientation}"] = HEADER_BASE.replace('<device id="retina6_12" orientation="portrait"', element)
+        OPTIONS[f"header-device-{device}-{orientation}"] = {"deployment": "15.0"}
+        STORYBOARDS[f"sb-header-device-{device}-{orientation}"] = HEADER_SB.replace('<device id="retina6_12" orientation="portrait"', element)
+FONT_LIST = '    <customFonts key="customFonts">\n        <mutableArray key="Georgia.ttf">\n            <string>Georgia</string>\n        </mutableArray>\n    </customFonts>\n'
+EXPERIMENTS["header-fonts-mutable"] = constrained(label(font=GEORGIA), "").replace("    <objects>\n", FONT_LIST + "    <objects>\n")
+STORYBOARDS["sb-header-fonts-mutable"] = STORYBOARD.replace("    <scenes>\n", FONT_LIST + "    <scenes>\n")
+for name, attributes in {"provider-empty": ' customClass="Box" customModule="App" customModuleProvider=""', "provider-empty-t": ' customClass="Box" customModule="T" customModuleProvider=""',
+                         "provider-empty-no-module": ' customClass="Box" customModuleProvider=""', "module-empty": ' customClass="Box" customModule="" customModuleProvider="target"',
+                         "module-empty-provider-empty": ' customClass="Box" customModule="" customModuleProvider=""'}.items():
+    EXPERIMENTS[f"header-custom-{name}"] = constrained(subview("sss-ss-ss1", attributes=attributes), "")
+IPAD_XIB = HEADER_BASE.replace('type="com.apple.InterfaceBuilder3.CocoaTouch.XIB"', 'type="com.apple.InterfaceBuilder3.CocoaTouch.iPad.XIB"').replace('targetRuntime="iOS.CocoaTouch"', 'targetRuntime="iOS.CocoaTouch.iPad"')
+EXPERIMENTS["header-ipad-xib"] = IPAD_XIB
+EXPERIMENTS["header-ipad-xib-runtime-only"] = HEADER_BASE.replace('targetRuntime="iOS.CocoaTouch"', 'targetRuntime="iOS.CocoaTouch.iPad"')
+EXPERIMENTS["header-ipad-xib-no-device"] = re.sub(r'    <device [^>]*/>\n', "", IPAD_XIB)
+EXPERIMENTS["header-ipad-xib-on-ipad"] = IPAD_XIB
+OPTIONS["header-ipad-xib-on-ipad"] = {"devices": ["ipad"]}
+EXPERIMENTS["header-ipad-xib-on-both"] = IPAD_XIB
+OPTIONS["header-ipad-xib-on-both"] = {"devices": ["iphone", "ipad"]}
+EXPERIMENTS["header-ipad-xib-at-15"] = re.sub(r'    <device [^>]*/>\n', "", IPAD_XIB)
+OPTIONS["header-ipad-xib-at-15"] = {"deployment": "15.0"}
+IPAD_SB = HEADER_SB.replace('targetRuntime="iOS.CocoaTouch"', 'targetRuntime="iOS.CocoaTouch.iPad"')
+STORYBOARDS["sb-header-ipad"] = IPAD_SB
+STORYBOARDS["sb-header-ipad-no-device"] = re.sub(r'    <device [^>]*/>\n', "", IPAD_SB)
+STORYBOARDS["sb-header-ipad-no-device-at-15"] = re.sub(r'    <device [^>]*/>\n', "", IPAD_SB)
+OPTIONS["sb-header-ipad-no-device-at-15"] = {"deployment": "15.0"}
+STORYBOARDS["sb-header-ipad-on-ipad"] = IPAD_SB
+OPTIONS["sb-header-ipad-on-ipad"] = {"devices": ["ipad"]}
+XIB_CONTAINER = '    <simulatedMetricsContainer key="defaultSimulatedMetrics">\n        <simulatedStatusBarMetrics key="statusBar"/>\n        <simulatedOrientationMetrics key="orientation"/>\n        <simulatedScreenMetrics key="destination" type="retina4"/>\n    </simulatedMetricsContainer>\n'
+EXPERIMENTS["header-base"] = HEADER_BASE
+STORYBOARDS["sb-header-base"] = HEADER_SB
+EXPERIMENTS["header-metrics-container"] = HEADER_BASE.replace("</document>", XIB_CONTAINER + "</document>")
+EXPERIMENTS["header-metrics-container-nil"] = HEADER_BASE.replace("</document>", XIB_CONTAINER.replace('<simulatedStatusBarMetrics key="statusBar"/>', '<nil key="statusBar"/>') + "</document>")
+STORYBOARDS["sb-header-metrics-container-nil"] = HEADER_SB.replace("</document>", XIB_CONTAINER.replace('<simulatedStatusBarMetrics key="statusBar"/>', '<nil key="statusBar"/>') + "</document>")
+
+
+# Round 122: documents without a device or trait collections, by runtime and deployment target, and
+# the devices ibtool does not know below 17.
+def traitless(document):
+    return re.sub(r'    <device [^>]*/>\n', "", document).replace(' useTraitCollections="YES"', "")
+
+
+for target, suffix in (("27.0", ""), ("15.0", "-at-15")):
+    for family, xib_document, sb_document in (("iphone", HEADER_BASE, HEADER_SB), ("ipad", IPAD_XIB, IPAD_SB)):
+        EXPERIMENTS[f"header-traitless-{family}{suffix}"] = traitless(xib_document)
+        OPTIONS[f"header-traitless-{family}{suffix}"] = {"deployment": target}
+        STORYBOARDS[f"sb-header-traitless-{family}{suffix}"] = traitless(sb_document)
+        OPTIONS[f"sb-header-traitless-{family}{suffix}"] = {"deployment": target}
+        EXPERIMENTS[f"header-deviceless-{family}{suffix}"] = re.sub(r'    <device [^>]*/>\n', "", xib_document)
+        OPTIONS[f"header-deviceless-{family}{suffix}"] = {"deployment": target}
+        STORYBOARDS[f"sb-header-deviceless-{family}{suffix}"] = re.sub(r'    <device [^>]*/>\n', "", sb_document)
+        OPTIONS[f"sb-header-deviceless-{family}{suffix}"] = {"deployment": target}
+for device in ("ipad12_9", "ipad10_5", "ipad11_0"):
+    STORYBOARDS[f"sb-header-device-{device}-at-15"] = HEADER_SB.replace('<device id="retina6_12" orientation="portrait"', f'<device id="{device}" orientation="portrait"')
+    OPTIONS[f"sb-header-device-{device}-at-15"] = {"deployment": "15.0"}
+for version in (4200, 11000):
+    STORYBOARDS[f"sb-header-development-{version}"] = HEADER_SB.replace("    </dependencies>\n", f'        <development version="{version}" identifier="xcode"/>\n    </dependencies>\n')
+    EXPERIMENTS[f"header-development-{version}"] = HEADER_BASE.replace("    </dependencies>\n", f'        <development version="{version}" identifier="xcode"/>\n    </dependencies>\n')
+STORYBOARDS["sb-header-development-default-4200"] = HEADER_SB.replace("    </dependencies>\n", '        <development defaultVersion="4200" identifier="xcode"/>\n    </dependencies>\n')
+
+
+for family, xib_document in (("iphone", OLD_XIB), ("ipad", OLD_XIB.replace('type="com.apple.InterfaceBuilder3.CocoaTouch.XIB"', 'type="com.apple.InterfaceBuilder3.CocoaTouch.iPad.XIB"').replace('targetRuntime="iOS.CocoaTouch"', 'targetRuntime="iOS.CocoaTouch.iPad"'))):
+    EXPERIMENTS[f"header-traitless-320-{family}-at-15"] = traitless(xib_document)
+    OPTIONS[f"header-traitless-320-{family}-at-15"] = {"deployment": "15.0"}
+
+
+# Round 123: map views, each attribute the corpus and survey documents use, alone.
+MAP_ATTRIBUTES = ' clipsSubviews="YES" multipleTouchEnabled="YES" mapType="standard"'
+
+
+def map_view(attributes=MAP_ATTRIBUTES, children="", identifier="mmm-mm-mm1", frame=(10, 20, 200, 100)):
+    return subview(identifier, frame, tag="mapView", attributes=attributes).replace("                </mapView>", children + "                </mapView>")
+
+
+MAP_VIEWS = {"map-plain": constrained(map_view(), ""), "map-no-attributes": constrained(map_view(""), ""),
+             "map-delegate": constrained(map_view(children='                    <connections>\n                        <outlet property="delegate" destination="-1" id="del-aa-aa1"/>\n                    </connections>\n'), ""),
+             "map-tint": constrained(map_view(children='                    <color key="tintColor" systemColor="systemRedColor"/>\n'), ""),
+             "map-background": constrained(map_view(children='                    <color key="backgroundColor" systemColor="systemRedColor"/>\n'), ""),
+             "map-configuration": constrained(map_view(children='                    <standardMapConfiguration key="preferredConfiguration"/>\n'), ""),
+             "map-configuration-realistic": constrained(map_view(children='                    <standardMapConfiguration key="preferredConfiguration" elevationStyle="realistic" showsTraffic="YES"/>\n'), ""),
+             "map-two": constrained(map_view() + map_view(identifier="mmn-mm-mm1", frame=(10, 130, 200, 100)), "")}
+for name, attribute in {"hybrid": 'mapType="hybrid"', "satellite": 'mapType="satellite"', "flyover": 'mapType="satelliteFlyover"', "hybrid-flyover": 'mapType="hybridFlyover"',
+                        "muted": 'mapType="mutedStandard"', "user": 'showsUserLocation="YES"', "no-pitch": 'pitchEnabled="NO"', "no-buildings": 'showsBuildings="NO"', "no-zoom": 'zoomEnabled="NO"',
+                        "no-rotate": 'rotateEnabled="NO"', "no-scroll": 'scrollEnabled="NO"', "no-compass": 'showsCompass="NO"', "no-poi": 'showsPointsOfInterest="NO"', "scale": 'showsScale="YES"',
+                        "traffic": 'showsTraffic="YES"', "opaque-no": 'opaque="NO"', "hugging": 'verticalHuggingPriority="251"', "hidden": 'hidden="YES"', "tag": 'tag="100"'}.items():
+    EXPERIMENTS[f"map-{name}"] = constrained(map_view((MAP_ATTRIBUTES.replace(' mapType="standard"', "") if "mapType" in attribute else MAP_ATTRIBUTES) + " " + attribute), "")
+EXPERIMENTS.update(MAP_VIEWS)
+EXPERIMENTS["map-custom-class"] = constrained(map_view(MAP_ATTRIBUTES + ' customClass="Globe" customModule="T" customModuleProvider="target"'), "")
+EXPERIMENTS["map-all-off"] = constrained(map_view(MAP_ATTRIBUTES + ' pitchEnabled="NO" showsBuildings="NO" zoomEnabled="NO" rotateEnabled="NO" scrollEnabled="NO" showsCompass="NO" showsPointsOfInterest="NO" showsScale="YES" showsTraffic="YES" showsUserLocation="YES"'), "")
+STORYBOARDS["sb-map"] = storyboard(scene(view_extra="                        <subviews>\n" + map_view() + "                        </subviews>\n"))
+
+
+def legacy_cell(content_children=""):
+    return xib('''        <collectionViewCell opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" id="ccc-cc-cc1">
+            <rect key="frame" x="0.0" y="0.0" width="50" height="50"/>
+            <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+            <view key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center">
+                <rect key="frame" x="0.0" y="0.0" width="50" height="50"/>
+                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+''' + content_children + '''            </view>
+            <point key="canvasLocation" x="0" y="0"/>
+        </collectionViewCell>
+''')
+
+
+for name, element in {"clear": '<color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="calibratedWhite"/>', "white": '<color key="backgroundColor" white="1" alpha="1" colorSpace="calibratedWhite"/>',
+                      "system": '<color key="backgroundColor" systemColor="systemRedColor"/>', "tint": '<color key="tintColor" systemColor="systemRedColor"/>'}.items():
+    EXPERIMENTS[f"cvcell-old-content-color-{name}"] = legacy_cell(f"                {element}\n")
+EXPERIMENTS["cvcell-old-content-plain"] = legacy_cell()
+EXPERIMENTS["cvcell-old-content-animations"] = legacy_cell("                <animations/>\n")
+BUTTON_SHADOWS = {"button-title-shadow-offset": '<size key="titleShadowOffset" width="1" height="2"/>', "button-title-shadow-offset-y": '<size key="titleShadowOffset" width="0.0" height="1"/>',
+                  "button-title-shadow-offset-zero": '<size key="titleShadowOffset" width="0.0" height="0.0"/>', "button-title-shadow-offset-fraction": '<size key="titleShadowOffset" width="0.5" height="1.5"/>'}
+for name, element in BUTTON_SHADOWS.items():
+    EXPERIMENTS[name] = constrained(button(children=element + "\n" + BUTTON_STATE), "")
+for name, children in {"plain": '<blurEffect style="regular"/>', "dark": '<blurEffect style="dark"/>', "light": '<blurEffect style="light"/>', "extra-light": '<blurEffect style="extraLight"/>',
+                       "prominent": '<blurEffect style="prominent"/>', "material": '<blurEffect style="systemMaterial"/>'}.items():
+    for style in (None, "label", "secondaryLabel", "fill", "secondaryFill"):
+        if style and name != "material" and name != "plain":
+            continue
+        style_attribute = f' style="{style}"' if style else ""
+        EXPERIMENTS[f"vibrancy-{name}{'-' + style if style else ''}"] = constrained(effect_view(f"<vibrancyEffect{style_attribute}>\n                        {children}\n                    </vibrancyEffect>"), "")
+
+
+# Round 124: vibrancy's styles against blur styles, map types with traffic, and map configurations.
+for style in (None, "label", "secondaryLabel", "tertiaryLabel", "quaternaryLabel", "fill", "secondaryFill", "tertiaryFill", "separator"):
+    for blur in ("regular", "light", "dark", "extraLight", "prominent", "systemMaterial", "systemChromeMaterial", "systemThinMaterial", "systemThickMaterial", "systemUltraThinMaterial", "systemMaterialDark", "systemMaterialLight"):
+        if style in (None, "label", "secondaryLabel", "fill") or blur in ("systemChromeMaterial", "systemThinMaterial"):
+            style_attribute = f' style="{style}"' if style else ""
+            EXPERIMENTS[f"vibrancy-grid-{blur}-{style or 'none'}"] = constrained(effect_view(f'<vibrancyEffect{style_attribute}>\n                        <blurEffect style="{blur}"/>\n                    </vibrancyEffect>'), "")
+for kind in ("hybrid", "satellite", "satelliteFlyover", "hybridFlyover", "mutedStandard"):
+    EXPERIMENTS[f"map-traffic-{kind}"] = constrained(map_view(MAP_ATTRIBUTES.replace(' mapType="standard"', f' mapType="{kind}"') + ' showsTraffic="YES"'), "")
+    EXPERIMENTS[f"map-configuration-{kind}"] = constrained(map_view(MAP_ATTRIBUTES.replace(' mapType="standard"', f' mapType="{kind}"'), children='                    <standardMapConfiguration key="preferredConfiguration"/>\n'), "")
+EXPERIMENTS["map-configuration-traffic-only"] = constrained(map_view(children='                    <standardMapConfiguration key="preferredConfiguration" showsTraffic="YES"/>\n'), "")
+EXPERIMENTS["map-configuration-elevation-only"] = constrained(map_view(children='                    <standardMapConfiguration key="preferredConfiguration" elevationStyle="realistic"/>\n'), "")
+EXPERIMENTS["map-configuration-flat"] = constrained(map_view(children='                    <standardMapConfiguration key="preferredConfiguration" elevationStyle="flat"/>\n'), "")
+
+
+# Round 125: tab bar controllers' children beyond plain view controllers: their own identifiers,
+# table and collection view controllers as direct children; the controllers' and bars' attributes.
+IDENTIFIED = ' storyboardIdentifier="First"'
+TAB_SHAPES = {
+    "sb-tab-id-child": storyboard(tab_scene(), controller_scene(1, attributes=IDENTIFIED), controller_scene(2), initial="tab-aa-aaa"),
+    "sb-tab-id-both": storyboard(tab_scene(), controller_scene(1, attributes=IDENTIFIED), controller_scene(2, attributes=' storyboardIdentifier="Second"'), initial="tab-aa-aaa"),
+    "sb-tab-id-custom": storyboard(tab_scene(), controller_scene(1, attributes=IDENTIFIED + ' customClass="Feed" customModule="T" customModuleProvider="target"'), controller_scene(2), initial="tab-aa-aaa"),
+    "sb-tab-id-nav": storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), navigation_scene("vc1-aa-aaa", attributes=IDENTIFIED), controller_scene(1), controller_scene(2), initial="tab-aa-aaa"),
+    "sb-tab-id-nav-root": storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), navigation_scene("vc1-aa-aaa"), controller_scene(1, attributes=IDENTIFIED), controller_scene(2), initial="tab-aa-aaa"),
+    "sb-tab-id-no-initial": storyboard(tab_scene(attributes=' storyboardIdentifier="Tabs"'), controller_scene(1, attributes=IDENTIFIED), controller_scene(2), initial=None),
+}
+for name, document in TAB_SHAPES.items():
+    STORYBOARDS[name] = document
+
+
+# Round 126: what navigation and tab bar controllers carry, on their own and as children, and tab
+# bars and tab bar items, by attribute and child element.
+NAV_ATTRIBUTES = {"custom": ' customClass="Stack" customModule="T" customModuleProvider="target"', "defines": ' definesPresentationContext="YES"', "bar-hidden": ' navigationBarHidden="YES"',
+                  "toolbar-shown": ' toolbarHidden="NO"', "restoration": ' restorationIdentifier="Keep"', "form-sheet": ' modalPresentationStyle="formSheet"', "full-screen": ' modalPresentationStyle="fullScreen"',
+                  "dissolve": ' modalTransitionStyle="crossDissolve"', "extended": ' extendedLayoutIncludesOpaqueBars="YES"', "hides-bottom": ' hidesBottomBarWhenPushed="YES"',
+                  "bars-keyboard": ' hidesBarsWhenKeyboardAppears="YES"', "no-insets": ' automaticallyAdjustsScrollViewInsets="NO"', "title": ' title="Stack"', "identifier": ' storyboardIdentifier="Stack"',
+                  "identifier-restoration": ' storyboardIdentifier="Stack" useStoryboardIdentifierAsRestorationIdentifier="YES"', "label": ' userLabel="Stack"'}
+for name, attributes in NAV_ATTRIBUTES.items():
+    STORYBOARDS[f"sb-navattr-{name}"] = storyboard(navigation_scene("vc1-aa-aaa", attributes=attributes), controller_scene(1), initial="nvc-aa-aaa")
+    STORYBOARDS[f"sb-navattr-tab-{name}"] = storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), navigation_scene("vc1-aa-aaa", attributes=attributes), controller_scene(1), controller_scene(2), initial="tab-aa-aaa")
+NAV_ITEM = '                    <tabBarItem key="tabBarItem" title="Item" id="tbi-aa-aa1"/>\n'
+STORYBOARDS["sb-navattr-tab-item"] = storyboard(navigation_scene("vc1-aa-aaa", extra=NAV_ITEM), controller_scene(1), initial="nvc-aa-aaa")
+STORYBOARDS["sb-navattr-tab-item-reached"] = storyboard(navigation_scene("vc1-aa-aaa", extra=NAV_ITEM, attributes=' storyboardIdentifier="Stack"'), controller_scene(1), initial=None)
+STORYBOARDS["sb-vcattr-tab-item"] = storyboard(controller_scene(1, after_view=tab_item(1, ' title="First"')), initial="vc1-aa-aaa")
+STORYBOARDS["sb-vcattr-tab-item-system"] = storyboard(controller_scene(1, after_view='                    <tabBarItem key="tabBarItem" systemItem="search" id="tbi-aa-aa1"/>\n'), initial="vc1-aa-aaa")
+TAB_ATTRIBUTES = {"no-insets": ' automaticallyAdjustsScrollViewInsets="NO"', "defines": ' definesPresentationContext="YES"', "title": ' title="Tabs"', "identifier": ' storyboardIdentifier="Tabs"',
+                  "identifier-restoration": ' storyboardIdentifier="Tabs" useStoryboardIdentifierAsRestorationIdentifier="YES"', "label": ' userLabel="Tabs"', "full-screen": ' modalPresentationStyle="fullScreen"',
+                  "dissolve": ' modalTransitionStyle="crossDissolve"', "restoration": ' restorationIdentifier="Keep"', "extended": ' extendedLayoutIncludesOpaqueBars="YES"', "hides-bottom": ' hidesBottomBarWhenPushed="YES"'}
+for name, attributes in TAB_ATTRIBUTES.items():
+    STORYBOARDS[f"sb-tabattr-{name}"] = storyboard(tab_scene(attributes=attributes), controller_scene(1), controller_scene(2), initial="tab-aa-aaa")
+TAB_INSIDE = '                    <tabBar key="tabBar"'
+def tab_children(*elements):
+    return storyboard(tab_scene(), controller_scene(1), controller_scene(2), initial="tab-aa-aaa").replace(TAB_INSIDE, "".join(elements) + TAB_INSIDE, 1)
+STORYBOARDS["sb-tabattr-nil-bottom"] = tab_children('                    <nil key="simulatedBottomBarMetrics"/>\n')
+STORYBOARDS["sb-tabattr-nil-top"] = tab_children('                    <nil key="simulatedTopBarMetrics"/>\n')
+STORYBOARDS["sb-tabattr-nav-item"] = tab_children('                    <navigationItem key="navigationItem" id="tni-aa-aa1"/>\n')
+STORYBOARDS["sb-tabattr-nav-item-title"] = tab_children('                    <navigationItem key="navigationItem" title="Tabs" id="tni-aa-aa1"/>\n')
+STORYBOARDS["sb-tabattr-toolbar-items"] = tab_children('                    <toolbarItems/>\n')
+STORYBOARDS["sb-tabattr-edge"] = tab_children('                    <extendedEdge key="edgesForExtendedLayout"/>\n')
+STORYBOARDS["sb-tabattr-no-children"] = storyboard(tab_scene(children=()).replace("                    <connections>\n                    </connections>\n", ""), initial="tab-aa-aaa")
+STORYBOARDS["sb-tabattr-no-children-identifier"] = storyboard(tab_scene(children=(), attributes=' storyboardIdentifier="Tabs"').replace("                    <connections>\n                    </connections>\n", ""), initial=None)
+for name, element in {"bar-translucent": (' translucent="NO"', ""), "bar-style": (' barStyle="black"', ""), "bar-position-fill": (' itemPositioning="fill"', ""), "bar-position-centered": (' itemPositioning="centered"', ""),
+                      "bar-insets": (' insetsLayoutMarginsFromSafeArea="NO"', ""), "bar-custom": (' customClass="Bar" customModule="T" customModuleProvider="target"', ""),
+                      "bar-selected-tint": ("", '                        <color key="selectedImageTintColor" systemColor="systemRedColor"/>\n'), "bar-tint": ("", '                        <color key="tintColor" systemColor="systemRedColor"/>\n'),
+                      "bar-bar-tint": ("", '                        <color key="barTintColor" systemColor="systemRedColor"/>\n'), "bar-background-white": ("", '                        <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>\n')}.items():
+    document = storyboard(tab_scene(bar_extra=element[1]), controller_scene(1), controller_scene(2), initial="tab-aa-aaa")
+    STORYBOARDS[f"sb-tabattr-{name}"] = document.replace('<tabBar key="tabBar" contentMode="scaleToFill"', f'<tabBar key="tabBar" contentMode="scaleToFill"{element[0]}', 1)
+for name, attributes in {"system-search": ' systemItem="search"', "system-more": ' systemItem="more"', "system-favorites": ' systemItem="favorites"', "selected": ' title="First" image="square" catalog="system" selectedImage="circle"',
+                         "tag": ' title="First" tag="2"', "badge": ' title="First" badgeValue="3"', "label": ' title="First" userLabel="One"', "landscape": ' title="First" image="square" catalog="system" landscapeImage="circle"'}.items():
+    STORYBOARDS[f"sb-tabattr-item-{name}"] = storyboard(tab_scene(), controller_scene(1, after_view=tab_item(1, attributes)), controller_scene(2), initial="tab-aa-aaa", resources=SQUARE_CIRCLE)
+for name, children in {"insets": '<inset key="imageInsets" minX="1" minY="2" maxX="3" maxY="4"/>', "offset": '<offsetWrapper key="titlePositionAdjustment" horizontal="1" vertical="2"/>', "badge-color": '<color key="badgeColor" systemColor="systemRedColor"/>',
+                       "image-reference": '<imageReference key="image" image="square" catalog="system" symbolScale="large"/>'}.items():
+    STORYBOARDS[f"sb-tabattr-item-{name}"] = storyboard(tab_scene(), controller_scene(1, after_view=f'                    <tabBarItem key="tabBarItem" title="First" id="tbi-aa-aa1">\n                        {children}\n                    </tabBarItem>\n'), controller_scene(2), initial="tab-aa-aaa", resources=SQUARE_CIRCLE)
+SHAPES = {"sb-shape-tab-tvc": storyboard(tab_scene(children=("tvc-aa-aaa", "vc2-aa-aaa")), tvc_scene(), controller_scene(2), initial="tab-aa-aaa"),
+          "sb-shape-tab-tvc-id": storyboard(tab_scene(children=("tvc-aa-aaa", "vc2-aa-aaa")), tvc_scene(attributes=' storyboardIdentifier="List"'), controller_scene(2), initial="tab-aa-aaa"),
+          "sb-shape-tab-cvc": storyboard(tab_scene(children=("cvc-aa-aaa", "vc2-aa-aaa")), cvc_scene(), controller_scene(2), initial="tab-aa-aaa"),
+          "sb-shape-nav-tab": storyboard(navigation_scene("tab-aa-aaa"), tab_scene(), controller_scene(1), controller_scene(2), initial="nvc-aa-aaa"),
+          "sb-shape-nav-no-root": storyboard(navigation_scene("zzz-zz-zzz").replace('                    <connections>\n                        <segue destination="zzz-zz-zzz" kind="relationship" relationship="rootViewController" id="rel-aa-aaa"/>\n                    </connections>\n', ""), initial="nvc-aa-aaa"),
+          "sb-shape-nav-no-root-id": storyboard(navigation_scene("zzz-zz-zzz", attributes=' storyboardIdentifier="Stack"').replace('                    <connections>\n                        <segue destination="zzz-zz-zzz" kind="relationship" relationship="rootViewController" id="rel-aa-aaa"/>\n                    </connections>\n', ""), initial=None),
+          "sb-shape-nav-show": storyboard(navigation_scene("vc1-aa-aaa").replace('id="rel-aa-aaa"/>\n', 'id="rel-aa-aaa"/>\n                        <segue destination="vc2-aa-aaa" kind="show" identifier="Next" id="sho-aa-aaa"/>\n'), controller_scene(1), controller_scene(2), initial="nvc-aa-aaa")}
+STORYBOARDS.update(SHAPES)
+
+
+# Round 127: all of a controller's attributes at once, for their keys' order.
+NAV_ALL = ''.join(NAV_ATTRIBUTES[k] for k in ("custom", "defines", "bar-hidden", "toolbar-shown", "form-sheet", "dissolve", "extended", "hides-bottom", "bars-keyboard", "no-insets", "title", "identifier", "restoration"))
+ITEM_ALL = ' title="First" image="square" catalog="system" selectedImage="circle" tag="2" badgeValue="3"'
+ITEM_ALL_CHILDREN = ('                        <inset key="imageInsets" minX="1" minY="2" maxX="3" maxY="4"/>\n                        <offsetWrapper key="titlePositionAdjustment" horizontal="1" vertical="2"/>\n'
+                     '                        <color key="badgeColor" systemColor="systemRedColor"/>\n')
+STORYBOARDS["sb-navattr-all"] = storyboard(navigation_scene("vc1-aa-aaa", attributes=NAV_ALL, extra=NAV_ITEM), controller_scene(1), initial="nvc-aa-aaa")
+STORYBOARDS["sb-navattr-tab-all"] = storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), navigation_scene("vc1-aa-aaa", attributes=NAV_ALL, extra=NAV_ITEM), controller_scene(1), controller_scene(2), initial="tab-aa-aaa")
+STORYBOARDS["sb-tabattr-all"] = storyboard(tab_scene(attributes=''.join(TAB_ATTRIBUTES[k] for k in ("no-insets", "defines", "title", "identifier", "full-screen", "dissolve", "restoration", "extended", "hides-bottom")) + ' customClass="Tabs" customModule="T" customModuleProvider="target"',
+                                                     bar_extra='                        <color key="selectedImageTintColor" systemColor="systemRedColor"/>\n                        <color key="barTintColor" systemColor="systemRedColor"/>\n'),
+                                           controller_scene(1, after_view=f'                    <tabBarItem key="tabBarItem"{ITEM_ALL} id="tbi-aa-aa1">\n{ITEM_ALL_CHILDREN}                    </tabBarItem>\n'), controller_scene(2), initial="tab-aa-aaa", resources=SQUARE_CIRCLE).replace(
+    '<tabBar key="tabBar" contentMode="scaleToFill"', '<tabBar key="tabBar" contentMode="scaleToFill" translucent="NO" barStyle="black" itemPositioning="fill" insetsLayoutMarginsFromSafeArea="NO"', 1).replace(TAB_INSIDE, '                    <navigationItem key="navigationItem" title="Tabs" id="tni-aa-aa1"/>\n                    <extendedEdge key="edgesForExtendedLayout"/>\n' + TAB_INSIDE, 1)
+STORYBOARDS["sb-vcattr-all-tab-item"] = storyboard(tab_scene(), controller_scene(1, attributes=' title="One" customClass="Feed" customModule="T" customModuleProvider="target" storyboardIdentifier="First" restorationIdentifier="Keep" definesPresentationContext="YES" modalPresentationStyle="formSheet" modalTransitionStyle="crossDissolve" hidesBottomBarWhenPushed="YES" extendedLayoutIncludesOpaqueBars="YES" automaticallyAdjustsScrollViewInsets="NO"',
+                                                                         after_view='                    <extendedEdge key="edgesForExtendedLayout"/>\n' + tab_item(1, ' title="First"')), controller_scene(2), initial="tab-aa-aaa")
+
+
+# Round 128: tab bar items outside tab bar controllers' children, on any controller.
+NAV_DECLARED = navigation_item(title="Top")
+STORYBOARDS["sb-vcattr-tab-and-nav-item"] = storyboard(controller_scene(1, attributes=' title="One"', after_view=NAV_DECLARED + tab_item(1, ' title="First"')), initial="vc1-aa-aaa")
+STORYBOARDS["sb-vcattr-root-tab-item"] = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=NAV_DECLARED + tab_item(1, ' title="First"')), initial="nvc-aa-aaa")
+STORYBOARDS["sb-vcattr-root-tab-item-only"] = storyboard(navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=tab_item(1, ' title="First"')), initial="nvc-aa-aaa")
+STORYBOARDS["sb-vcattr-tab-nav-root-item"] = storyboard(tab_scene(children=("nvc-aa-aaa", "vc2-aa-aaa")), navigation_scene("vc1-aa-aaa"), controller_scene(1, after_view=tab_item(1, ' title="First"')), controller_scene(2), initial="tab-aa-aaa")
+STORYBOARDS["sb-vcattr-tvc-tab-item"] = storyboard(tvc_scene().replace("                </tableViewController>", tab_item(1, ' title="First"') + "                </tableViewController>"), initial="tvc-aa-aaa")
+STORYBOARDS["sb-shape-tab-tvc-item"] = storyboard(tab_scene(children=("tvc-aa-aaa", "vc2-aa-aaa")), tvc_scene().replace("                </tableViewController>", tab_item(1, ' title="First"') + "                </tableViewController>"), controller_scene(2), initial="tab-aa-aaa")
+STORYBOARDS["sb-shape-nav-push"] = storyboard(navigation_scene("vc1-aa-aaa").replace('id="rel-aa-aaa"/>\n', 'id="rel-aa-aaa"/>\n                        <segue destination="vc2-aa-aaa" kind="push" identifier="Next" id="sho-aa-aaa"/>\n'), controller_scene(1), controller_scene(2), initial="nvc-aa-aaa")
+STORYBOARDS["sb-shape-nav-modal"] = storyboard(navigation_scene("vc1-aa-aaa").replace('id="rel-aa-aaa"/>\n', 'id="rel-aa-aaa"/>\n                        <segue destination="vc2-aa-aaa" kind="presentation" identifier="Next" id="sho-aa-aaa"/>\n'), controller_scene(1), controller_scene(2), initial="nvc-aa-aaa")
+STORYBOARDS["sb-shape-nav-show-attributes"] = storyboard(navigation_scene("vc1-aa-aaa", attributes=' definesPresentationContext="YES" title="Stack"').replace('id="rel-aa-aaa"/>\n', 'id="rel-aa-aaa"/>\n                        <segue destination="vc2-aa-aaa" kind="show" identifier="Next" id="sho-aa-aaa"/>\n'), controller_scene(1), controller_scene(2), initial="nvc-aa-aaa")
+STORYBOARDS["sb-navattr-toolbar-both"] = storyboard(navigation_scene("vc1-aa-aaa", attributes=' toolbarHidden="NO" navigationBarHidden="YES"', extra='                    <toolbar key="toolbar" opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="tlb-aa-aa1">\n                        <autoresizingMask key="autoresizingMask"/>\n                    </toolbar>\n'), controller_scene(1), initial="nvc-aa-aaa")
+STORYBOARDS["sb-tabattr-item-selected-asset"] = storyboard(tab_scene(), controller_scene(1, after_view=tab_item(1, ' title="First" image="Logo" selectedImage="Logo"')), controller_scene(2), initial="tab-aa-aaa", resources=LOGO)
+for item_name in ("favorites", "featured", "topRated", "recents", "contacts", "history", "bookmarks", "downloads", "mostRecent", "mostViewed"):
+    STORYBOARDS[f"sb-tabattr-item-system-{item_name}"] = storyboard(tab_scene(), controller_scene(1, after_view=tab_item(1, f' systemItem="{item_name}"')), controller_scene(2), initial="tab-aa-aaa")
+
+
+# Round 129: what the survey's documents showed wrong. Documents without Auto Layout, a label's
+# minimum font size beside font variations, references to one storyboard, custom toolbars, a button's
+# title shadow among its insets, and fonts that do not adjust.
+def no_autolayout(document):
+    return document.replace(' useAutolayout="YES"', "")
+
+
+NO_LAYOUT_CHILDREN = {"view": subview("sss-ss-ss1"), "label": label(), "button": button(), "activity": subview("aaa-aa-aa1", (10, 20, 20, 20), tag="activityIndicatorView", attributes=' opaque="NO" hidesWhenStopped="YES" style="gray"'),
+                      "image": subview("iii-ii-ii1", (10, 20, 100, 50), tag="imageView", attributes=' userInteractionEnabled="NO"'), "slider": subview("sll-ll-ll1", (10, 20, 100, 30), tag="slider", attributes=CONTROL_TAGS["slider"]),
+                      "switch": subview("swt-ww-ww1", (10, 20, 51, 31), tag="switch", attributes=CONTROL_TAGS["switch"]), "progress": subview("prg-rr-rr1", (10, 20, 100, 4), tag="progressView", attributes=' opaque="NO" progress="0.5"')}
+for name, child in NO_LAYOUT_CHILDREN.items():
+    unmasked = child.replace(' translatesAutoresizingMaskIntoConstraints="NO"', "")
+    EXPERIMENTS[f"noauto-{name}"] = no_autolayout(constrained(unmasked, ""))
+    EXPERIMENTS[f"noauto-{name}-translates-no"] = no_autolayout(constrained(child, ""))
+    EXPERIMENTS[f"auto-{name}-unmasked"] = constrained(unmasked, "")
+EXPERIMENTS["noauto-masked"] = no_autolayout(constrained(subview("sss-ss-ss1").replace(' translatesAutoresizingMaskIntoConstraints="NO"', "").replace('                </view>', '                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>\n                </view>'), ""))
+EXPERIMENTS["noauto-root"] = no_autolayout(constrained("", ""))
+STORYBOARDS["sb-noauto"] = no_autolayout(storyboard(scene(view_extra=SUBVIEW)))
+STORYBOARDS["sb-noauto-guides"] = no_autolayout(storyboard(scene(view_extra=SUBVIEW, guides=LAYOUT_GUIDES)))
+STORYBOARDS["sb-noauto-at-15"] = no_autolayout(storyboard(scene(view_extra=SUBVIEW)))
+OPTIONS["sb-noauto-at-15"] = {"deployment": "15.0"}
+STORYBOARDS["sb-noauto-launch"] = no_autolayout(storyboard(scene(view_extra=SUBVIEW), attributes=' launchScreen="YES"'))
+STORYBOARDS["sb-noauto-no-traits"] = no_autolayout(storyboard(scene(view_extra=SUBVIEW))).replace(' useTraitCollections="YES"', "")
+
+
+def variation_label(font_variations, minimum=' minimumFontSize="18"', base="36"):
+    variations = "".join(f'                    <variation key="{key}">\n                        <fontDescription key="fontDescription" type="boldSystem" pointSize="{size}"/>\n                    </variation>\n' for key, size in font_variations)
+    return ('                <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Hi" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines"'
+            f'{minimum} translatesAutoresizingMaskIntoConstraints="NO" id="lbl-aa-aa1">\n                    <rect key="frame" x="10" y="20" width="100" height="21"/>\n'
+            f'                    <fontDescription key="fontDescription" type="boldSystem" pointSize="{base}"/>\n                    <nil key="textColor"/>\n                    <nil key="highlightedColor"/>\n{variations}                </label>\n')
+
+
+for name, variations in {"none": [], "compact": [("heightClass=compact", 24)], "regular": [("heightClass=regular", 24)], "two": [("heightClass=compact", 24), ("widthClass=compact", 30)],
+                         "two-swapped": [("widthClass=compact", 30), ("heightClass=compact", 24)], "bigger": [("heightClass=compact", 72)]}.items():
+    EXPERIMENTS[f"label-min-variation-{name}"] = constrained(variation_label(variations), "")
+    STORYBOARDS[f"sb-label-min-variation-{name}"] = same_scene(variation_label(variations))
+def reference_scene(number, storyboard_name="Main", identifier=None):
+    identified = f' referencedIdentifier="{identifier}"' if identifier else ""
+    return (f'        <scene sceneID="rfs-aa-aa{number}">\n            <objects>\n                <viewControllerPlaceholder storyboardName="{storyboard_name}"{identified} id="rf{number}-aa-aaa" sceneMemberID="viewController"/>\n'
+            f'                <placeholder placeholderIdentifier="IBFirstResponder" id="rfr-aa-aa{number}" userLabel="First Responder" sceneMemberID="firstResponder"/>\n'
+            '            </objects>\n            <point key="canvasLocation" x="0" y="0"/>\n        </scene>\n')
+
+
+def referencing(*references):
+    segues = "".join(f'                        <segue destination="rf{k + 1}-aa-aaa" kind="relationship" relationship="viewControllers" id="tb{k}-aa-aaa"/>\n' for k in range(len(references)))
+    return storyboard(tab_scene(children=()).replace("                    <connections>\n                    </connections>\n", f"                    <connections>\n{segues}                    </connections>\n"),
+                      *[reference_scene(k + 1, *reference) for k, reference in enumerate(references)], initial="tab-aa-aaa")
+
+
+STORYBOARDS["sb-ref-plist-two-same-name"] = referencing(("Main", "One"), ("Main", "Two"))
+STORYBOARDS["sb-ref-plist-three-same-name"] = referencing(("Main", "One"), ("Other", "Two"), ("Main", "Three"))
+STORYBOARDS["sb-ref-plist-same-identifier"] = referencing(("Main", "One"), ("Other", "One"))
+STORYBOARDS["sb-ref-plist-name-is-identifier"] = referencing(("Main", "Main"), ("Other", "Main"))
+STORYBOARDS["sb-ref-plist-no-identifier"] = referencing(("Main",), ("Main",))
+for name, tag_attributes in {"toolbar": ("toolbar", ' opaque="NO" clearsContextBeforeDrawing="NO"'), "navigation-bar": ("navigationBar", ' opaque="NO"'), "search-bar": ("searchBar", ' opaque="NO"')}.items():
+    tag, attributes = tag_attributes
+    EXPERIMENTS[f"custom-{name}"] = constrained(subview("cst-aa-aa1", (10, 20, 300, 44), tag=tag, attributes=attributes + ' customClass="Custom" customModule="T" customModuleProvider="target"'), "")
+for name, children in {"content": '<inset key="contentEdgeInsets" minX="1" minY="2" maxX="3" maxY="4"/>', "title": '<inset key="titleEdgeInsets" minX="1" minY="2" maxX="3" maxY="4"/>', "image": '<inset key="imageEdgeInsets" minX="1" minY="2" maxX="3" maxY="4"/>'}.items():
+    EXPERIMENTS[f"button-shadow-after-{name}"] = constrained(button(children='<size key="titleShadowOffset" width="1" height="2"/>\n' + children + "\n" + BUTTON_STATE), "")
+EXPERIMENTS["button-shadow-spring"] = constrained(button(attributes=BUTTON_ATTRIBUTES + ' springLoaded="YES"', children='<size key="titleShadowOffset" width="1" height="2"/>\n<inset key="imageEdgeInsets" minX="1" minY="2" maxX="3" maxY="4"/>\n' + BUTTON_STATE), "")
+EXPERIMENTS["button-shadow-role"] = constrained(button(attributes=BUTTON_ATTRIBUTES + ' role="primary"', children='<size key="titleShadowOffset" width="1" height="2"/>\n' + BUTTON_STATE), "")
+ADJUSTING = ' adjustsFontForContentSizeCategory="YES"'
+EXPERIMENTS["warn-adjusts-label-system"] = constrained(label().replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+EXPERIMENTS["warn-adjusts-label-style"] = constrained(label(font=font_description({"style": "UICTFontTextStyleBody"})).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+EXPERIMENTS["warn-adjusts-label-named"] = constrained(label(font=GEORGIA).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+EXPERIMENTS["warn-adjusts-two"] = constrained(label().replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1) + label(identifier="lbb-aa-aa1", frame=(10, 60, 42, 21)).replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1), "")
+EXPERIMENTS["warn-adjusts-field-system"] = constrained(text_field(TEXT_FIELD.replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing')), "")
+STORYBOARDS["sb-warn-adjusts-label"] = same_scene(label().replace(' translatesAutoresizing', ADJUSTING + ' translatesAutoresizing', 1))
+
+
+# Round 130: more of round 129: a storyboard's subviews without a mask or Auto Layout, scale factors
+# beside variations, text views' adjusting fonts.
+STORYBOARDS["sb-noauto-unmasked"] = no_autolayout(same_scene(subview("sss-ss-ss1").replace(' translatesAutoresizingMaskIntoConstraints="NO"', "")))
+STORYBOARDS["sb-auto-unmasked"] = same_scene(subview("sss-ss-ss1").replace(' translatesAutoresizingMaskIntoConstraints="NO"', ""))
+for name, variations in {"regular": [("heightClass=regular", 24)], "two": [("heightClass=compact", 24), ("widthClass=compact", 30)], "bigger": [("heightClass=regular", 72)]}.items():
+    STORYBOARDS[f"sb-label-scale-variation-{name}"] = same_scene(variation_label(variations, minimum=' minimumScaleFactor="0.5"'))
+    STORYBOARDS[f"sb-label-both-variation-{name}"] = same_scene(variation_label(variations, minimum=' minimumFontSize="18" minimumScaleFactor="0.25"'))
+STORYBOARDS["sb-label-min-warning-variation"] = same_scene(variation_label([("heightClass=regular", 12)]))
+STORYBOARDS["sb-label-min-warning-base"] = same_scene(variation_label([("heightClass=regular", 24)], base="12"))
+EXPERIMENTS["warn-adjusts-text-view"] = constrained(text_view(TV_ATTRIBUTES + ADJUSTING), "")
+EXPERIMENTS["warn-adjusts-button"] = constrained(button(attributes=BUTTON_ATTRIBUTES + ADJUSTING), "")
 
 
 def main():
