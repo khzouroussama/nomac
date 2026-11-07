@@ -155,7 +155,7 @@ of them. These runs used an older copy of the Xcode SDK subset, so a failure her
 
 | Framework | What ran on Linux | Stopped at | Reached an IPA |
 |---|---|---|---|
-| Flutter 3.47.7 | Nothing yet: its Dart SDK did not finish downloading | Not run | No |
+| Flutter 3.47.7 | Its Dart SDK and `dart pub get` for Flutter's own tool. The tool's first compile had taken over 11 minutes and was still running | Nothing of the app has run yet | No |
 | Capacitor 8 | `npm init @capacitor/app`, `npm install @capacitor/ios`, `npx cap add ios` and `npx cap sync ios` all succeeded | `nomac check` reports that nomac cannot compile its launch screen (below). `nomac archive` was stopped unfinished after 7 minutes with no output | No |
 | Cordova | Stopped during `cordova create` | Not run | No |
 | Kotlin Multiplatform | Nothing | Not run | No |

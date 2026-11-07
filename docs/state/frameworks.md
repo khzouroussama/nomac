@@ -9,10 +9,20 @@ read are in docs/PROJECT-COMPATIBILITY.md, Part C; this file is how to carry on.
 Started 2026-11-07, on a machine at a load of 500 to 860 with GitHub and pub.dev timing out. No framework
 has reached an IPA yet. See Part C for each one's last result.
 
+**An unattended run may still be going or may have finished**, started 2026-11-07 at 03:21 on the Mac's clock,
+in the container `nomac-frameworks` (volume `nomac-frameworks`):
+
+- Log: `/work/fw/unattended.log`, which ends with `CHAINDONE`. It goes through `/work/fw_chain.sh`: Flutter's
+  first run, Flutter Release, Flutter Debug, Capacitor, Cordova, NativeScript, Tauri, Kotlin Multiplatform, one
+  at a time, with at most 30 minutes for each step. It deletes each run's derived data.
+- Results: `/work/fw/results-*.json`, and each step's whole output under `/work/fw/**/logs`.
+- Then: put the results in Part C with their date, and remove the container and the volume, which are this
+  workstream's own. Nothing in Part C changes by itself: a run that finished is not a claim until it is there.
+
 ## Next actions
 
-1. Finish the runs in the order of `framework_apps.py`'s table: Flutter Debug, then Capacitor, Cordova, Kotlin
-   Multiplatform, NativeScript, Tauri. One at a time (agent-common.md's CPU rule).
+1. Read the unattended run's results above, and repeat what it did not finish. One at a time (agent-common.md's
+   CPU rule).
 2. B-510: the owner decides where a Linux `gen_snapshot` comes from. Then run Flutter Release.
 3. `nomac check` reporting Flutter's macOS-only compiler before a build: the change is written and waits to
    compile and pass `swift test --filter reportsFlutterBuildScripts`
