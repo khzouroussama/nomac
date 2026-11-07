@@ -40,13 +40,11 @@ enum XIBReader {
         return root
     }
 
-    /// What only Interface Builder's canvas reads, with the values observed: `<animations/>` of
-    /// Xcode 6 to 8 on any view (`animations-*`, `sb-animations-*`), and simulated metrics of the
+    /// What only Interface Builder's canvas reads, with the values observed: simulated metrics of the
     /// status bar, orientation, screen and bars on views and controllers, which change no nib, with a
     /// device or without, at 27.0 and below 17 (`old-*`, `old-no-device-*`, `sb-old-*`, round 120;
     /// bars `sb-sim-*`). Other values stay in the document, for its elements to refuse.
     private static let canvasElements: [String: [String: Set<String>]] = [
-        "animations": [:],
         "simulatedStatusBarMetrics": ["key": ["statusBar", "simulatedStatusBarMetrics"], "statusBarStyle": ["lightContent", "blackOpaque", "blackTranslucent"]],
         "simulatedOrientationMetrics": ["key": ["orientation", "simulatedOrientationMetrics"], "orientation": ["landscapeRight"]],
         "simulatedScreenMetrics": ["key": ["destination", "simulatedDestinationMetrics"],
