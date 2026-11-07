@@ -157,6 +157,10 @@ public enum ArchiveExporter {
         }
 
         let items = try nestedCode(in: payloadApp) + [payloadApp] + packs
+        // Only a framework has been observed inside a framework (docs/formats/extensions.md).
+        if let held = items.first(where: { item in !item.hasSuffix(".framework") && items.contains { $0.hasSuffix(".framework") && item.hasPrefix($0 + "/") } }) {
+            throw NomacError("exportArchive \((held as NSString).lastPathComponent) inside a framework is not supported yet (BACKLOG B-314)", exitStatus: 70)
+        }
         if thinned {
             try AppThinning.checkSupported(app: payloadApp, items: items, hostedPacks: packBase != nil, manifest: manifest != nil)
         }
@@ -198,7 +202,7 @@ public enum ArchiveExporter {
         // gets the development entitlements the profile gives, as the build would (observed
         // privately for B-302: an ad hoc archive exported for debugging with a profile).
         let entitlementsFile = work + "/entitlements"
-        var summaries: [PropertyListValue] = []
+        var summaries: [(item: String, fields: [String: PropertyListValue])] = []
         for item in items {
             var entitlements = try CodeSigner.entitlements(of: item).map { try PropertyListValue.parseXML(Data($0), path: item) } ?? .dictionary([:])
             if addedProfiles.contains(item), let profile = profiles[item], entitlements == .dictionary([:]) {
@@ -231,7 +235,17 @@ public enum ArchiveExporter {
                 fields["profile"] = .dictionary(["UUID": .string(profile.uuid), "dateExpires": .string(profile.expirationDate.map(shortDate) ?? ""),
                                                  "name": .string(profile.name)])
             }
-            summaries.append(.dictionary(fields))
+            // An entry lists what its own bundle holds, and an app that embeds nothing has no
+            // `embeddedBinaries` (`watch-widget`, `watch-framework`, `extension-framework`, `alone`).
+            // A framework held by a framework takes its name (`framework-framework-deep`).
+            let held = summaries.filter { $0.item.hasPrefix(item + "/") }.map { child -> PropertyListValue in
+                var entry = child.fields
+                if item.hasSuffix(".framework") { entry["name"] = .string((item as NSString).lastPathComponent) }
+                return .dictionary(entry)
+            }
+            if !held.isEmpty { fields["embeddedBinaries"] = .array(held) }
+            summaries.removeAll { $0.item.hasPrefix(item + "/") }
+            summaries.append((item, fields))
         }
 
         try FileSystem.createDirectory(exportPath)
@@ -258,12 +272,7 @@ public enum ArchiveExporter {
             try FileManager.default.moveItem(atPath: work + "/" + ipaName, toPath: exportPath + "/" + ipaName)
         }
 
-        // An app that embeds nothing has no `embeddedBinaries` (signing-experiments `alone`).
-        guard case .dictionary(var appSummary) = summaries.removeLast() else { return }
-        if !summaries.isEmpty {
-            appSummary["embeddedBinaries"] = .array(summaries)
-        }
-        try FileSystem.write(Data(PropertyListValue.xmlDocument(.dictionary([ipaName: .array([.dictionary(appSummary)])]))),
+        try FileSystem.write(Data(PropertyListValue.xmlDocument(.dictionary([ipaName: .array(summaries.map { .dictionary($0.fields) })]))),
                              to: exportPath + "/DistributionSummary.plist")
         try FileSystem.write(Data(PropertyListValue.xmlDocument(.dictionary(options))), to: exportPath + "/ExportOptions.plist")
         if let manifest {

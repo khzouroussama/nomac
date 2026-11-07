@@ -31,19 +31,21 @@ import Testing
     /// An ad-hoc signed archive of an app embedding two frameworks and two extensions (and an
     /// App Clip, signed ad hoc as no Xcode build can; and a watch app, arm64 for watchOS 26.0 and
     /// arm64_32 for 11.0, with its universal dSYM). Without `embedding`, the app alone.
-    static func archive(in directory: String, team: String = "", clip: Bool = false, watch: Bool = false,
+    static func archive(in directory: String, team: String = "", clip: Bool = false, watch: Bool = false, watchWidget: Bool = false,
                         appInfo: [String: PropertyListValue] = [:], scheme: String = "App", embedding: Bool = true) throws -> String {
         let archive = directory + "/App.xcarchive"
         let app = archive + "/Products/Applications/App.app"
-        let bundles: [(path: String, identifier: String, type: String, executable: Bool, seed: UInt8)] = (!embedding ? [] : [
-            ("Frameworks/Zed.framework", "org.nomac.export.Zed", "FMWK", false, 2),
-            ("Frameworks/Kit.framework", "org.nomac.export.Kit", "FMWK", false, 3),
-            ("PlugIns/Share.appex", "org.nomac.export.Share", "XPC!", true, 4),
-            ("PlugIns/Action.appex", "org.nomac.export.Action", "XPC!", true, 5),
-        ]) + (clip ? [("AppClips/Clip.app", "org.nomac.export.Clip", "APPL", true, 9)] : [])
-            + (watch ? [("Watch/Watch.app", "org.nomac.export.watchkitapp", "APPL", true, 10)] : []) + [
-            ("", "org.nomac.export", "APPL", true, 6),
-        ]
+        var bundles: [(path: String, identifier: String, type: String, executable: Bool, seed: UInt8)] = []
+        if embedding {
+            bundles.append(("Frameworks/Zed.framework", "org.nomac.export.Zed", "FMWK", false, 2))
+            bundles.append(("Frameworks/Kit.framework", "org.nomac.export.Kit", "FMWK", false, 3))
+            bundles.append(("PlugIns/Share.appex", "org.nomac.export.Share", "XPC!", true, 4))
+            bundles.append(("PlugIns/Action.appex", "org.nomac.export.Action", "XPC!", true, 5))
+        }
+        if clip { bundles.append(("AppClips/Clip.app", "org.nomac.export.Clip", "APPL", true, 9)) }
+        if watchWidget { bundles.append(("Watch/Watch.app/PlugIns/Widget.appex", "org.nomac.export.watchkitapp.Widget", "XPC!", true, 12)) }
+        if watch { bundles.append(("Watch/Watch.app", "org.nomac.export.watchkitapp", "APPL", true, 10)) }
+        bundles.append(("", "org.nomac.export", "APPL", true, 6))
         for bundle in bundles {
             let path = bundle.path.isEmpty ? app : app + "/" + bundle.path
             let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -202,6 +204,64 @@ import Testing
             "785ac583b1701caa31195e31ba44a158fcc962a4d22442fd8195892c5ff70d24",
             "6f88b207463dbe41e1295052a537641f797ea4b6eae68b39b0fd02b49b86fd56",
         ])
+    }
+
+    /// An entry lists what its own bundle holds: a watch app its widget (`watch-widget`, observed
+    /// as `App.app[Watch.app[Widget.appex]]`), not the app.
+    @Test func summarizesNestedCodeUnderTheBundleHoldingIt() throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-export")
+        let archive = try Self.archive(in: temporary.path, watch: true, watchWidget: true, embedding: false)
+        let options = temporary.path + "/options.plist"
+        try FileSystem.write(Data(Self.options.utf8), to: options)
+        try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
+        let summary = try #require(try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: URL(fileURLWithPath: temporary.path + "/out/DistributionSummary.plist")), format: nil) as? [String: [[String: Any]]])
+        func shape(_ entry: [String: Any]) -> String {
+            let held = (entry["embeddedBinaries"] as? [[String: Any]] ?? []).map(shape).joined(separator: ", ")
+            return (entry["name"] as? String ?? "") + (held.isEmpty ? "" : "[\(held)]")
+        }
+        #expect(summary.values.flatMap { $0 }.map(shape) == ["App.app[Watch.app[Widget.appex]]"])
+    }
+
+    @Test func namesAFrameworkHeldByAFrameworkAfterIt() throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-export")
+        let archive = try Self.archive(in: temporary.path, embedding: false)
+        let app = archive + "/Products/Applications/App.app"
+        for (path, name, seed) in [("Frameworks/Kit.framework/Frameworks/Inner.framework/Frameworks/Deep.framework", "Deep", UInt8(20)),
+                                   ("Frameworks/Kit.framework/Frameworks/Inner.framework", "Inner", 21),
+                                   ("Frameworks/Kit.framework/Frameworks/Other.framework", "Other", 22),
+                                   ("Frameworks/Kit.framework", "Kit", 23)] {
+            let info: [String: PropertyListValue] = ["CFBundleExecutable": .string(name), "CFBundleIdentifier": .string("org.nomac.export." + name),
+                                                     "CFBundlePackageType": .string("FMWK"), "CFBundleVersion": .string("7"), "CFBundleShortVersionString": .string("2.1"),
+                                                     "CFBundleSupportedPlatforms": .array([.string("iPhoneOS")]), "MinimumOSVersion": .string("18.0")]
+            try FileSystem.createDirectory(app + "/" + path)
+            try FileSystem.write(Data(PropertyListValue.xmlDocument(.dictionary(info))), to: app + "/" + path + "/Info.plist")
+            try FileSystem.write(Data(SyntheticMachO.machO(executable: false, seed: seed)), to: app + "/" + path + "/" + name)
+            _ = try CodeSigner.sign(CodeSigner.Request(path: app + "/" + path, identity: "-"))
+        }
+        let options = temporary.path + "/options.plist"
+        try FileSystem.write(Data(Self.options.utf8), to: options)
+        try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
+        let summary = try #require(try PropertyListSerialization.propertyList(
+            from: Data(contentsOf: URL(fileURLWithPath: temporary.path + "/out/DistributionSummary.plist")), format: nil) as? [String: [[String: Any]]])
+        func shape(_ entry: [String: Any]) -> String {
+            let held = (entry["embeddedBinaries"] as? [[String: Any]] ?? []).map(shape).joined(separator: ", ")
+            return (entry["name"] as? String ?? "") + (held.isEmpty ? "" : "[\(held)]")
+        }
+        #expect(summary.values.flatMap { $0 }.map(shape) == ["App.app[Kit.framework[Kit.framework[Inner.framework], Kit.framework]]"])
+    }
+
+    @Test func refusesOtherCodeInsideAFramework() throws {
+        let temporary = try TemporaryDirectory(prefix: "nomac-export")
+        let archive = try Self.archive(in: temporary.path)
+        let library = archive + "/Products/Applications/App.app/Frameworks/Kit.framework/libHeld.dylib"
+        try FileSystem.write(Data(SyntheticMachO.machO(executable: false, seed: 30)), to: library)
+        _ = try CodeSigner.sign(CodeSigner.Request(path: library, identity: "-", force: true))
+        let options = temporary.path + "/options.plist"
+        try FileSystem.write(Data(Self.options.utf8), to: options)
+        #expect(throws: NomacError.self) {
+            try ArchiveExporter.export(archive: archive, exportPath: temporary.path + "/out", optionsPath: options)
+        }
     }
 
     /// An app that embeds nothing has no `embeddedBinaries` in its summary (observed with

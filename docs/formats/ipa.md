@@ -288,9 +288,10 @@ refuses (B-465).
 
 `DistributionSummary.plist` maps the IPA's name to one entry for the app: `architectures` (of
 its executable), `buildNumber` (`CFBundleVersion`), `certificate` (`SHA1` and `dateExpires`
-empty, `type` `Sign to Run Locally`), `embeddedBinaries` (the same entry, without
-`embeddedBinaries`, for each nested item in signing order; no key for an app that embeds
-nothing: signing-experiments `alone` for every method, tofu, flappy-fly-bird and uncloudnotes;
+empty, `type` `Sign to Run Locally`), `embeddedBinaries` (the same entry for each item the
+bundle itself holds, in signing order, so a watch app's entry lists its widget and an extension's
+its framework, not the app's: extension experiments `watch-widget`, `watch-framework`,
+`extension-framework`; no key for a bundle that embeds nothing: signing-experiments `alone` for every method, tofu, flappy-fly-bird and uncloudnotes;
 an app whose only nested code is Swift's runtime libraries is not observed), `name` (the
 bundle's file name),
 `team` (`id` the team, `name` empty) and `versionNumber` (`CFBundleShortVersionString`); a

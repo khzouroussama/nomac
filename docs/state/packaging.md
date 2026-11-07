@@ -29,6 +29,24 @@ assembles the `.xcarchive` from an archive build's intermediates as xcodebuild d
 (docs/formats/xcarchive.md). Apple Development (iOS) chains sign as codesign does, and `nomac export` does development exports with an identity and a
 profile. What is left waits on the owner's identity or on an observation (below).
 
+## Extensions (branch `pack/extensions`, started 2026-11-07)
+
+`.github/scripts/extension_experiments.py` makes corpus-style references of self-written apps with
+each kind of nested product (docs/formats/extensions.md), and `nomac verify --build` gives one
+`extension` check per nested product at each stage (docs/VERIFICATION.md "Extension checks"); the
+progress line reads them from Linux reports. Scratch: `~/nomac-out/wt-scratch/ext` (references in
+`e/reference`, reports in `e/reports-Linux` and `lc-reports`). The Linux developer directory has to
+come from a fresh `nomac sdk install`: the older subsets have no watchOS SDK.
+
+Found so far: `nomac export` of Xcode's archives on the Mac is identical to Xcode's for all 16 cases
+with an export (the IPA without its entry times, `DistributionSummary.plist`, `ExportOptions.plist`);
+10 of the first 11 before `DistributionSummary.plist` nested, with `watch-widget` differing. `appclip`
+has no export: Xcode refuses its ad hoc archive. `nomac verify` replayed the signing steps of the 11
+cases then captured, all identical. `widget` on Linux (before the `extension` checks existed) was
+equivalent at build, archive and IPA for the extension, the host `App` differing through B-313. Not measured yet: the other cases on Linux, the corpus apps' `extension`
+checks and thinning. Not covered: entitlements on nested products and real App Clips (a profile, B-302),
+device installs. B-313 needs the clang workstream, as it changes the LLVM tools' stamp.
+
 ## What's left and what it needs
 
 - **Waiting on the owner's identity (B-302).** Distribution identities and methods
@@ -242,6 +260,13 @@ profile. What is left waits on the owner's identity or on an observation (below)
 
 ## Next actions
 
+0. Extensions: read the unattended Linux run's log, `~/nomac-out/wt-scratch/ext/night.log`
+   (its script is `lnight.sh` beside it: nomac on Linux, the extension experiments one at a time,
+   `compare-thinning`, then the corpus apps with extensions), its reports in `e/reports-Linux` and
+   `lc-reports`. Fix what differs, one general rule at a time, then regenerate the progress line
+   (`nomac corpus results`) from those reports over the newest set: it reads 0% until then. If the
+   log stops early, rerun `lnight.sh`. A build in a copied `.build` recompiles everything, since
+   SwiftPM sees new inodes, so keep the `nomac-ext` volume's.
 1. Stopped until the owner provides an identity and profile for nomac (B-302, pending; above):
    the company apps must never be used, so the private profile experiment's outputs are
    deleted and not repeated. Then manual signing, offline, outputs under
@@ -252,6 +277,16 @@ profile. What is left waits on the owner's identity or on an observation (below)
    <ArchiveIntermediates/<scheme>> -archivePath <path> -scheme <scheme>` makes the archive.
 
 ## How to reproduce
+
+```sh
+# Extensions: capture and thinning on the Mac, verify on either host at the same output path
+export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer
+python3 .github/scripts/extension_experiments.py capture ~/nomac-out/wt-scratch/ext/e
+python3 .github/scripts/extension_experiments.py thinning ~/nomac-out/wt-scratch/ext/e
+python3 .github/scripts/extension_experiments.py verify ~/nomac-out/wt-scratch/ext/e <nomac> <developer dir>
+python3 .github/scripts/extension_experiments.py compare-thinning ~/nomac-out/wt-scratch/ext/e <nomac>
+python3 .github/scripts/extension_experiments.py summary ~/nomac-out/wt-scratch/ext/e
+```
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode_27.app/Contents/Developer

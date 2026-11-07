@@ -168,9 +168,9 @@ Observed while building retro-rampage's `Engine` (Release, generic iOS) in `swif
    explicit, Xcode's `ld` binds them to the dylib itself, if the image may link it
    (`ld_experiments.py`'s `binding-*` variants: Swift objects autolink `libswift_Builtin_float`,
    which `libswiftDarwin` re-exports from `/usr/lib/swift`). Whether the image may is decided by
-   the client name, the install name's leaf without `lib` up to its first `.` or `_` (an executable
-   or bundle has one only from `-client_name`), which must begin one of the dylib's allowable
-   clients: SwiftUICore allows `AppKit`, so a debug dylib `App.debug.dylib` binds its SwiftUI
+   the client name, the install name's leaf without `lib` up to its first `.` or `_` (an executable's
+   comes from its output file unless `-client_name` says otherwise, docs/formats/extensions.md; lld
+   does not do that yet, B-313), which must begin one of the dylib's allowable clients: SwiftUICore allows `AppKit`, so a debug dylib `App.debug.dylib` binds its SwiftUI
    imports to SwiftUICore and `MyApp.debug.dylib` to SwiftUI (the macros workstream's app). lld
    bound such symbols through the umbrella, and took the client name from the output file's name.
    The thirteenth patch rebinds a re-exported dylib's symbols when it is loaded directly and
