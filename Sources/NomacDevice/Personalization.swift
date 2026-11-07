@@ -10,7 +10,18 @@ import NomacSigning
 /// server that signs it for the device's ECID and nonce, and the ticket (an IM4M) the server
 /// returns (ADR 0403, docs/formats/ddi.md).
 public enum Personalization {
-    public static let server = URL(string: "https://gs.apple.com/TSS/controller?action=2")!
+    /// Apple's TSS server. Over TLS it presents a chain ending at a private root, which a Linux trust
+    /// store refuses ("self-signed certificate in certificate chain": Ubuntu 24.04, 2026-11-07), so
+    /// off macOS the request goes over plain HTTP, which answers the same and which libimobiledevice's
+    /// and pymobiledevice3's requests use. The ticket is signed and the device checks it; the
+    /// request's device identifiers (the ECID) cross the network in the clear (ADR 0403).
+    public static let server: URL = {
+        #if os(macOS)
+        URL(string: "https://gs.apple.com/TSS/controller?action=2")!
+        #else
+        URL(string: "http://gs.apple.com/TSS/controller?action=2")!
+        #endif
+    }()
 
     /// The build identity for the device whose `QueryPersonalizationIdentifiers` reply is
     /// `identifiers`: `ApBoardID` and `ApChipID` (hexadecimal strings) equal to its `BoardId` and
@@ -25,8 +36,10 @@ public enum Personalization {
                   case .dictionary(let components)? = identity["Manifest"], components["PersonalizedDMG"] != nil else { continue }
             return identity
         }
-        throw NomacError(String(format: "the Developer Disk Image has no build identity for board 0x%02X and chip 0x%04X", board, chip),
-                         notes: ["the device needs the image of an Xcode that supports its iOS version"])
+        throw NomacError(String(format: "the Developer Disk Image has no personalized disk image for board 0x%02X and chip 0x%04X", board, chip), notes: [
+            "an Xcode newer than this device may list it; a device too new for any such image takes only the cryptex image, which nomac cannot install yet (BACKLOG B-403)",
+            "--no-launch installs the app without launching it",
+        ])
     }
 
     /// The image and trust cache paths, relative to the build manifest's folder.

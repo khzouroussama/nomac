@@ -115,7 +115,10 @@ Developer Disk Image and the CoreDevice tunnel, and stops at the first problem w
 Launching needs the iPhone's Developer Disk Image mounted; it stays mounted until the iPhone
 restarts. `nomac launch` and `nomac run` mount it when they need it (`nomac device mount` by
 itself): nomac personalizes your Xcode's image for the iPhone with Apple's server (`gs.apple.com`,
-ADR 0403), uploads it and mounts it. `nomac sdk install` extracts the image from your Xcode when
+ADR 0403), uploads it and mounts it. On Linux that request goes over plain HTTP, because Linux trust
+stores refuse the server's certificate chain, so your iPhone's identifiers (its ECID) cross the
+network in the clear; Apple signs the answer and the iPhone checks it. An iPhone model your Xcode's
+image does not list cannot mount with nomac yet, and says so. `nomac sdk install` extracts the image from your Xcode when
 7-Zip and xz are installed (`sudo apt-get install -y 7zip xz-utils`); `--ddi` names any `iOS_DDI`
 folder (B-403). The mount has not run on an iPhone yet; if it fails, `--no-launch` installs without
 launching.

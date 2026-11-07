@@ -53,8 +53,13 @@ A refusal carries `Error` (and sometimes `DetailedError`).
 
 ## The TSS request
 
-An XML property list POSTed to `https://gs.apple.com/TSS/controller?action=2` (plain HTTP
-answers the same) with `Content-Type: text/xml; charset="utf-8"` and `User-Agent: InetURL/1.0`:
+Over HTTPS the server presents a chain ending at a private root: Ubuntu 24.04's store and an OpenSSL
+store on the Mac both refuse it (`self-signed certificate in certificate chain`, 2026-11-07), and a
+GET over plain HTTP gets the same answer, so nomac uses HTTPS on a Mac and plain HTTP elsewhere, as
+libimobiledevice and pymobiledevice3 do. The ticket is signed and the device checks it, but the
+request's identifiers, the ECID among them, cross the network in the clear.
+
+An XML property list POSTed to `gs.apple.com/TSS/controller?action=2` with `Content-Type: text/xml; charset="utf-8"` and `User-Agent: InetURL/1.0`:
 `@ApImg4Ticket` and `@BBTicket` true, `@HostPlatformInfo` `mac`, `@VersionInfo`
 `libauthinstall-1033.0.2`, `@UUID`, `ApBoardID`, `ApChipID`, `ApECID` (integers), `ApNonce`,
 `SepNonce` (20 zero bytes), `ApProductionMode`, `ApSecurityMode` true, `ApSecurityDomain` 1,

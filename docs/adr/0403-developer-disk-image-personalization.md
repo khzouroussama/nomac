@@ -49,4 +49,9 @@ image (`PersonalizedDMG`) with a loadable trust cache, mounted through lockdownd
   per image and nonce; offline, only a device that stores a ticket can mount.
 - The request's host tags are the ones public descriptions give for Xcode's library
   (`@HostPlatformInfo` `mac`, `@VersionInfo`); Apple's server signs with them from Linux too.
-- If a future iOS refuses the personalized disk image route, launching needs B-403b.
+- If a future iOS refuses the personalized disk image route, launching needs B-403b. A board the
+  image's manifest does not list has only the cryptex image (pymobiledevice3's troubleshooting guide):
+  such a device cannot mount with nomac yet, and says so.
+- Off macOS the request goes over plain HTTP, since a Linux trust store refuses the server's chain
+  (docs/formats/ddi.md): the ECID crosses the network in the clear. The ticket stays checked by the
+  device. Pinning Apple's private root over TLS would hide the ECID, and is open.
