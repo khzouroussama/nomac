@@ -26,6 +26,13 @@ numbers removed (classify): a macOS command or BSD flag in a script, a prebuilt 
 storyboard or asset feature nomac refuses, a macro plugin, a compile or link error. Every output
 stays under --root, outside the repository; each app's build folders are deleted after its run.
 
+A failure of the network or the machine says nothing about the app or nomac: an install that stopped on
+the network (`network` in its step), a build killed for memory (`resource`) and a Linux step that did not
+run are counted apart from every result, and `run --resume` runs them again (unresolved).
+
+While <root>/hold-builds exists, no new Linux build starts: an agent's own build on this Mac takes that
+slot (one build at a time, agent-common.md), and the container can be replaced between two apps.
+
 Usage (Mac):
   rn_sweep.py container [--root R]           create the Linux container (the volume's layout below)
   rn_sweep.py run [--root R] [--keep] [--keep-failed H] [--resume] [--installers N] [--builders M] [app ...]
@@ -35,7 +42,8 @@ Usage (Mac):
   rn_sweep.py prepare [--keep] [app ...]     the Mac steps only (install, survey), the copy deleted after
   rn_sweep.py install|survey [app ...]       one Mac step, the copy kept
   rn_sweep.py report [--root R]              tables: steps, apps, failure classes, survey, requirements
-  rn_sweep.py counts [--root R]              one line: built, the app's own errors, nomac's errors, not run
+  rn_sweep.py counts [--root R]              one line: built, the app's own errors, nomac's errors, stopped by the
+                                             network, not run; exits with 1 while `run --resume` has apps left
   rn_sweep.py reclassify [app ...]           the kept logs' failures classified again
 In the container: rn_sweep.py linux [--root R] [--slot S] app
 
@@ -71,7 +79,7 @@ import expo_experiments as expo  # noqa: E402
 
 capture = expo.capture
 STEPS = ["install", "check", "fixes", "build", "archive", "export"]
-VOLUME, CONTAINER, IMAGE = "nomac-sweep", "nomac-sweep-run", "nomac-sweep-user:24.04"
+VOLUME, CONTAINER, IMAGE, BASE_IMAGE = "nomac-sweep", "nomac-sweep-run", "nomac-sweep-user:24.04", "nomac-linux:6.4.1-noble"
 WORK = Path("/work")
 NOMAC = WORK / "bin/current/nomac"
 DEVELOPER_DIR = WORK / "devdir/Xcode_27.app/Contents/Developer"
@@ -229,10 +237,12 @@ def fetch(root, entry, env, log_path):
         source = manifest()["sources"][entry["source"]]
         repository = root / "src" / entry["source"]
         if not (repository / ".git").exists():
-            repository.mkdir(parents=True)
-            git_fetch(repository, source["repository"], source["commit"], env, log_path)
+            repository.mkdir(parents=True, exist_ok=True)
+            if not git_fetch(repository, source["repository"], source["commit"], env, log_path):
+                return False
         elif expo.git(repository, "rev-parse", "HEAD") != source["commit"]:
-            git_fetch(repository, source["repository"], source["commit"], env, log_path)
+            if not git_fetch(repository, source["repository"], source["commit"], env, log_path):
+                return False
         subprocess.run(["cp", "-cR", str(repository / entry["path"]), str(target)], check=True)
         return True
     target.mkdir(parents=True)
@@ -240,9 +250,13 @@ def fetch(root, entry, env, log_path):
         return False
     if (target / ".gitmodules").exists():
         for path in submodule_paths(target):
+            offset = log_path.stat().st_size if log_path.exists() else 0
             if run_online(["git", "submodule", "update", "--init", "--recursive", "--depth", "1", "--", path], target, env, log_path) != 0:
+                output = output_after(log_path, offset)
+                if NETWORK_ERRORS.search(output[-FAILURE_TAIL:]) and not SUBMODULE_GONE.search(output):
+                    return False
                 with open(log_path, "a") as out:
-                    out.write(f"submodule {path} left out: it could not be fetched (a private repository, or the network)\n")
+                    out.write(f"submodule {path} left out: it could not be fetched (a private repository)\n")
     return True
 
 
@@ -260,8 +274,30 @@ def git_fetch(folder, url, commit, env, log_path):
     return True
 
 
-NETWORK_ERRORS = re.compile(r"ETIMEDOUT|ENOTFOUND|ECONNRESET|EAI_AGAIN|unable to access|Could not resolve host|"
-                            r"Failed to connect|Connection timed out|SSL_ERROR|HTTP/2 stream|Failed to download|curl: \(\d+\)|RPC failed|early EOF|transfer closed|Connection reset")
+# npm, yarn, pnpm and bun, git and curl, CocoaPods' CDN and Ruby's Net::HTTP, Node's fetch, and a command run()
+# stopped: an online step that outlasts its timeout is waiting on the network.
+NETWORK_ERRORS = re.compile(r"ETIMEDOUT|ESOCKETTIMEDOUT|ENOTFOUND|ECONNRESET|ECONNREFUSED|EAI_AGAIN|EPIPE|ERR_SOCKET_TIMEOUT|ERR_PNPM_META_FETCH_FAIL|"
+                            r"ERR_PNPM_FETCH_|ConnectionRefused|ConnectionClosed|socket hang up|fetch failed|network timeout|trouble with your network|"
+                            r"unable to access|Could not resolve host|Failed to connect|Couldn't connect|Could not connect|Connection timed out|"
+                            r"Operation timed out|Timeout was reached|Connection refused|Connection reset|Empty reply from server|Recv failure|"
+                            r"SSL_ERROR|SSL connect error|SSL_read|HTTP/2 stream|Failed to download|couldn't be downloaded|curl: \(\d+\)|RPC failed|"
+                            r"early EOF|transfer closed|the remote end hung up|returned error: 50[234]|Net::(?:Open|Read)Timeout|"
+                            r"timed out after \d+ seconds")
+# A submodule git cannot fetch for these reasons is not coming back: left out, as a private one has to be.
+SUBMODULE_GONE = re.compile(r"could not read Username|Authentication failed|Repository not found|Permission denied|returned error: 40[134]")
+# How much of a failed command's output to read for its reason: the end, where the tools print it; a
+# download that failed and worked on a retry long before says nothing.
+FAILURE_TAIL = 8192
+
+
+class NetworkFailure(OSError):
+    """A download that failed for any reason but the server not having the thing."""
+
+
+def output_after(log_path, offset):
+    with open(log_path, "rb") as out:
+        out.seek(offset)
+        return out.read().decode(errors="replace")
 
 
 def run_online(argv, cwd, env, log_path, timeout=3600, attempts=3):
@@ -269,10 +305,7 @@ def run_online(argv, cwd, env, log_path, timeout=3600, attempts=3):
     for attempt in range(attempts):
         offset = log_path.stat().st_size if log_path.exists() else 0
         status = run(argv, cwd, env, log_path, timeout=timeout)
-        with open(log_path, "rb") as out:
-            out.seek(offset)
-            failed_online = NETWORK_ERRORS.search(out.read().decode(errors="replace"))
-        if status == 0 or not failed_online or attempt + 1 == attempts:
+        if status == 0 or not NETWORK_ERRORS.search(output_after(log_path, offset)[-FAILURE_TAIL:]) or attempt + 1 == attempts:
             return status
         log(f"network error, retrying: {' '.join(str(a) for a in argv)[:80]}")
         time.sleep(60)
@@ -340,6 +373,8 @@ def app_environment(root, entry, env):
 def install(root, entry, env):
     env = app_environment(root, entry, env)
     result = load_result(root, entry["id"])
+    result.pop("finished", None)
+    result["steps"] = {}
     result.update({"kind": "expo-example" if entry.get("source") else "app",
                    "commit": manifest()["sources"][entry["source"]]["commit"] if entry.get("source") else entry["commit"]})
     out = root / "results" / entry["id"]
@@ -386,7 +421,7 @@ def install(root, entry, env):
             notes.append("npx expo install --fix (an example without a lockfile: its packages set to the Expo SDK's versions)")
         if status != 0:
             save_versions(result, app, top, manager, declared, lockfile)
-            network = bool(NETWORK_ERRORS.search(log_path.read_bytes()[offset:].decode(errors="replace")))
+            network = bool(NETWORK_ERRORS.search(output_after(log_path, offset)[-FAILURE_TAIL:]))
             step(result, "install", False, started, stage=stage, error=tail_error(log_path, offset=offset), notes=notes,
                  network=network, stages=timings)
             return save_result(root, result)
@@ -395,7 +430,7 @@ def install(root, entry, env):
         added = linux_packages(top, log_path)
     except (OSError, ValueError) as error:
         step(result, "install", False, started, stage="linux-packages", error=str(error)[:400],
-             network="could not download" in str(error), stages=timings)
+             network=isinstance(error, NetworkFailure), stages=timings)
         return save_result(root, result)
     step(result, "install", True, started, linuxPackages=len(added), prebuild=any(s[0] == "prebuild" for s in stages), notes=notes,
          stages=timings, otherSdk=other_sdk_packages(top, result["versions"].get("expo")))
@@ -472,6 +507,8 @@ def registry_manifest(name, spec):
         found = json.loads(body) if body else None
     if found is None and not spec.startswith(("file:", "link:", "workspace:", "npm:", "git", "http")):
         view = subprocess.run(["npm", "view", f"{name}@{spec}", "version", "--json"], capture_output=True, text=True)
+        if view.returncode != 0 and "E404" not in view.stdout + view.stderr:
+            raise NetworkFailure(f"npm view {name}@{spec}: {view.stderr[-200:]}")
         versions = json.loads(view.stdout) if view.returncode == 0 and view.stdout.strip() else None
         version = versions[-1] if isinstance(versions, list) and versions else versions
         if isinstance(version, str) and version != spec:
@@ -481,9 +518,17 @@ def registry_manifest(name, spec):
 
 
 def http_get(url):
-    """The body at url, or None (curl: the system's certificates, retries, HTTP/1.1 as the other scripts fetch)."""
-    proc = subprocess.run(["curl", "-fsSL", "--http1.1", "--retry", "3", "--max-time", "600", url], capture_output=True)
-    return proc.stdout if proc.returncode == 0 else None
+    """The body at url, or None when the server has no such thing (curl: the system's certificates, retries,
+    HTTP/1.1 as the other scripts fetch). Any other failure raises: the package exists and the network
+    lost it, and a build without it would fail for that reason."""
+    proc = subprocess.run(["curl", "-fsSL", "--http1.1", "--retry", "5", "--retry-connrefused", "--connect-timeout", "60",
+                           "--max-time", "600", "-w", "\n%{http_code}", url], capture_output=True)
+    body, _, code = proc.stdout.rpartition(b"\n")
+    if proc.returncode == 0:
+        return body
+    if code in (b"404", b"410"):
+        return None
+    raise NetworkFailure(f"could not download {url}: curl exited with {proc.returncode} (HTTP {code.decode(errors='replace')})")
 
 
 def linux_glibc(meta):
@@ -527,7 +572,7 @@ def download(dist, target):
         tarball = Path(folder) / "package.tgz"
         body = http_get(dist["tarball"])
         if body is None:
-            raise ValueError(f"could not download {dist['tarball']}")
+            raise ValueError(f"{dist['tarball']} is gone from the registry")
         tarball.write_bytes(body)
         algorithm, _, digest = (dist.get("integrity") or "").partition("-")
         if algorithm in ("sha512", "sha256", "sha1"):
@@ -973,11 +1018,11 @@ def docker(*argv, **kwargs):
 
 
 def build_image():
-    """A user's machine: Ubuntu 24.04 with the system packages install.sh installs, and Python for
-    this script."""
+    """A user's machine: Ubuntu 24.04 (nomac's image has most of what follows, and Docker's downloads
+    are slow) with the system packages install.sh installs, and Python for this script."""
     installer = (SCRIPTS.parents[1] / "install.sh").read_text()
     packages = re.search(r"apt-get install -y -q (.*?) < /dev/null", installer, re.S).group(1).replace("\\\n", " ").split()
-    dockerfile = ("FROM ubuntu:24.04\nRUN apt-get -o Acquire::Retries=8 update -q && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=8 install -y -q "
+    dockerfile = (f"FROM {BASE_IMAGE}\nRUN apt-get -o Acquire::Retries=8 update -q && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=8 install -y -q "
                   + " ".join(packages + ["python3"]) + " && rm -rf /var/lib/apt/lists\n")
     docker("build", "-q", "-t", IMAGE, "-", input=dockerfile, text=True, check=True, stdout=subprocess.DEVNULL)
 
@@ -989,12 +1034,13 @@ def container_command(root, args):
     this repository's scripts shared with the Mac."""
     (root / "results").mkdir(parents=True, exist_ok=True)
     repository = SCRIPTS.parents[1]
-    build_image()
+    if args.image == IMAGE:
+        build_image()
     argv = ["run", "-d", "--name", args.container, "--network", "none", "-v", f"{args.volume}:/work",
             "--mount", f"type=volume,src={args.volume},dst={root}/apps,volume-subpath=apps",
             "--mount", f"type=volume,src={args.volume},dst={root}/node,volume-subpath=node-linux,readonly",
             "--mount", f"type=volume,src={args.volume},dst=/root/.cache/org.swift.swiftpm,volume-subpath=swiftpm",
-            "-v", f"{root}/results:{root}/results", "-v", f"{repository}:{repository}:ro", IMAGE, "sleep", "infinity"]
+            "-v", f"{root}/results:{root}/results", "-v", f"{repository}:{repository}:ro", args.image, "sleep", "infinity"]
     docker("rm", "-f", args.container, capture_output=True)
     docker(*argv, check=True, stdout=subprocess.DEVNULL)
     log(f"container {args.container} started")
@@ -1016,6 +1062,8 @@ def linux_steps(root, entry, args, slot):
     deletes both copies."""
     app_id, top = entry["id"], checkout(root, entry)
     if load_result(root, app_id)["steps"].get("install", {}).get("ok"):
+        while (root / "hold-builds").exists():
+            time.sleep(30)
         if not (wait_for_space(lambda: free_bytes(root), "on the Mac", MIN_FREE_MAC_BUILD)
                 and wait_for_space(lambda: volume_free(args.container), "in Docker", MIN_FREE)):
             sys.exit("error: not enough free space on the Mac or in Docker for 6 hours")
@@ -1028,10 +1076,14 @@ def linux_steps(root, entry, args, slot):
         if not args.keep:
             shutil.rmtree(top, ignore_errors=True)
         with open(root / "results" / app_id / "linux.log", "ab") as out:
-            docker("exec", args.container, "sh", "-c", f'ulimit -Sn {USER_OPEN_FILES}; exec "$@"', "sh",
+            ran = docker("exec", args.container, "sh", "-c", f'ulimit -Sn {USER_OPEN_FILES}; exec "$@"', "sh",
                    "python3", str(Path(__file__).resolve()), "linux", "--root", str(root),
                    "--slot", str(slot), *(["--separate-build"] if args.separate_build else []), app_id,
                    stdout=out, stderr=subprocess.STDOUT)
+        if ran.returncode != 0:
+            docker("exec", args.container, "rm", "-rf", str(top))
+            log(f"{app_id}: the Linux steps did not run to their end (exit {ran.returncode}), to be run again")
+            return
     elif not args.keep:
         shutil.rmtree(top, ignore_errors=True)
     result = load_result(root, app_id)
@@ -1062,15 +1114,20 @@ def purge_kept(root, args):
             save_result(root, result)
 
 
+def unresolved(result):
+    """The app's run did not finish, or the network or the machine stopped it: nothing is known about the
+    app or nomac yet, and `run --resume` runs it again."""
+    return (not result.get("finished") or result["steps"].get("install", {}).get("network")
+            or any(s.get("resource") for s in result["steps"].values()))
+
+
 def run_all(root, apps, args, env):
     """Every step of each app, in the manifest's order: up to `--installers` apps install on the Mac
     (installs wait on the network; one `pod install` at a time, CocoaPods' cache being shared) while
     up to `--builders` build on Linux, each in a slot of its own. At most installers + builders
     apps are installed and not yet built, which bounds the Mac's disk."""
     if args.resume:
-        apps = [entry for entry in apps if not (result := load_result(root, entry["id"])).get("finished")
-                or result["steps"].get("install", {}).get("network")
-                or any(s.get("resource") for s in result["steps"].values())]
+        apps = [entry for entry in apps if unresolved(load_result(root, entry["id"]))]
     slots = queue.Queue()
     for slot in range(args.builders):
         slots.put(slot)
@@ -1098,10 +1155,10 @@ def run_all(root, apps, args, env):
 
 def counts(root):
     apps = manifest()["apps"]
-    results = [load_result(root, e["id"]) for e in apps if results_path(root, e["id"]).exists()]
-    finished = [r for r in results if r.get("finished")]
+    results = [load_result(root, e["id"]) for e in apps]
+    decided = [r for r in results if not unresolved(r)]
     tally = {"built": 0, "app": 0, "install": 0, "nomac": 0}
-    for r in finished:
+    for r in decided:
         first = next((s for s in STEPS if s in r["steps"] and not r["steps"][s]["ok"]), None)
         if first is None:
             tally["built"] += 1
@@ -1111,14 +1168,18 @@ def counts(root):
             tally["app"] += 1
         else:
             tally["nomac"] += 1
-    builds = sorted({r.get("nomac", "") for r in finished} - {""})
-    print(f"{len(finished)} of {len(apps)} apps finished on nomac {', '.join(builds)}: {tally['built']} built (archive and "
-          f"export too), {tally['app']} the app's own errors, {tally['nomac']} nomac's errors, "
-          f"{tally['install']} did not install; {len(apps) - len(finished)} not run yet.")
+    stopped = sum(1 for r in results if r.get("finished") and unresolved(r))
+    builds = sorted({r.get("nomac", "") for r in decided} - {""})
+    print(f"{len(decided)} of {len(apps)} apps decided on nomac {', '.join(builds) or '(none yet)'}: {tally['built']} built (archive and "
+          f"export too), {tally['app']} the app's own errors, {tally['nomac']} nomac's errors, {tally['install']} did not install; "
+          f"{stopped} stopped by the network or the machine, to run again; {len(apps) - len(decided) - stopped} not run yet.")
+    return 1 if len(decided) < len(apps) else 0
 
 
 def report(root, names):
     results = [load_result(root, e["id"]) for e in entries(names) if results_path(root, e["id"]).exists()]
+    stopped = [r["id"] for r in results if unresolved(r)]
+    results = [r for r in results if not unresolved(r)]
     rows = ["| step | apps that reached it | passed | pass rate |", "|---|---|---|---|"]
     for name in STEPS:
         reached = [r for r in results if name in r["steps"]]
@@ -1126,6 +1187,8 @@ def report(root, names):
         rows.append(f"| {name} | {len(reached)} | {len(passed)} | {100 * len(passed) // max(len(reached), 1)}% |")
     built = sum(1 for r in results if r["steps"].get("build", {}).get("ok"))
     exported = sum(1 for r in results if r["steps"].get("export", {}).get("ok"))
+    if stopped:
+        rows += ["", "Not counted, the network or the machine stopped them or they have not run (`run --resume`): " + ", ".join(stopped) + "."]
     rows += ["", f"{len(results)} apps: {built} build on Linux ({100 * built // max(len(results), 1)}%), {exported} export an IPA.", "",
              "| app | kind | nomac | React Native | Expo | install | check: outside | fixes | build | archive | export | first failure |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -1199,6 +1262,7 @@ def main():
     parser.add_argument("--root", type=Path, default=Path.home() / "nomac-out" / "sweep")
     parser.add_argument("--volume", default=VOLUME)
     parser.add_argument("--container", default=CONTAINER)
+    parser.add_argument("--image", default=IMAGE, help="container: the image, when it is not the user's machine")
     parser.add_argument("--survey", type=Path, default=SCRIPTS / "script_phase_survey.py",
                         help="script_phase_survey.py (default: beside this script)")
     parser.add_argument("--keep", action="store_true", help="run: keep the Mac's copy of each app")

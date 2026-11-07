@@ -11,19 +11,32 @@ that owns it. Branch `corpus/rn-sweep`. BACKLOG B-043–B-049, ADRs 0030–0039.
 Round 3, started 2026-11-07: every app of the manifest on the 27.0.5 release, as a user gets it (the
 release's download, `nomac sdk install` from an Xcode.app, `nomac toolchain install`, Ubuntu 24.04 with
 install.sh's packages, a soft limit of 1024 open files), the 45 apps that never ran first, then the 61
-of round 2 again. A detached run that outlives any agent:
+of round 2 again. A detached run that outlives any agent, with one builder and one installer until the
+owner says the load has dropped:
 
 - Log: `~/nomac-out/sweep/run-27.0.5.log`. Results: `~/nomac-out/sweep/results`, round 2's in
   `~/nomac-out/sweep/results-round2-ad202e5b`.
 - It runs from a snapshot of the scripts and the manifest, `~/nomac-out/sweep/driver`, so that a rebase of
-  this worktree changes nothing under it. Refresh the snapshot only with no run going.
+  this worktree changes nothing under it. Refresh the snapshot only with no run going, or for
+  rn_sweep.py alone, which the next app's Linux step and the next pass read again.
 - Is it running: `pgrep -f run-27.0.5.sh`. Counts: `python3 ~/nomac-out/sweep/driver/.github/scripts/rn_sweep.py counts`.
-- Resume (a crash, a reboot; it skips what finished):
+- Resume (a crash, a reboot; it skips what is decided; if the container is gone, first
+  `cd ~/nomac-out/sweep/driver && python3 .github/scripts/rn_sweep.py container`):
 
   ```sh
   docker start nomac-sweep-run
   nohup caffeinate -i ~/nomac-out/sweep/run-27.0.5.sh >> ~/nomac-out/sweep/run-27.0.5.log 2>&1 &
   ```
+
+  `BUILDERS=2 INSTALLERS=3` in front of it once the owner says the load has dropped (stop the run first: an
+  app in flight runs again).
+- `touch ~/nomac-out/sweep/hold-builds` keeps the next app's Linux build from starting, for an agent's own
+  `swift build` (one build at a time) or to replace the container between two apps; `rm` it to go on.
+- The network: a failure of the network says nothing about the app or nomac. It is retried within the
+  step, marked `network` if it persists, left out of every count, and run again by the next pass, every
+  15 minutes until all 106 are decided (rn_sweep.py `NETWORK_ERRORS`, `unresolved`).
+- A download of 2026-11-07 for the volume's base: the archive's digest checked against the release's,
+  Swift from nomac-build's copy of swift.org's 6.4.0, the version install.sh downloads.
 
 Next actions:
 
@@ -256,4 +269,5 @@ docker run -d --name nomac-sweep -v nomac-sweep:/work -v nomac-build:/ref:ro nom
 python3 .github/scripts/rn_sweep.py container           # the run container, without network
 python3 .github/scripts/rn_sweep.py run [app ...]       # Mac: every step, app by app
 python3 .github/scripts/rn_sweep.py report              # the tables below
+python3 .github/scripts/rn_sweep.py counts              # one line for the integrator
 ```
